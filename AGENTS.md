@@ -158,7 +158,7 @@ The stream should terminate with `done` only when the answer is genuinely comple
 
 For service-facing chat flows, `done` is answer-completion only. Do not put usage/context/cost summary fields in `done`.
 
-Emit final turn metrics after `done` as a separate `metrics` event for the same `turn_id`. Final metrics should include model, elapsed time, input tokens, cache read tokens, cache write tokens, output tokens, current context size when available, estimated turn USD, and estimated session cumulative USD. Mid-stream metrics are optional best-effort only when the transcript already contains usage/context/model before the turn is done.
+Emit final turn metrics after `done` as a separate `metrics` event for the same `turn_id`. Current final metrics include model, input tokens, cache read tokens, cache write tokens, output tokens, context fields when available, and a cost unavailable marker. Elapsed time, estimated turn USD, and estimated session cumulative USD are app-server enrichment or future CLI work. Mid-stream metrics are optional best-effort only when the transcript already contains usage/context/model before the turn is done.
 
 Treat stream delivery as at-least-once until an explicit client acknowledgement protocol exists. Reconnect/takeover should replay from conservative `replay_start_offset`, not from stdout flush state. `last_stdout_flushed_offset` is diagnostic only.
 
@@ -179,7 +179,8 @@ Target session identity model:
 - Fail closed with `session_cwd_mismatch` if existing session state has a different canonical `cwd` from the request.
 - Use tmux session name `ctc-csess-<session_id>`.
 - Start new Claude Code sessions with `--session-id <session_id>`.
-- If a client provides `session_id` but tmux is inactive, restart Claude Code with `--resume <session_id>`.
+- If known state or a matching transcript exists but tmux is inactive, restart Claude Code with `--resume <session_id>`.
+- If a client provides a UUID that has no known state/transcript yet, start Claude Code with `--session-id <session_id>`.
 - Do not use `:` in tmux session names because tmux uses it as a target separator.
 - Include `session_id` in service-facing JSON events and final responses.
 

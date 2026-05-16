@@ -75,7 +75,8 @@ bridge가 UUID 기반 `session_id`를 생성하고 Claude Code 첫 실행에 `--
 - If existing state has a different canonical `cwd` from the request, fail closed with `session_cwd_mismatch`.
 - Pass the generated id to first-run Claude Code as `--session-id <session_id>`.
 - Reuse tmux session name `ctc-csess-<session_id>`.
-- If the client provides `session_id` and the tmux session is inactive, restart Claude Code with `--resume <session_id>`.
+- If known state or a matching transcript exists and the tmux session is inactive, restart Claude Code with `--resume <session_id>`.
+- If the client provides a UUID that has no known state/transcript yet, launch Claude Code with `--session-id <session_id>`.
 - Avoid `:` in tmux session names because tmux uses it as a target separator.
 - Treat `tmux has-session` as the source of truth for whether a session is currently active.
 - Treat Claude Code transcript JSONL as the structured source for answer text, thinking, tool_use, tool_result, usage, and timestamps.
@@ -135,7 +136,7 @@ High-level `stream [--session-id <id>] --cwd <path> <prompt...>` contract:
 - Generates a UUID `session_id` when omitted.
 - Uses tmux session name `ctc-csess-<session_id>` internally.
 - If tmux session is inactive and this is a new session, launches Claude Code with `--session-id <session_id> <prompt>`.
-- If tmux session is inactive and `session_id` was provided, launches Claude Code with `--resume <session_id> <prompt>`.
+- If tmux session is inactive and known state or a matching transcript exists, launches Claude Code with `--resume <session_id> <prompt>`.
 - If tmux session is active, sends the prompt to the existing Claude Code process.
 - Emits normalized events: `user`, `thinking`, `tool_use`, `tool_result`, `assistant_text`.
 - Emits `done` and exits `0` only after the target turn is complete.
@@ -143,7 +144,8 @@ High-level `stream [--session-id <id>] --cwd <path> <prompt...>` contract:
 - Does not complete a subagent flow until the `Task` tool result is followed by final assistant text.
 - Combines transcript readiness with tmux screen readiness and a short idle window.
 - Emits final turn metrics after `done` as a separate `metrics` event.
-- Final metrics include model, elapsed time, input tokens, cache read tokens, cache write tokens, output tokens, context size, estimated turn cost, and estimated session cumulative cost when available.
+- Current final metrics include model, input tokens, cache read tokens, cache write tokens, output tokens, context fields when present, and a cost unavailable marker.
+- Elapsed time, estimated turn cost, and estimated session cumulative cost are app-server enrichment or future CLI work.
 - Mid-stream metrics are optional best-effort events only when new transcript events already contain usage/context/model fields.
 
 Proposed additions and high-level commands:
@@ -189,7 +191,7 @@ Suggested machine-readable output:
 }
 ```
 
-Suggested final metrics event:
+Current final metrics event:
 
 ```json
 {
@@ -202,7 +204,6 @@ Suggested final metrics event:
   "block_index": -1,
   "scope": "turn_final",
   "model": "claude-sonnet-4-5-20250929",
-  "elapsed_ms": 18342,
   "usage": {
     "input_tokens": 12000,
     "cache_read_tokens": 8000,
@@ -210,14 +211,11 @@ Suggested final metrics event:
     "output_tokens": 1400
   },
   "context": {
-    "current_size": 64000,
-    "window_size": 200000
+    "current_size": 64000
   },
   "cost": {
-    "turn_usd": 0.0572,
-    "session_usd": 0.2516,
-    "estimated": true,
-    "pricing_version": "anthropic-2026-05-16"
+    "estimated": false,
+    "reason": "pricing_not_configured"
   }
 }
 ```

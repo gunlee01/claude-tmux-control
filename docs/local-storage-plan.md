@@ -282,7 +282,7 @@ input: optional session_id, cwd, prompt
 9. inspect tmux:
      if active:
        send prompt to existing Claude Code process
-     else if state exists or client supplied session_id:
+     else if state exists or matching transcript exists:
        start tmux with claude --resume <session_id> "<prompt>"
      else:
        start tmux with claude --session-id <session_id> "<prompt>"

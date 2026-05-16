@@ -20,7 +20,7 @@
 - [x] high-level `stream`에서 `session_id`가 없으면 UUID를 생성한다.
 - [x] high-level `stream` 첫 Claude Code 시작 시 `--session-id <session_id>`를 전달한다.
 - [x] high-level `stream`에서 같은 `session_id`가 이미 active tmux session이면 재사용한다.
-- [x] high-level `stream`에서 같은 `session_id`가 inactive면 새 tmux session을 만들고 `--resume <session_id>`로 Claude Code를 실행한다.
+- [x] high-level `stream`에서 같은 `session_id`가 inactive이고 기존 state/transcript가 있으면 새 tmux session을 만들고 `--resume <session_id>`로 Claude Code를 실행한다.
 - [x] `session_id -> tmux session` 매핑은 tmux session name에서 직접 복원한다.
 - [ ] Claude transcript 내부 `sessionId`를 추출해서 `info` 출력에 포함한다.
 - [x] high-level `stream` JSON 응답에 `session_id`를 포함한다.
@@ -130,11 +130,12 @@
 - [x] 복수 계정 token은 `--oauth-token-env <SOURCE_ENV>`로 호출 시점에 선택한다.
 - [x] Claude Code를 기본적으로 `--dangerously-skip-permissions`로 실행해 dynamic approval prompt를 피한다.
 - [x] concurrent requests가 같은 session에 동시에 prompt를 보내는 경우의 lock 정책을 문서화한다.
-- [ ] session별 send lock을 구현한다.
+- [x] session별 send lock을 구현한다.
 - [x] streaming UI를 위한 low-level `stream <tmux-session>` JSONL 출력 포맷을 정의하고 구현한다.
-- [ ] 웹 채팅 주력 high-level `stream [--session-id] --cwd <path> <prompt>` 계약을 구현한다.
-- [ ] `stream` 완료 후 별도 `metrics` event로 elapsed/model/usage/context/cost summary를 출력한다.
-- [ ] final metrics usage에는 input/output/cache_read/cache_write tokens를 포함한다.
+- [x] 웹 채팅 주력 high-level `stream [--session-id] --cwd <path> <prompt>` 계약을 구현한다.
+- [x] `stream` 완료 후 별도 `metrics` event로 model/usage/context와 cost unavailable marker를 출력한다.
+- [x] final metrics usage에는 input/output/cache_read/cache_write tokens를 포함한다.
+- [ ] final metrics elapsed_ms를 CLI에서 직접 출력한다.
 - [ ] final metrics cost에는 estimated turn USD와 estimated session cumulative USD를 포함한다.
 - [ ] raw transcript에서 model/usage/context를 추출하는 machine-readable stats 명령을 추가한다.
 - [ ] 중간 metrics는 transcript event에 usage/context/model이 있는 경우에만 best-effort 옵션으로 제공한다.

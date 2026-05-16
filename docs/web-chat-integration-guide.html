@@ -705,8 +705,8 @@
           <input id="userPrompt" value="Finish this PR" spellcheck="false">
         </label>
         <label>
-          Claude Args
-          <input id="claudeArgs" value="--model opus" spellcheck="false">
+          Claude Command
+          <input id="claudeCommand" value="claude" spellcheck="false">
         </label>
         <label>
           Mode
@@ -944,8 +944,8 @@
       {
         key: "metrics",
         title: "Collect Metrics",
-        desc: "시간/token/cost 계산",
-        detail: "done 직후 별도 metrics event를 보낸다. cache read/write, model, context, turn/session cost를 포함한다.",
+        desc: "model/token/context 전달",
+        detail: "done 직후 별도 metrics event를 보낸다. 현재 CLI는 model, usage, context가 transcript에 있을 때 포함하고, cost는 pricing_not_configured marker로 둔다. elapsed/cost enrich는 앱 서버가 맡는다.",
         command: "{\"event\":\"metrics\",\"turn_id\":\"...\",\"event_id\":\"...:metrics:330\",\"source_offset\":330,\"source_end_offset\":330,\"block_index\":-1,\"scope\":\"turn_final\",\"usage\":{\"cache_write_tokens\":500}}"
       },
       {
@@ -997,8 +997,8 @@
         name: "metrics",
         meta: "turn final metrics",
         badge: "blue",
-        sample: {"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:metrics:330","source_offset":330,"source_end_offset":330,"block_index":-1,"scope":"turn_final","model":"claude-sonnet-4-5-20250929","elapsed_ms":18342,"usage":{"input_tokens":12000,"cache_read_tokens":8000,"cache_write_tokens":500,"output_tokens":1400},"context":{"current_size":64000,"window_size":200000},"cost":{"turn_usd":0.0572,"session_usd":0.2516,"estimated":true,"pricing_version":"anthropic-2026-05-16"}},
-        notice: "기본 전달 시점은 done 직후다. stream 중간 metrics는 raw transcript에 usage/context/model이 먼저 나온 경우에만 best-effort 옵션으로 둔다."
+        sample: {"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:metrics:330","source_offset":330,"source_end_offset":330,"block_index":-1,"scope":"turn_final","model":"claude-sonnet-4-6","usage":{"input_tokens":12000,"cache_read_tokens":8000,"cache_write_tokens":500,"output_tokens":1400},"context":{"current_size":64000},"cost":{"estimated":false,"reason":"pricing_not_configured"}},
+        notice: "기본 전달 시점은 done 직후다. elapsed_ms와 USD cost는 앱 서버가 stream 시작/종료 시각과 pricing table로 enrich한다."
       },
       {
         name: "timeout",
@@ -1017,8 +1017,8 @@
   --session-id "${escapeHtml(s.sessionId)}"` : ""} \\
   --cwd "${escapeHtml(s.projectDir)}" \\
   --oauth-token-env ${escapeHtml(s.oauthEnv)} \\
-  "${escapeHtml(s.userPrompt)}"${s.claudeArgs ? ` \\
-  -- ${escapeHtml(s.claudeArgs)}` : ""}`
+  --command "${escapeHtml(s.claudeCommand)}" \\
+  "${escapeHtml(s.userPrompt)}"`
       },
       ask: {
         title: "non-streaming ask",
@@ -1086,7 +1086,7 @@ tmux load-buffer + paste-buffer + send-keys Enter`
         projectDir: document.getElementById("projectDir").value || ".",
         oauthEnv: slug(document.getElementById("oauthEnv").value || "CLAUDE_CODE_OAUTH_TOKEN"),
         userPrompt: document.getElementById("userPrompt").value || "Finish this PR",
-        claudeArgs: document.getElementById("claudeArgs").value.trim(),
+        claudeCommand: document.getElementById("claudeCommand").value.trim() || "claude",
         mode: document.getElementById("sessionMode").value
       };
     }
@@ -1194,7 +1194,7 @@ tmux load-buffer + paste-buffer + send-keys Enter`
       });
     });
 
-    document.querySelectorAll("#sessionId, #projectDir, #oauthEnv, #userPrompt, #claudeArgs, #sessionMode").forEach(input => {
+    document.querySelectorAll("#sessionId, #projectDir, #oauthEnv, #userPrompt, #claudeCommand, #sessionMode").forEach(input => {
       input.addEventListener("input", renderCommands);
       input.addEventListener("change", renderCommands);
     });
