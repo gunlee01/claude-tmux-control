@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import calendar
 import json
 import os
 import re
@@ -12,9 +13,12 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
+import socket
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Mapping, Protocol, Sequence
+from typing import Callable, Iterator, Mapping, Protocol, Sequence
 
 
 RunFn = Callable[..., subprocess.CompletedProcess[str]]
@@ -25,6 +29,8 @@ DEFAULT_BUFFER_NAME = "claude-tmux-control"
 DEFAULT_TRANSCRIPT_ROOT = Path.home() / ".claude"
 DEFAULT_STATE_DIR = Path.home() / ".cache" / "claude-tmux-control"
 DEFAULT_CONTROLLED_PREFIX = "ctc-"
+DEFAULT_WEB_SESSION_PREFIX = "ctc-csess-"
+STATE_SCHEMA_VERSION = 1
 WORKING_PATTERNS = (
     re.compile(r"\besc\b.*\binterrupt\b", re.IGNORECASE),
     re.compile(r"\bthinking\b", re.IGNORECASE),
@@ -63,6 +69,27 @@ class SessionState:
     session: str
     last_prompt: str
     cwd: str | None = None
+
+
+@dataclass(frozen=True)
+class TranscriptRecord:
+    event: dict
+    start_offset: int
+    end_offset: int
+
+
+@dataclass(frozen=True)
+class StreamRuntime:
+    session_id: str
+    tmux_session: str
+    state_path: Path
+    state_dir: Path
+    cwd: Path
+    prompt: str
+    turn_id: str
+    before_send_offset: int
+    replay_start_offset: int
+    before_send_transcript: Path | None = None
 
 
 class RenderedScreenFollower:
@@ -244,11 +271,25 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     turn.add_argument("--interval", type=float, default=1.0, help="seconds between refreshes with --follow")
     turn.add_argument("--count", "--tail", dest="count", type=int, default=1, help="number of recent turns to print")
 
-    stream = subparsers.add_parser("stream", help="Stream the current turn as JSONL until the answer is complete.")
-    stream.add_argument("session", help="tmux session name used to resolve the matching transcript")
+    stream = subparsers.add_parser("stream", help="Stream one turn as JSONL until the answer is complete.")
+    stream.add_argument(
+        "session",
+        nargs="?",
+        help="low-level tmux session name, or first prompt word when --cwd is used",
+    )
+    stream.add_argument("prompt", nargs="*", help="high-level prompt text when --cwd is used")
+    stream.add_argument("--session-id", help="web-facing Claude session id UUID for high-level stream")
+    stream.add_argument("--cwd", type=Path, help="working directory for high-level stream")
+    stream.add_argument("--command", dest="claude_command", default="claude", help="Claude Code command")
+    stream.add_argument(
+        "--oauth-token-env",
+        default=CLAUDE_OAUTH_TOKEN_ENV,
+        help=f"source environment variable to pass as {CLAUDE_OAUTH_TOKEN_ENV}",
+    )
+    stream.add_argument("--state-dir", type=Path, default=DEFAULT_STATE_DIR, help="bridge state directory")
     stream.add_argument("--transcript", type=Path, help="specific transcript JSONL path")
     stream.add_argument("--root", type=Path, default=DEFAULT_TRANSCRIPT_ROOT, help="Claude config/transcript directory")
-    stream.add_argument("--interval", type=float, default=0.5, help="seconds between transcript checks")
+    stream.add_argument("--interval", type=float, default=2.0, help="seconds between transcript checks")
     stream.add_argument("--timeout", type=float, default=300.0, help="maximum seconds to stream")
     stream.add_argument("--idle", type=float, default=2.0, help="ready state must remain stable this many seconds")
 
@@ -392,6 +433,11 @@ def _run_command(args: argparse.Namespace, controller: TmuxController) -> int:
         return _print_latest_turn(args, controller)
 
     if args.command_name == "stream":
+        if _is_high_level_stream_args(args):
+            return _run_high_level_stream(args, controller)
+        if not args.session:
+            print("stream requires SESSION for low-level mode or --cwd for high-level mode", file=sys.stderr)
+            return 2
         return _print_stream(args, controller)
 
     if args.command_name == "kill":
@@ -480,7 +526,9 @@ def check_runtime_dependencies(
             ]
         )
 
-    if args.command_name not in CLAUDE_LAUNCH_COMMANDS:
+    if args.command_name not in CLAUDE_LAUNCH_COMMANDS and not (
+        args.command_name == "stream" and getattr(args, "cwd", None)
+    ):
         return None
 
     executable = _extract_shell_command_executable(args.claude_command)
@@ -631,6 +679,468 @@ def _print_stream(args: argparse.Namespace, controller: TmuxController) -> int:
         idle_seconds=args.idle,
     )
     return 0 if status.state == "ready" else 3
+
+
+def _is_high_level_stream_args(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "cwd", None) or getattr(args, "session_id", None) or getattr(args, "prompt", None))
+
+
+def _high_level_prompt_from_args(args: argparse.Namespace) -> str:
+    parts = []
+    if args.session:
+        parts.append(args.session)
+    parts.extend(args.prompt or [])
+    return " ".join(parts)
+
+
+def _run_high_level_stream(args: argparse.Namespace, controller: TmuxController) -> int:
+    if args.cwd is None:
+        print("high-level stream requires --cwd", file=sys.stderr)
+        return 2
+
+    prompt = _high_level_prompt_from_args(args)
+    if not prompt:
+        print("high-level stream requires prompt text", file=sys.stderr)
+        return 2
+
+    try:
+        runtime = prepare_high_level_stream(
+            controller=controller,
+            cwd=args.cwd,
+            prompt=prompt,
+            root=args.root,
+            state_dir=args.state_dir,
+            session_id=args.session_id,
+            claude_command=args.claude_command,
+            env=claude_environment_from_args(args),
+        )
+    except ValueError as error:
+        print(json.dumps({"event": "error", "error": str(error)}, ensure_ascii=False), file=sys.stderr)
+        return 2
+    except RuntimeError as error:
+        print(json.dumps({"event": "error", "error": str(error)}, ensure_ascii=False), file=sys.stderr)
+        return 5
+
+    transcript = args.transcript or wait_for_high_level_transcript(args.root, runtime, args.timeout, args.interval)
+    if transcript is None:
+        _write_high_level_state(
+            runtime.state_path,
+            _mark_active_turn_state(read_bridge_state(runtime.state_path) or {}, runtime, "working", "timeout"),
+        )
+        print(f"no transcript found under {args.root}", file=sys.stderr)
+        return 2
+
+    status = stream_high_level_transcript_until_done(
+        transcript,
+        runtime,
+        controller,
+        root=args.root,
+        interval=args.interval,
+        timeout=args.timeout,
+        idle_seconds=args.idle,
+    )
+    return 0 if status.state == "ready" else 3
+
+
+def prepare_high_level_stream(
+    controller: TmuxController,
+    cwd: Path,
+    prompt: str,
+    root: Path = DEFAULT_TRANSCRIPT_ROOT,
+    state_dir: Path = DEFAULT_STATE_DIR,
+    session_id: str | None = None,
+    claude_command: str = "claude",
+    env: Mapping[str, str] | None = None,
+    now: Callable[[], float] = time.time,
+) -> StreamRuntime:
+    actual_session_id = validate_or_create_session_id(session_id)
+    tmux_session = web_tmux_session_name(actual_session_id)
+    canonical_cwd = cwd.expanduser().resolve()
+    state_path = web_session_state_path(actual_session_id, state_dir)
+    lock_path = web_session_lock_path(actual_session_id, state_dir)
+
+    with exclusive_file_lock(lock_path):
+        state = read_bridge_state(state_path) or {}
+        state_cwd = state.get("cwd")
+        if isinstance(state_cwd, str) and Path(state_cwd) != canonical_cwd:
+            raise ValueError("session_cwd_mismatch")
+
+        active_turn = state.get("active_turn")
+        if isinstance(active_turn, dict) and active_turn.get("claude_state") not in {None, "ready"}:
+            if recover_stale_active_turn(state_path, state, controller, tmux_session):
+                state = read_bridge_state(state_path) or {}
+            else:
+                raise RuntimeError("turn_in_progress")
+
+        transcript = resolve_high_level_transcript(root, canonical_cwd, state, session_id=actual_session_id)
+        before_send_offset = transcript.stat().st_size if transcript and transcript.exists() else 0
+        turn_id = make_turn_id(now)
+        runtime = StreamRuntime(
+            session_id=actual_session_id,
+            tmux_session=tmux_session,
+            state_path=state_path,
+            state_dir=state_dir,
+            cwd=canonical_cwd,
+            prompt=prompt,
+            turn_id=turn_id,
+            before_send_offset=before_send_offset,
+            replay_start_offset=before_send_offset,
+            before_send_transcript=transcript,
+        )
+
+        pending_state = build_pending_turn_state(
+            state=state,
+            runtime=runtime,
+            transcript=transcript,
+            wall_time=now(),
+        )
+        _write_high_level_state(state_path, pending_state)
+
+        try:
+            if controller.session_exists(tmux_session):
+                screen_status = analyze_screen_status(controller.capture_screen(tmux_session, height=80))
+                if screen_status.state != "ready":
+                    raise RuntimeError("turn_in_progress")
+                controller.send_prompt(tmux_session, prompt)
+            else:
+                resume = bool(state or transcript)
+                command = build_initial_claude_command(claude_command, actual_session_id, prompt, resume=resume)
+                controller.start_session(tmux_session, command=command, cwd=canonical_cwd, env=env)
+        except Exception:
+            _clear_active_turn_after_failed_send(state_path)
+            raise
+
+        return runtime
+
+
+def validate_or_create_session_id(session_id: str | None = None) -> str:
+    if not session_id:
+        return str(uuid.uuid4())
+    try:
+        parsed = uuid.UUID(session_id)
+    except ValueError as error:
+        raise ValueError("invalid_session_id") from error
+    if str(parsed) != session_id.lower():
+        raise ValueError("invalid_session_id")
+    return str(parsed)
+
+
+def web_tmux_session_name(session_id: str) -> str:
+    return f"{DEFAULT_WEB_SESSION_PREFIX}{session_id}"
+
+
+def web_session_state_path(session_id: str, state_dir: Path = DEFAULT_STATE_DIR) -> Path:
+    validate_or_create_session_id(session_id)
+    return state_dir / "sessions" / f"{session_id}.json"
+
+
+def web_session_lock_path(session_id: str, state_dir: Path = DEFAULT_STATE_DIR) -> Path:
+    validate_or_create_session_id(session_id)
+    return state_dir / "locks" / f"{session_id}.lock"
+
+
+@contextmanager
+def exclusive_file_lock(path: Path, stale_seconds: float = 300.0) -> Iterator[None]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd: int | None = None
+    stale_broken = False
+    try:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if not break_stale_lock(path, stale_seconds=stale_seconds):
+                raise
+            stale_broken = True
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        payload = {
+            "pid": os.getpid(),
+            "hostname": socket.gethostname(),
+            "started_at": time.time(),
+            "stale_broken": stale_broken,
+        }
+        os.write(fd, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+        yield
+    except FileExistsError as error:
+        raise RuntimeError("send_lock_busy") from error
+    finally:
+        if fd is not None:
+            os.close(fd)
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+
+
+def break_stale_lock(path: Path, stale_seconds: float = 300.0) -> bool:
+    try:
+        stat = path.stat()
+    except OSError:
+        return False
+
+    if time.time() - stat.st_mtime < stale_seconds:
+        return False
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        try:
+            path.unlink()
+            return True
+        except OSError:
+            return False
+
+    if not isinstance(payload, dict):
+        try:
+            path.unlink()
+            return True
+        except OSError:
+            return False
+    started_at = payload.get("started_at")
+    if not isinstance(started_at, int | float):
+        try:
+            path.unlink()
+            return True
+        except OSError:
+            return False
+    if time.time() - started_at < stale_seconds:
+        return False
+    pid = payload.get("pid")
+    if isinstance(pid, int) and process_exists(pid):
+        return False
+    try:
+        path.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def process_exists(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def read_bridge_state(path: Path) -> dict | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _write_high_level_state(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = dict(payload)
+    payload["generation"] = int(payload.get("generation") or 0) + 1
+    payload["updated_at"] = _utc_timestamp(time.time())
+    payload["writer_pid"] = os.getpid()
+    payload["writer_hostname"] = socket.gethostname()
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def build_pending_turn_state(state: dict, runtime: StreamRuntime, transcript: Path | None, wall_time: float) -> dict:
+    payload = {
+        "schema_version": STATE_SCHEMA_VERSION,
+        "generation": state.get("generation", 0),
+        "session_id": runtime.session_id,
+        "tmux_session": runtime.tmux_session,
+        "cwd": str(runtime.cwd),
+        "created_at": state.get("created_at") or _utc_timestamp(wall_time),
+        "transcript": transcript_file_state(transcript, runtime.before_send_offset) if transcript else None,
+        "active_turn": {
+            "turn_id": runtime.turn_id,
+            "claude_state": "starting",
+            "stream_state": "active",
+            "owner_pid": os.getpid(),
+            "owner_hostname": socket.gethostname(),
+            "stream_epoch": int((state.get("active_turn") or {}).get("stream_epoch") or 0) + 1
+            if isinstance(state.get("active_turn"), dict)
+            else 1,
+            "heartbeat_at": _utc_timestamp(wall_time),
+            "prompt_hash": _prompt_hash(runtime.prompt),
+            "prompt_preview": runtime.prompt[:200],
+            "before_send_wall_time_utc": _utc_timestamp(wall_time),
+            "before_send_transcript": transcript_file_state(transcript, runtime.before_send_offset) if transcript else None,
+            "no_transcript_baseline": transcript is None,
+            "anchor_start_offset": None,
+            "anchor_end_offset": None,
+            "replay_start_offset": runtime.replay_start_offset,
+            "read_offset": runtime.before_send_offset,
+            "last_stdout_flushed_offset": runtime.before_send_offset,
+            "completed_offset": None,
+            "anchor_strategy": None,
+        },
+        "last_turn": state.get("last_turn"),
+    }
+    return payload
+
+
+def transcript_file_state(path: Path | None, offset: int | None = None) -> dict | None:
+    if path is None:
+        return None
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return {
+        "path": str(path),
+        "st_dev": stat.st_dev,
+        "st_ino": stat.st_ino,
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+        "offset": stat.st_size if offset is None else offset,
+    }
+
+
+def build_initial_claude_command(command: str, session_id: str, prompt: str, resume: bool) -> str:
+    session_flag = "--resume" if resume else "--session-id"
+    args = [session_flag, session_id]
+    if not _has_permission_override(command, args):
+        args.append(CLAUDE_DANGEROUS_SKIP_PERMISSIONS_FLAG)
+    args.append(prompt)
+    passthrough = " ".join(shlex.quote(arg) for arg in args)
+    return f"{command} {passthrough}"
+
+
+def make_turn_id(now: Callable[[], float] = time.time) -> str:
+    return time.strftime("turn_%Y%m%dT%H%M%SZ", time.gmtime(now())) + f"-{uuid.uuid4().hex[:8]}"
+
+
+def _prompt_hash(prompt: str) -> str:
+    import hashlib
+
+    return "sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+
+
+def _utc_timestamp(value: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(value))
+
+
+def wait_for_high_level_transcript(root: Path, runtime: StreamRuntime, timeout: float, interval: float) -> Path | None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if runtime.before_send_transcript is not None:
+            try:
+                replaced = transcript_replaced_since_baseline(runtime.before_send_transcript, runtime.state_path)
+                if (
+                    transcript_matches_session_id(runtime.before_send_transcript, runtime.session_id)
+                    and (
+                        runtime.before_send_transcript.stat().st_size > runtime.before_send_offset
+                        or (replaced and runtime.before_send_transcript.stat().st_size > 0)
+                    )
+                ):
+                    return runtime.before_send_transcript
+            except OSError:
+                pass
+        candidate = resolve_high_level_transcript(
+            root,
+            runtime.cwd,
+            read_bridge_state(runtime.state_path) or {},
+            session_id=runtime.session_id,
+        )
+        if candidate is not None:
+            try:
+                if candidate != runtime.before_send_transcript or candidate.stat().st_size > runtime.before_send_offset:
+                    return candidate
+            except OSError:
+                pass
+        time.sleep(interval)
+    return None
+
+
+def transcript_replaced_since_baseline(path: Path, state_path: Path) -> bool:
+    state = read_bridge_state(state_path) or {}
+    active = state.get("active_turn")
+    if not isinstance(active, dict):
+        return False
+    baseline = active.get("before_send_transcript")
+    if not isinstance(baseline, dict):
+        return False
+    try:
+        stat = path.stat()
+    except OSError:
+        return False
+    return stat.st_dev != baseline.get("st_dev") or stat.st_ino != baseline.get("st_ino")
+
+
+def resolve_high_level_transcript(
+    root: Path,
+    cwd: Path,
+    state: dict | None = None,
+    session_id: str | None = None,
+) -> Path | None:
+    state = state or {}
+    state_session_id = state.get("session_id")
+    target_session_id = session_id or state_session_id if isinstance(state_session_id, str) else session_id
+    project_dir = project_transcript_dir(root, cwd)
+    candidates: list[Path] = []
+    transcript = state.get("transcript")
+    if isinstance(transcript, dict) and isinstance(transcript.get("path"), str):
+        state_path = Path(transcript["path"])
+        if (
+            state_path.exists()
+            and _path_under_project_transcript_dir(state_path, root, cwd)
+            and transcript_matches_session_id(state_path, target_session_id)
+        ):
+            candidates.append(state_path)
+
+    if project_dir.is_dir():
+        for path in project_dir.rglob("*.jsonl"):
+            if path not in candidates and transcript_matches_session_id(path, target_session_id):
+                candidates.append(path)
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: (path.stat().st_mtime_ns, path.name))
+
+
+def transcript_matches_session_id(path: Path, session_id: str | None) -> bool:
+    if not session_id:
+        return True
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as file:
+            for line in file:
+                if session_id in line:
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if _event_session_id(event) == session_id:
+                        return True
+    except OSError:
+        return False
+    return False
+
+
+def _event_session_id(event: dict) -> str | None:
+    for key in ("sessionId", "session_id"):
+        value = event.get(key)
+        if isinstance(value, str):
+            return value
+    message = event.get("message")
+    if isinstance(message, dict):
+        for key in ("sessionId", "session_id"):
+            value = message.get(key)
+            if isinstance(value, str):
+                return value
+    return None
+
+
+def _path_under_project_transcript_dir(path: Path, root: Path, cwd: Path) -> bool:
+    project_dir = project_transcript_dir(root, cwd).resolve()
+    try:
+        path.resolve().relative_to(project_dir)
+    except ValueError:
+        return False
+    return True
 
 
 def _wait_for_stream_transcript(root: Path, state: SessionState, timeout: float, interval: float) -> Path | None:
@@ -1084,6 +1594,386 @@ def stream_transcript_until_done(
     timeout_status = ScreenStatus("timeout", f"not ready after {timeout:.1f}s; last={last_status.state}")
     write(json.dumps({"event": "timeout", "state": timeout_status.state, "reason": timeout_status.reason}) + "\n")
     return timeout_status
+
+
+def stream_high_level_transcript_until_done(
+    transcript: Path,
+    runtime: StreamRuntime,
+    controller: ScreenCaptureController,
+    root: Path = DEFAULT_TRANSCRIPT_ROOT,
+    interval: float = 2.0,
+    timeout: float = 300.0,
+    idle_seconds: float = 2.0,
+    write: Callable[[str], object] = sys.stdout.write,
+    sleep: Callable[[float], object] = time.sleep,
+    now: Callable[[], float] = time.monotonic,
+) -> ScreenStatus:
+    deadline = now() + timeout
+    read_offset = runtime.before_send_offset
+    ready_since: float | None = None
+    last_status = ScreenStatus("unknown", "not inspected yet")
+    current_turn_events: list[dict] = []
+    file_identity = transcript_identity(transcript)
+    last_file_identity = file_identity
+    completed_offset = runtime.before_send_offset
+    anchored = False
+
+    while now() < deadline:
+        try:
+            stat = transcript.stat()
+        except OSError:
+            stat = None
+        current_identity = transcript_identity(transcript) if stat is not None else None
+        if stat is None or stat.st_size < read_offset or current_identity != last_file_identity:
+            replacement = resolve_high_level_transcript(
+                root,
+                runtime.cwd,
+                read_bridge_state(runtime.state_path) or {},
+                session_id=runtime.session_id,
+            )
+            if replacement is not None:
+                transcript = replacement
+                file_identity = transcript_identity(transcript)
+                last_file_identity = file_identity
+                read_offset = 0
+                anchored = False
+                current_turn_events = []
+
+        records, read_offset = read_transcript_records(transcript, read_offset)
+        if records:
+            for record in records:
+                if not anchored:
+                    if not _is_anchor_user_record(record, runtime.prompt):
+                        continue
+                    anchored = True
+                    _mark_turn_anchor(runtime, record.start_offset, record.end_offset)
+                current_turn_events.append(record.event)
+                completed_offset = record.end_offset
+                for payload in normalize_stream_record(record, runtime.turn_id, file_identity):
+                    payload["session_id"] = runtime.session_id
+                    _write_jsonl(write, payload)
+                    _update_active_turn_offsets(runtime, read_offset, record.end_offset)
+            ready_since = None
+            _mark_turn_working(runtime, current_turn_events, read_offset)
+
+        screen_status = analyze_screen_status(controller.capture_screen(runtime.tmux_session, height=80))
+        transcript_status = analyze_turn_status(current_turn_events)
+        if transcript_status.state == "ready" and screen_status.state == "ready":
+            last_status = ScreenStatus("ready", f"{screen_status.reason}; transcript ready")
+            if ready_since is None:
+                ready_since = now()
+            elif now() - ready_since >= idle_seconds:
+                done = high_level_done_payload(runtime, current_turn_events, last_status, completed_offset)
+                metrics = high_level_metrics_payload(runtime, current_turn_events, completed_offset)
+                _write_jsonl(write, done)
+                _write_jsonl(write, metrics)
+                _mark_turn_done(runtime, completed_offset)
+                return last_status
+        else:
+            ready_since = None
+            last_status = transcript_status if transcript_status.state != "unknown" else screen_status
+
+        sleep(interval)
+
+    timeout_status = ScreenStatus("timeout", f"not ready after {timeout:.1f}s; last={last_status.state}")
+    _write_jsonl(
+        write,
+        {
+            "event": "timeout",
+            "session_id": runtime.session_id,
+            "turn_id": runtime.turn_id,
+            "state": timeout_status.state,
+            "reason": timeout_status.reason,
+        },
+    )
+    _mark_turn_timeout(runtime)
+    return timeout_status
+
+
+def _write_jsonl(write: Callable[[str], object], payload: dict) -> None:
+    write(json.dumps(_compact_payload(payload), ensure_ascii=False) + "\n")
+    if hasattr(sys.stdout, "flush"):
+        sys.stdout.flush()
+
+
+def read_transcript_records(path: Path, offset: int = 0) -> tuple[list[TranscriptRecord], int]:
+    records: list[TranscriptRecord] = []
+    with path.open("r", encoding="utf-8", errors="replace") as file:
+        file.seek(offset)
+        while True:
+            start = file.tell()
+            line = file.readline()
+            if not line:
+                return records, file.tell()
+            end = file.tell()
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                event = json.loads(stripped)
+            except json.JSONDecodeError:
+                if not line.endswith("\n"):
+                    return records, start
+                continue
+            if isinstance(event, dict):
+                records.append(TranscriptRecord(event=event, start_offset=start, end_offset=end))
+
+
+def transcript_identity(path: Path) -> str:
+    stat = path.stat()
+    return f"dev{stat.st_dev}-ino{stat.st_ino}"
+
+
+def normalize_stream_record(record: TranscriptRecord, turn_id: str, file_identity: str) -> list[dict]:
+    payloads = normalize_stream_events([record.event])
+    for index, payload in enumerate(payloads):
+        payload["turn_id"] = turn_id
+        payload["event_id"] = (
+            f"{turn_id}:{file_identity}:{record.start_offset:016d}-{record.end_offset:016d}:"
+            f"block{index}:{payload['event']}"
+        )
+        payload["source_offset"] = record.start_offset
+        payload["source_end_offset"] = record.end_offset
+        payload["block_index"] = index
+    return payloads
+
+
+def _is_anchor_user_record(record: TranscriptRecord, prompt: str) -> bool:
+    event = record.event
+    event_type = str(event.get("type") or event.get("event") or event.get("role") or "")
+    if event_type != "user":
+        return False
+    content = _event_content(event)
+    if _is_tool_result_content(content) or _is_internal_user_content(content):
+        return False
+    user_text = _format_user_content(content)
+    return not prompt or prompt in user_text
+
+
+def high_level_done_payload(
+    runtime: StreamRuntime,
+    turn_events: Sequence[dict],
+    status: ScreenStatus,
+    completed_offset: int,
+) -> dict:
+    return _compact_payload(
+        {
+            "event": "done",
+            "session_id": runtime.session_id,
+            "turn_id": runtime.turn_id,
+            "event_id": f"{runtime.turn_id}:done:{completed_offset}",
+            "source_offset": completed_offset,
+            "source_end_offset": completed_offset,
+            "block_index": -1,
+            "state": status.state,
+            "reason": status.reason,
+            "answer": extract_latest_answer_text(turn_events),
+        }
+    )
+
+
+def high_level_metrics_payload(runtime: StreamRuntime, turn_events: Sequence[dict], completed_offset: int) -> dict:
+    usage = latest_usage(turn_events)
+    context = latest_context(turn_events)
+    model = latest_model(turn_events)
+    return _compact_payload(
+        {
+            "event": "metrics",
+            "session_id": runtime.session_id,
+            "turn_id": runtime.turn_id,
+            "event_id": f"{runtime.turn_id}:metrics:{completed_offset}",
+            "source_offset": completed_offset,
+            "source_end_offset": completed_offset,
+            "block_index": -1,
+            "scope": "turn_final",
+            "model": model,
+            "usage": normalize_usage(usage),
+            "context": context or None,
+            "cost": {"estimated": False, "reason": "pricing_not_configured"},
+        }
+    )
+
+
+def latest_usage(events: Sequence[dict]) -> dict:
+    for event in reversed(events):
+        usage = _extract_usage(event)
+        if usage:
+            return usage
+    return {}
+
+
+def normalize_usage(usage: Mapping[str, object]) -> dict | None:
+    if not usage:
+        return None
+    normalized = {
+        "input_tokens": _numeric_value(usage, "input_tokens"),
+        "cache_read_tokens": _numeric_value(usage, "cache_read_input_tokens", "cache_read_tokens"),
+        "cache_write_tokens": _numeric_value(usage, "cache_creation_input_tokens", "cache_write_tokens"),
+        "output_tokens": _numeric_value(usage, "output_tokens"),
+    }
+    return {key: value for key, value in normalized.items() if value is not None}
+
+
+def latest_context(events: Sequence[dict]) -> dict:
+    for event in reversed(events):
+        context = _extract_context(event)
+        if context:
+            return context
+    return {}
+
+
+def latest_model(events: Sequence[dict]) -> str | None:
+    for event in reversed(events):
+        for value in (
+            event.get("model"),
+            _nested_value(event, "message", "model"),
+            _nested_value(event, "response", "model"),
+        ):
+            if isinstance(value, str) and value:
+                return value
+    return None
+
+
+def _numeric_value(source: Mapping[str, object], *keys: str) -> int | float | None:
+    for key in keys:
+        value = source.get(key)
+        if isinstance(value, int | float):
+            return value
+    return None
+
+
+def _nested_value(source: dict, *keys: str) -> object:
+    value: object = source
+    for key in keys:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
+def _update_active_turn_offsets(runtime: StreamRuntime, read_offset: int, flushed_offset: int) -> None:
+    state = read_bridge_state(runtime.state_path) or {}
+    active = state.get("active_turn")
+    if not isinstance(active, dict):
+        return
+    active["read_offset"] = read_offset
+    active["last_stdout_flushed_offset"] = flushed_offset
+    active["heartbeat_at"] = _utc_timestamp(time.time())
+    state["active_turn"] = active
+    _write_high_level_state(runtime.state_path, state)
+
+
+def _mark_turn_anchor(runtime: StreamRuntime, anchor_start: int, anchor_end: int) -> None:
+    state = read_bridge_state(runtime.state_path) or {}
+    active = state.get("active_turn")
+    if not isinstance(active, dict):
+        return
+    active["anchor_start_offset"] = anchor_start
+    active["anchor_end_offset"] = anchor_end
+    active["replay_start_offset"] = anchor_end
+    active["anchor_strategy"] = "after_offset"
+    state["active_turn"] = active
+    _write_high_level_state(runtime.state_path, state)
+
+
+def _mark_turn_working(runtime: StreamRuntime, turn_events: Sequence[dict], read_offset: int) -> None:
+    state = read_bridge_state(runtime.state_path) or {}
+    active = state.get("active_turn")
+    if not isinstance(active, dict):
+        return
+    active["claude_state"] = "working"
+    active["stream_state"] = "active"
+    state["active_turn"] = active
+    _write_high_level_state(runtime.state_path, state)
+
+
+def _mark_turn_done(runtime: StreamRuntime, completed_offset: int) -> None:
+    state = read_bridge_state(runtime.state_path) or {}
+    state = _mark_active_turn_state(state, runtime, "ready", "done", completed_offset=completed_offset)
+    _write_high_level_state(runtime.state_path, state)
+
+
+def _mark_turn_timeout(runtime: StreamRuntime) -> None:
+    state = read_bridge_state(runtime.state_path) or {}
+    state = _mark_active_turn_state(state, runtime, "working", "timeout")
+    _write_high_level_state(runtime.state_path, state)
+
+
+def recover_stale_active_turn(
+    state_path: Path,
+    state: dict,
+    controller: TmuxController,
+    tmux_session: str,
+    stale_seconds: float = 300.0,
+) -> bool:
+    active = state.get("active_turn")
+    if not isinstance(active, dict):
+        return False
+    if active.get("stream_state") not in {"active", "timeout", "failed"}:
+        return False
+
+    heartbeat = _parse_utc_timestamp(str(active.get("heartbeat_at") or ""))
+    if heartbeat is not None and time.time() - heartbeat < stale_seconds:
+        return False
+
+    if not controller.session_exists(tmux_session):
+        state["last_turn"] = active
+        state["active_turn"] = None
+        _write_high_level_state(state_path, state)
+        return True
+
+    try:
+        screen_status = analyze_screen_status(controller.capture_screen(tmux_session, height=80))
+    except subprocess.CalledProcessError:
+        screen_status = ScreenStatus("unknown", "screen unavailable")
+    if screen_status.state == "ready":
+        state["last_turn"] = active
+        state["active_turn"] = None
+        _write_high_level_state(state_path, state)
+        return True
+
+    return False
+
+
+def _parse_utc_timestamp(value: str) -> float | None:
+    try:
+        return float(calendar.timegm(time.strptime(value, "%Y-%m-%dT%H:%M:%SZ")))
+    except ValueError:
+        return None
+
+
+def _clear_active_turn_after_failed_send(state_path: Path) -> None:
+    state = read_bridge_state(state_path) or {}
+    active = state.get("active_turn")
+    if isinstance(active, dict):
+        active["claude_state"] = "unknown"
+        active["stream_state"] = "failed"
+        active["failed_at"] = _utc_timestamp(time.time())
+        state["last_turn"] = active
+        state["active_turn"] = None
+        _write_high_level_state(state_path, state)
+
+
+def _mark_active_turn_state(
+    state: dict,
+    runtime: StreamRuntime,
+    claude_state: str,
+    stream_state: str,
+    completed_offset: int | None = None,
+) -> dict:
+    active = state.get("active_turn")
+    if not isinstance(active, dict):
+        return state
+    active["claude_state"] = claude_state
+    active["stream_state"] = stream_state
+    if completed_offset is not None:
+        active["completed_offset"] = completed_offset
+        state["last_turn"] = active
+        state["active_turn"] = None
+    else:
+        active["heartbeat_at"] = _utc_timestamp(time.time())
+        state["active_turn"] = active
+    return state
 
 
 def _turn_events(events: Sequence[dict]) -> list[list[dict]]:

@@ -3,6 +3,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -368,6 +369,16 @@ class CliTest(unittest.TestCase):
         self.assertEqual(args.timeout, 300)
         self.assertEqual(args.idle, 1.5)
 
+    def test_parse_high_level_stream_accepts_session_id_cwd_and_prompt(self):
+        session_id = "550e8400-e29b-41d4-a716-446655440000"
+        args = ctc.parse_args(["stream", "--session-id", session_id, "--cwd", "/tmp/project", "hello", "Claude"])
+
+        self.assertEqual(args.command_name, "stream")
+        self.assertEqual(args.session_id, session_id)
+        self.assertEqual(args.cwd, Path("/tmp/project"))
+        self.assertEqual(ctc._high_level_prompt_from_args(args), "hello Claude")
+        self.assertTrue(ctc._is_high_level_stream_args(args))
+
     def test_parse_kill_requires_session_name(self):
         args = ctc.parse_args(["kill", "ctc-old"])
 
@@ -494,6 +505,409 @@ class ReapTest(unittest.TestCase):
 
             self.assertEqual(results, [])
             self.assertNotIn((["tmux", "kill-session", "-t", "ctc-old"], {"check": True}), runner.calls)
+
+
+class HighLevelStreamSetupTest(unittest.TestCase):
+    def test_validate_session_id_rejects_non_uuid_before_path_use(self):
+        with self.assertRaisesRegex(ValueError, "invalid_session_id"):
+            ctc.web_session_state_path("../../bad", Path("/tmp/state"))
+
+    def test_build_initial_claude_command_places_permission_before_prompt(self):
+        command = ctc.build_initial_claude_command(
+            "claude",
+            "550e8400-e29b-41d4-a716-446655440000",
+            "Finish this PR",
+            resume=True,
+        )
+
+        self.assertEqual(
+            command,
+            "claude --resume 550e8400-e29b-41d4-a716-446655440000 "
+            "--dangerously-skip-permissions 'Finish this PR'",
+        )
+
+    def test_prepare_high_level_stream_fails_closed_on_cwd_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps({"schema_version": 1, "session_id": session_id, "cwd": "/tmp/other"}),
+                encoding="utf-8",
+            )
+            controller = ctc.TmuxController(run=FakeRunner())
+
+            with self.assertRaisesRegex(ValueError, "session_cwd_mismatch"):
+                ctc.prepare_high_level_stream(
+                    controller=controller,
+                    cwd=Path(tmp),
+                    prompt="hello",
+                    root=Path(tmp) / "claude",
+                    state_dir=state_dir,
+                    session_id=session_id,
+                )
+
+    def test_prepare_high_level_stream_starts_new_generated_session_with_initial_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = FakeRunner()
+            controller = ctc.TmuxController(run=runner)
+
+            runtime = ctc.prepare_high_level_stream(
+                controller=controller,
+                cwd=Path(tmp),
+                prompt="hello Claude",
+                root=Path(tmp) / "claude",
+                state_dir=Path(tmp) / "state",
+            )
+
+            self.assertTrue(runtime.tmux_session.startswith("ctc-csess-"))
+            uuid.UUID(runtime.session_id)
+            self.assertIn(
+                (
+                    [
+                        "tmux",
+                        "new-session",
+                        "-d",
+                        "-s",
+                        runtime.tmux_session,
+                        "-c",
+                        str(Path(tmp).resolve()),
+                        f"claude --session-id {runtime.session_id} --dangerously-skip-permissions 'hello Claude'",
+                    ],
+                    {"check": True},
+                ),
+                runner.calls,
+            )
+            state = ctc.read_bridge_state(runtime.state_path)
+            self.assertEqual(state["active_turn"]["claude_state"], "starting")
+            self.assertTrue(state["active_turn"]["no_transcript_baseline"])
+
+    def test_prepare_high_level_stream_starts_new_supplied_session_with_session_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runner = FakeRunner()
+            controller = ctc.TmuxController(run=runner)
+
+            runtime = ctc.prepare_high_level_stream(
+                controller=controller,
+                cwd=Path(tmp),
+                prompt="first prompt",
+                root=Path(tmp) / "claude",
+                state_dir=Path(tmp) / "state",
+                session_id=session_id,
+            )
+
+            self.assertEqual(runtime.session_id, session_id)
+            self.assertIn(
+                (
+                    [
+                        "tmux",
+                        "new-session",
+                        "-d",
+                        "-s",
+                        runtime.tmux_session,
+                        "-c",
+                        str(Path(tmp).resolve()),
+                        "claude --session-id 550e8400-e29b-41d4-a716-446655440000 "
+                        "--dangerously-skip-permissions 'first prompt'",
+                    ],
+                    {"check": True},
+                ),
+                runner.calls,
+            )
+
+    def test_prepare_high_level_stream_blocks_when_active_turn_is_working(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "cwd": str(Path(tmp).resolve()),
+                        "active_turn": {"claude_state": "working"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "turn_in_progress"):
+                ctc.prepare_high_level_stream(
+                    controller=ctc.TmuxController(run=FakeRunner()),
+                    cwd=Path(tmp),
+                    prompt="second prompt",
+                    root=Path(tmp) / "claude",
+                    state_dir=state_dir,
+                    session_id=session_id,
+                )
+
+    def test_prepare_high_level_stream_recovers_stale_timeout_when_tmux_is_gone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "cwd": str(Path(tmp).resolve()),
+                        "active_turn": {
+                            "turn_id": "timed-out",
+                            "claude_state": "working",
+                            "stream_state": "timeout",
+                            "heartbeat_at": "2000-01-01T00:00:00Z",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            runtime = ctc.prepare_high_level_stream(
+                controller=ctc.TmuxController(run=FakeRunner()),
+                cwd=Path(tmp),
+                prompt="recover",
+                root=Path(tmp) / "claude",
+                state_dir=state_dir,
+                session_id=session_id,
+            )
+
+            self.assertEqual(runtime.session_id, session_id)
+            state = ctc.read_bridge_state(state_path)
+            self.assertEqual(state["active_turn"]["prompt_preview"], "recover")
+            self.assertEqual(state["last_turn"]["turn_id"], "timed-out")
+
+    def test_prepare_high_level_stream_recovers_stale_active_when_tmux_is_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "cwd": str(Path(tmp).resolve()),
+                        "active_turn": {
+                            "turn_id": "crashed-active",
+                            "claude_state": "working",
+                            "stream_state": "active",
+                            "heartbeat_at": "2000-01-01T00:00:00Z",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runner = FakeRunner()
+            runner.session_exists = True
+            runner.capture_text = "Done\nclaude> "
+
+            runtime = ctc.prepare_high_level_stream(
+                controller=ctc.TmuxController(run=runner),
+                cwd=Path(tmp),
+                prompt="after crash",
+                root=Path(tmp) / "claude",
+                state_dir=state_dir,
+                session_id=session_id,
+            )
+
+            self.assertEqual(runtime.session_id, session_id)
+            state = ctc.read_bridge_state(state_path)
+            self.assertEqual(state["active_turn"]["prompt_preview"], "after crash")
+            self.assertEqual(state["last_turn"]["turn_id"], "crashed-active")
+
+    def test_prepare_high_level_stream_breaks_stale_send_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            lock_path = ctc.web_session_lock_path(session_id, state_dir)
+            lock_path.parent.mkdir(parents=True)
+            lock_path.write_text(json.dumps({"pid": 99999999, "started_at": 946684800.0}), encoding="utf-8")
+            os.utime(lock_path, (946684800.0, 946684800.0))
+
+            runtime = ctc.prepare_high_level_stream(
+                controller=ctc.TmuxController(run=FakeRunner()),
+                cwd=Path(tmp),
+                prompt="after stale lock",
+                root=Path(tmp) / "claude",
+                state_dir=state_dir,
+                session_id=session_id,
+            )
+
+            self.assertEqual(runtime.session_id, session_id)
+            self.assertFalse(lock_path.exists())
+
+    def test_prepare_high_level_stream_breaks_stale_malformed_send_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            lock_path = ctc.web_session_lock_path(session_id, state_dir)
+            lock_path.parent.mkdir(parents=True)
+            lock_path.write_text("{", encoding="utf-8")
+            os.utime(lock_path, (946684800.0, 946684800.0))
+
+            runtime = ctc.prepare_high_level_stream(
+                controller=ctc.TmuxController(run=FakeRunner()),
+                cwd=Path(tmp),
+                prompt="after malformed lock",
+                root=Path(tmp) / "claude",
+                state_dir=state_dir,
+                session_id=session_id,
+            )
+
+            self.assertEqual(runtime.session_id, session_id)
+            self.assertFalse(lock_path.exists())
+
+    def test_prepare_high_level_stream_breaks_stale_schema_malformed_send_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            lock_path = ctc.web_session_lock_path(session_id, state_dir)
+            lock_path.parent.mkdir(parents=True)
+            lock_path.write_text("{}", encoding="utf-8")
+            os.utime(lock_path, (946684800.0, 946684800.0))
+
+            runtime = ctc.prepare_high_level_stream(
+                controller=ctc.TmuxController(run=FakeRunner()),
+                cwd=Path(tmp),
+                prompt="after schema malformed lock",
+                root=Path(tmp) / "claude",
+                state_dir=state_dir,
+                session_id=session_id,
+            )
+
+            self.assertEqual(runtime.session_id, session_id)
+            self.assertFalse(lock_path.exists())
+
+    def test_prepare_high_level_stream_resumes_inactive_existing_session_with_initial_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "cwd": str(Path(tmp).resolve()),
+                        "last_turn": {"turn_id": "old", "claude_state": "ready"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runner = FakeRunner()
+            controller = ctc.TmuxController(run=runner)
+
+            runtime = ctc.prepare_high_level_stream(
+                controller=controller,
+                cwd=Path(tmp),
+                prompt="resume please",
+                root=Path(tmp) / "claude",
+                state_dir=state_dir,
+                session_id=session_id,
+            )
+
+            self.assertIn(
+                (
+                    [
+                        "tmux",
+                        "new-session",
+                        "-d",
+                        "-s",
+                        runtime.tmux_session,
+                        "-c",
+                        str(Path(tmp).resolve()),
+                        "claude --resume 550e8400-e29b-41d4-a716-446655440000 "
+                        "--dangerously-skip-permissions 'resume please'",
+                    ],
+                    {"check": True},
+                ),
+                runner.calls,
+            )
+
+    def test_prepare_high_level_stream_reuses_active_tmux_and_sends_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runner = FakeRunner()
+            runner.session_exists = True
+            runner.capture_text = "Done\nclaude> "
+            controller = ctc.TmuxController(run=runner)
+
+            runtime = ctc.prepare_high_level_stream(
+                controller=controller,
+                cwd=Path(tmp),
+                prompt="next turn",
+                root=Path(tmp) / "claude",
+                state_dir=Path(tmp) / "state",
+                session_id=session_id,
+            )
+
+            self.assertEqual(runtime.tmux_session, "ctc-csess-550e8400-e29b-41d4-a716-446655440000")
+            self.assertIn(
+                (
+                    ["tmux", "load-buffer", "-b", "claude-tmux-control", "-"],
+                    {"input": "next turn", "text": True, "check": True},
+                ),
+                runner.calls,
+            )
+
+    def test_prepare_high_level_stream_refuses_active_tmux_when_ready_is_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runner = FakeRunner()
+            runner.session_exists = True
+            runner.capture_text = "still rendering\n"
+
+            with self.assertRaisesRegex(RuntimeError, "turn_in_progress"):
+                ctc.prepare_high_level_stream(
+                    controller=ctc.TmuxController(run=runner),
+                    cwd=Path(tmp),
+                    prompt="unsafe interleave",
+                    root=Path(tmp) / "claude",
+                    state_dir=Path(tmp) / "state",
+                    session_id=session_id,
+                )
+
+            self.assertNotIn(
+                (
+                    ["tmux", "load-buffer", "-b", "claude-tmux-control", "-"],
+                    {"input": "unsafe interleave", "text": True, "check": True},
+                ),
+                runner.calls,
+            )
+
+    def test_prepare_high_level_stream_clears_active_turn_when_tmux_start_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+
+            def failing_run(args, **kwargs):
+                if args[:3] == ["tmux", "has-session", "-t"]:
+                    return subprocess.CompletedProcess(args, 1, "", "missing")
+                if args[:3] == ["tmux", "new-session", "-d"]:
+                    raise subprocess.CalledProcessError(1, args)
+                return subprocess.CompletedProcess(args, 0, "", "")
+
+            state_dir = Path(tmp) / "state"
+            with self.assertRaises(subprocess.CalledProcessError):
+                ctc.prepare_high_level_stream(
+                    controller=ctc.TmuxController(run=failing_run),
+                    cwd=Path(tmp),
+                    prompt="start fail",
+                    root=Path(tmp) / "claude",
+                    state_dir=state_dir,
+                    session_id=session_id,
+                )
+
+            state = ctc.read_bridge_state(ctc.web_session_state_path(session_id, state_dir))
+            self.assertIsNone(state["active_turn"])
+            self.assertEqual(state["last_turn"]["stream_state"], "failed")
 
 
 class ScreenStatusTest(unittest.TestCase):
@@ -1053,6 +1467,355 @@ class StreamTest(unittest.TestCase):
             payloads = [json.loads(line) for line in "".join(writes).splitlines()]
             self.assertEqual(status.state, "timeout")
             self.assertNotIn("done", [payload["event"] for payload in payloads])
+
+    def test_high_level_stream_emits_stable_ids_done_and_metrics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "session.jsonl"
+            transcript.write_text(
+                json_line({"type": "user", "timestamp": "t0", "message": {"content": "question"}})
+                + json_line(
+                    {
+                        "type": "assistant",
+                        "timestamp": "t1",
+                        "message": {"content": [{"type": "text", "text": "final answer"}]},
+                        "model": "claude-test",
+                        "usage": {
+                            "input_tokens": 10,
+                            "cache_read_input_tokens": 3,
+                            "cache_creation_input_tokens": 2,
+                            "output_tokens": 5,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=f"ctc-csess-{session_id}",
+                state_path=Path(tmp) / "state" / "sessions" / f"{session_id}.json",
+                state_dir=Path(tmp) / "state",
+                cwd=Path(tmp),
+                prompt="question",
+                turn_id="turn_test",
+                before_send_offset=0,
+                replay_start_offset=0,
+            )
+            ctc._write_high_level_state(
+                runtime.state_path,
+                ctc.build_pending_turn_state({}, runtime, transcript, wall_time=1000.0),
+            )
+            controller = Mock()
+            controller.capture_screen.return_value = "Done\nclaude> "
+            writes = []
+            current_time = 0.0
+
+            def fake_now():
+                return current_time
+
+            def fake_sleep(seconds):
+                nonlocal current_time
+                current_time += seconds
+
+            status = ctc.stream_high_level_transcript_until_done(
+                transcript,
+                runtime,
+                controller,
+                interval=1.0,
+                timeout=5.0,
+                idle_seconds=1.0,
+                write=writes.append,
+                sleep=fake_sleep,
+                now=fake_now,
+            )
+
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            completed_offset = transcript.stat().st_size
+            self.assertEqual(status.state, "ready")
+            self.assertEqual([payload["event"] for payload in payloads], ["user", "assistant_text", "done", "metrics"])
+            for payload in payloads:
+                self.assertEqual(payload["session_id"], session_id)
+                self.assertEqual(payload["turn_id"], "turn_test")
+                self.assertIn("event_id", payload)
+            self.assertEqual(payloads[-2]["event_id"], f"turn_test:done:{completed_offset}")
+            self.assertEqual(payloads[-2]["source_offset"], completed_offset)
+            self.assertEqual(payloads[-2]["block_index"], -1)
+            self.assertEqual(payloads[-1]["event_id"], f"turn_test:metrics:{completed_offset}")
+            self.assertEqual(payloads[-1]["usage"]["cache_read_tokens"], 3)
+            self.assertEqual(payloads[-1]["usage"]["cache_write_tokens"], 2)
+            state = ctc.read_bridge_state(runtime.state_path)
+            self.assertIsNone(state["active_turn"])
+            self.assertEqual(state["last_turn"]["completed_offset"], completed_offset)
+
+    def test_high_level_stream_starts_from_before_send_offset_for_repeated_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "session.jsonl"
+            old_turn = (
+                json_line({"type": "user", "timestamp": "old0", "message": {"content": "repeat"}})
+                + json_line(
+                    {
+                        "type": "assistant",
+                        "timestamp": "old1",
+                        "message": {"content": [{"type": "text", "text": "old answer"}]},
+                    }
+                )
+            )
+            transcript.write_text(old_turn, encoding="utf-8")
+            before_send_offset = transcript.stat().st_size
+            transcript.write_text(
+                old_turn
+                + json_line({"type": "user", "timestamp": "new0", "message": {"content": "repeat"}})
+                + json_line(
+                    {
+                        "type": "assistant",
+                        "timestamp": "new1",
+                        "message": {"content": [{"type": "text", "text": "new answer"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=f"ctc-csess-{session_id}",
+                state_path=Path(tmp) / "state" / "sessions" / f"{session_id}.json",
+                state_dir=Path(tmp) / "state",
+                cwd=Path(tmp),
+                prompt="repeat",
+                turn_id="turn_repeat",
+                before_send_offset=before_send_offset,
+                replay_start_offset=before_send_offset,
+            )
+            ctc._write_high_level_state(
+                runtime.state_path,
+                ctc.build_pending_turn_state({}, runtime, transcript, wall_time=1000.0),
+            )
+            controller = Mock()
+            controller.capture_screen.return_value = "Done\nclaude> "
+            writes = []
+            current_time = 0.0
+
+            def fake_now():
+                return current_time
+
+            def fake_sleep(seconds):
+                nonlocal current_time
+                current_time += seconds
+
+            ctc.stream_high_level_transcript_until_done(
+                transcript,
+                runtime,
+                controller,
+                interval=1.0,
+                timeout=5.0,
+                idle_seconds=1.0,
+                write=writes.append,
+                sleep=fake_sleep,
+                now=fake_now,
+            )
+
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            self.assertNotIn("old answer", json.dumps(payloads, ensure_ascii=False))
+            self.assertIn("new answer", json.dumps(payloads, ensure_ascii=False))
+
+    def test_high_level_stream_ignores_stray_records_before_anchor_user(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "session.jsonl"
+            transcript.write_text(
+                json_line(
+                    {
+                        "type": "assistant",
+                        "timestamp": "stray",
+                        "message": {"content": [{"type": "text", "text": "stray answer"}]},
+                    }
+                )
+                + json_line({"type": "user", "timestamp": "t0", "message": {"content": "target prompt"}})
+                + json_line(
+                    {
+                        "type": "assistant",
+                        "timestamp": "t1",
+                        "message": {"content": [{"type": "text", "text": "target answer"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=f"ctc-csess-{session_id}",
+                state_path=Path(tmp) / "state" / "sessions" / f"{session_id}.json",
+                state_dir=Path(tmp) / "state",
+                cwd=Path(tmp),
+                prompt="target prompt",
+                turn_id="turn_anchor",
+                before_send_offset=0,
+                replay_start_offset=0,
+            )
+            ctc._write_high_level_state(
+                runtime.state_path,
+                ctc.build_pending_turn_state({}, runtime, transcript, wall_time=1000.0),
+            )
+            controller = Mock()
+            controller.capture_screen.return_value = "Done\nclaude> "
+            writes = []
+            current_time = 0.0
+
+            def fake_now():
+                return current_time
+
+            def fake_sleep(seconds):
+                nonlocal current_time
+                current_time += seconds
+
+            ctc.stream_high_level_transcript_until_done(
+                transcript,
+                runtime,
+                controller,
+                interval=1.0,
+                timeout=5.0,
+                idle_seconds=1.0,
+                write=writes.append,
+                sleep=fake_sleep,
+                now=fake_now,
+            )
+
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            self.assertNotIn("stray answer", json.dumps(payloads, ensure_ascii=False))
+            self.assertIn("target answer", json.dumps(payloads, ensure_ascii=False))
+
+    def test_high_level_transcript_resolution_never_falls_back_to_global_latest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "claude"
+            root.mkdir()
+            global_transcript = root / "global.jsonl"
+            global_transcript.write_text(json_line({"type": "user", "message": {"content": "leak"}}), encoding="utf-8")
+
+            self.assertIsNone(ctc.resolve_high_level_transcript(root, Path(tmp) / "project", {}))
+
+    def test_high_level_transcript_resolution_requires_matching_session_id_within_same_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "claude"
+            project = ctc.project_transcript_dir(root, Path(tmp) / "project")
+            project.mkdir(parents=True)
+            wrong = project / "wrong.jsonl"
+            right = project / "right.jsonl"
+            wrong.write_text(
+                json_line({"sessionId": "11111111-1111-4111-8111-111111111111", "type": "user"}),
+                encoding="utf-8",
+            )
+            right.write_text(
+                json_line({"sessionId": "550e8400-e29b-41d4-a716-446655440000", "type": "user"}),
+                encoding="utf-8",
+            )
+
+            selected = ctc.resolve_high_level_transcript(
+                root,
+                Path(tmp) / "project",
+                {"session_id": "550e8400-e29b-41d4-a716-446655440000"},
+            )
+
+            self.assertEqual(selected, right)
+
+    def test_wait_for_high_level_transcript_accepts_same_path_inode_replacement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            root = Path(tmp) / "claude"
+            project = ctc.project_transcript_dir(root, Path(tmp) / "project")
+            project.mkdir(parents=True)
+            transcript = project / "session.jsonl"
+            transcript.write_text(
+                json_line({"sessionId": session_id, "type": "user", "message": {"content": "old"}})
+                + ("x" * 300),
+                encoding="utf-8",
+            )
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=f"ctc-csess-{session_id}",
+                state_path=Path(tmp) / "state" / "sessions" / f"{session_id}.json",
+                state_dir=Path(tmp) / "state",
+                cwd=Path(tmp) / "project",
+                prompt="new",
+                turn_id="turn_wait",
+                before_send_offset=transcript.stat().st_size,
+                replay_start_offset=transcript.stat().st_size,
+                before_send_transcript=transcript,
+            )
+            ctc._write_high_level_state(
+                runtime.state_path,
+                ctc.build_pending_turn_state({}, runtime, transcript, wall_time=1000.0),
+            )
+            transcript.unlink()
+            transcript.write_text(
+                json_line({"sessionId": session_id, "type": "user", "message": {"content": "new"}}),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(ctc.wait_for_high_level_transcript(root, runtime, timeout=0.1, interval=0.0), transcript)
+
+    def test_wait_for_high_level_transcript_switches_to_new_resume_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            project = ctc.project_transcript_dir(root, cwd)
+            project.mkdir(parents=True)
+            old = project / "old.jsonl"
+            new = project / "new.jsonl"
+            old.write_text(
+                json_line({"sessionId": session_id, "type": "user", "message": {"content": "old turn"}}),
+                encoding="utf-8",
+            )
+            os.utime(old, (1000.0, 1000.0))
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=f"ctc-csess-{session_id}",
+                state_path=Path(tmp) / "state" / "sessions" / f"{session_id}.json",
+                state_dir=Path(tmp) / "state",
+                cwd=cwd,
+                prompt="resumed prompt",
+                turn_id="turn_wait_resume",
+                before_send_offset=old.stat().st_size,
+                replay_start_offset=old.stat().st_size,
+                before_send_transcript=old,
+            )
+            ctc._write_high_level_state(
+                runtime.state_path,
+                ctc.build_pending_turn_state({}, runtime, old, wall_time=1000.0),
+            )
+            new.write_text(
+                json_line({"sessionId": session_id, "type": "user", "message": {"content": "resumed prompt"}}),
+                encoding="utf-8",
+            )
+            os.utime(new, (2000.0, 2000.0))
+
+            self.assertEqual(ctc.wait_for_high_level_transcript(root, runtime, timeout=0.1, interval=0.0), new)
+
+    def test_read_transcript_records_does_not_advance_on_partial_json_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "session.jsonl"
+            first = json_line({"type": "user", "message": {"content": "question"}})
+            partial = '{"type":"assistant","message":{"content":['
+            transcript.write_text(first + partial, encoding="utf-8")
+
+            records, offset = ctc.read_transcript_records(transcript, 0)
+
+            self.assertEqual(len(records), 1)
+            self.assertEqual(offset, len(first))
+
+            transcript.write_text(
+                first
+                + json_line(
+                    {
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": "done"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            records, offset = ctc.read_transcript_records(transcript, offset)
+
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0].event["message"]["content"][0]["text"], "done")
 
 
 def json_line(payload):

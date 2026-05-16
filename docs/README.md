@@ -8,6 +8,7 @@
 - [Web Chat Integration Guide](./web-chat-integration-guide.md): 웹/외부 프로그램에서 다중 Claude Code session을 채팅 UI로 붙이는 방법
 - [Interactive Web Chat Guide](./web-chat-integration-guide.html): 같은 내용을 브라우저에서 탐색하는 인터랙티브 HTML 문서
 - [Local Storage Plan](./local-storage-plan.md): transcript cursor, session state, lock, offset 기반 streaming 계획
+- [Test Scenarios](./test-scenarios.md): client-style 반복 테스트와 실제 Claude Code smoke 시나리오
 - [PRD](./PRD.md): 전체 제품 요구사항과 설계 방향
 - [Implementation Checklist](./implementation-checklist.md): 앞으로 진행할 작업 체크리스트
 

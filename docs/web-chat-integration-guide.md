@@ -506,22 +506,15 @@ cron, systemd timer, app scheduler 중 하나에서 호출합니다.
 
 웹 채팅 제품 관점에서 아직 남은 CLI 개선점입니다.
 
-- 고수준 `stream [--session-id] --cwd <path> "<prompt>"` 구현
-  - `session-id`가 없으면 UUID 생성
-  - 첫 시작이면 `claude --session-id <uuid> "<prompt>"`
-  - tmux가 없고 기존 `session-id`가 있으면 `claude --resume <uuid> "<prompt>"`
-  - tmux가 active면 기존 Claude Code process에 prompt 전송
-  - 한 turn의 progress/done/metrics를 JSONL로 출력
 - `ensure`: 고수준 `stream` 내부에서 쓰는 session 보장 단계로 유지
 - `ask [--session-id] --cwd <path> "<prompt>"`: streaming 없이 전체 turn 완료 후 최종 answer와 metrics를 한 번에 반환
 - `info <session-id>`: tmux/Claude transcript/sessionId metadata 반환
-- 모든 stream/done/answer JSON 응답에 `session_id` 포함
+- 모든 answer JSON 응답에 `session_id` 포함
 - `status --json`, `answer --json`, `turn --json`
-- `done` 직후 별도 `metrics` event 출력
-- 짧은 `send_lock`, state-write lock, durable `active_turn` 구현
-- `active_turn` owner heartbeat와 stale takeover 구현
-- stable `turn_id`/`event_id`/`source_offset`/`source_end_offset`/`block_index` 기반 at-least-once replay 구현
-- transcript rotation follow
+- explicit `stream --attach --session-id <id>` reconnect mode
+- state-write lock과 generation compare/update retry 강화
+- completed-turn cumulative usage/session cost 저장
+- transcript rotation follow 고도화
 - cost 계산을 위한 model/usage extraction helper
 
 이 gap이 구현되면 이 문서를 같이 갱신해야 합니다.

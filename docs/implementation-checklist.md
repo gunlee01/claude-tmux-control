@@ -17,13 +17,13 @@
 - [x] 새 대화의 `session_id`는 UUID v4로 정의한다.
 - [x] tmux session naming 규칙을 `ctc-csess-<session_id>`로 정의한다.
 - [x] `:`는 tmux target separator라서 session name에서 제외한다.
-- [ ] `session_id`가 없으면 UUID를 생성하는 `ensure` 흐름을 구현한다.
-- [ ] 첫 Claude Code 시작 시 `--session-id <session_id>`를 전달한다.
-- [ ] 같은 `session_id`가 이미 active tmux session이면 재사용한다.
-- [ ] 같은 `session_id`가 inactive면 새 tmux session을 만들고 `--resume <session_id>`로 Claude Code를 실행한다.
-- [ ] `session_id -> tmux session` 매핑은 tmux session name에서 직접 복원한다.
+- [x] high-level `stream`에서 `session_id`가 없으면 UUID를 생성한다.
+- [x] high-level `stream` 첫 Claude Code 시작 시 `--session-id <session_id>`를 전달한다.
+- [x] high-level `stream`에서 같은 `session_id`가 이미 active tmux session이면 재사용한다.
+- [x] high-level `stream`에서 같은 `session_id`가 inactive면 새 tmux session을 만들고 `--resume <session_id>`로 Claude Code를 실행한다.
+- [x] `session_id -> tmux session` 매핑은 tmux session name에서 직접 복원한다.
 - [ ] Claude transcript 내부 `sessionId`를 추출해서 `info` 출력에 포함한다.
-- [ ] 모든 service-facing JSON 응답에 `session_id`를 포함한다.
+- [x] high-level `stream` JSON 응답에 `session_id`를 포함한다.
 
 ## 3. CLI Contract
 
@@ -39,7 +39,7 @@
 - [x] `turn <session>`: 최신 turn의 user/thinking/tool/text 조회
 - [x] `turn <session> --tail N`: 최근 N개 turn 조회
 - [x] low-level `stream <tmux-session>`: 최신 turn을 JSONL로 streaming하고 완료 시 `done` 후 종료
-- [ ] high-level `stream [--session-id] --cwd <path> <prompt>`: UUID 생성/session 생성/재사용/resume/prompt 전송/turn stream
+- [x] high-level `stream [--session-id] --cwd <path> <prompt>`: UUID 생성/session 생성/재사용/resume/prompt 전송/turn stream
 - [ ] internal `ensure [session-id] --cwd <path>`: UUID 생성 또는 session 생성/재사용/resume 단계 구현
 - [ ] `ask [--session-id] --cwd <path> <prompt>`: streaming 없이 완료 후 answer/metrics 출력
 - [ ] `list`: active controlled session 목록 조회
@@ -56,41 +56,41 @@
 - [ ] `events --json`은 raw event와 normalized event 중 어떤 모드인지 명확히 분리한다.
 - [ ] error response schema를 정의한다.
 - [ ] exit code 규칙을 문서화한다.
-- [ ] client-provided `session_id` UUID validation을 구현한다.
-- [ ] existing state `cwd`와 request `cwd` mismatch를 `session_cwd_mismatch`로 fail closed한다.
+- [x] client-provided `session_id` UUID validation을 구현한다.
+- [x] existing state `cwd`와 request `cwd` mismatch를 `session_cwd_mismatch`로 fail closed한다.
 
 ## 5. Local Storage And Cursoring
 
 - [x] local storage plan 문서를 작성한다.
-- [ ] session state schema v1을 구현한다.
-- [ ] state 저장 위치를 `~/.cache/claude-tmux-control/sessions/<session_id>.json`로 정리한다.
-- [ ] atomic JSON write helper를 구현한다.
-- [ ] state generation/writer_pid/updated_at metadata를 구현한다.
+- [x] high-level stream용 session state schema v1을 구현한다.
+- [x] state 저장 위치를 `~/.cache/claude-tmux-control/sessions/<session_id>.json`로 정리한다.
+- [x] atomic JSON write helper를 구현한다.
+- [x] state generation/writer_pid/updated_at metadata를 구현한다.
 - [ ] state-write lock과 generation compare/update retry를 구현한다.
-- [ ] 짧은 `send_lock` file을 구현한다.
-- [ ] durable `active_turn` state를 구현한다.
-- [ ] `active_turn`에 owner_pid/owner_hostname/heartbeat_at/stream_epoch를 저장한다.
-- [ ] stale owner heartbeat takeover 정책을 구현한다.
+- [x] 짧은 `send_lock` file을 구현한다.
+- [x] durable `active_turn` state를 구현한다.
+- [x] `active_turn`에 owner_pid/owner_hostname/heartbeat_at/stream_epoch를 저장한다.
+- [x] stale owner heartbeat recovery 정책을 구현한다.
 - [ ] `stream --attach --session-id <id>` reconnect mode를 정의하고 구현한다.
-- [ ] high-level stream 기본 polling interval을 2.0초로 둔다.
-- [ ] transcript file identity(path/st_dev/st_ino/size/mtime_ns)를 state에 저장한다.
-- [ ] transcript offset 기반 tail reader를 구현한다.
-- [ ] cursor 필드를 `scan_offset`, `anchor_start_offset`, `anchor_end_offset`, `replay_start_offset`, `read_offset`, `last_stdout_flushed_offset`, `completed_offset`로 분리한다.
-- [ ] prompt hash와 prompt preview를 state에 저장한다.
-- [ ] send/start/resume 전에 transcript baseline을 캡처한다.
-- [ ] transcript가 없는 첫 실행은 `no_transcript_baseline`과 pre-send wall-clock timestamp를 저장한다.
-- [ ] 다음 turn 시작점을 before_send_transcript.offset 우선으로 찾는다.
+- [x] high-level stream 기본 polling interval을 2.0초로 둔다.
+- [x] transcript file identity(path/st_dev/st_ino/size/mtime_ns)를 state에 저장한다.
+- [x] transcript offset 기반 tail reader를 구현한다.
+- [x] cursor 필드를 `anchor_start_offset`, `anchor_end_offset`, `replay_start_offset`, `read_offset`, `last_stdout_flushed_offset`, `completed_offset`로 분리한다.
+- [x] prompt hash와 prompt preview를 state에 저장한다.
+- [x] send/start/resume 전에 transcript baseline을 캡처한다.
+- [x] transcript가 없는 첫 실행은 `no_transcript_baseline`과 pre-send wall-clock timestamp를 저장한다.
+- [x] 다음 turn 시작점을 before_send_transcript.offset 우선으로 찾는다.
 - [ ] offset 실패 시 before_send_wall_time_utc로 user event를 찾는다.
 - [ ] time fallback 실패 시 prompt hash/text matching을 사용하되 ambiguity면 fail closed한다.
-- [ ] transcript rotation/truncation을 감지하고 재탐색한다.
+- [x] transcript rotation/truncation을 감지하고 재탐색한다.
 - [ ] missing sessionId rotation recovery matrix를 구현한다.
 - [ ] completed turn metrics를 turn_id/source offset 기준으로 저장한다.
 - [ ] session cumulative usage/cost totals는 completed turn records에서 재계산한다.
-- [ ] streamed event에 stable `turn_id`, `event_id`, `source_offset`, `source_end_offset`, `block_index`를 포함한다.
-- [ ] crash/reconnect replay는 at-least-once로 처리하고 client dedupe key를 문서화한다.
-- [ ] `done` event에는 answer/completion 정보만 담고 usage/context/cost를 넣지 않는다.
-- [ ] `metrics` event는 `done` 직후 같은 `turn_id`로 별도 출력한다.
-- [ ] `timeout`/`failed` 후에는 `active_turn`을 유지하고 새 prompt를 막는다.
+- [x] streamed event에 stable `turn_id`, `event_id`, `source_offset`, `source_end_offset`, `block_index`를 포함한다.
+- [x] crash/reconnect replay는 at-least-once로 처리하고 client dedupe key를 문서화한다.
+- [x] `done` event에는 answer/completion 정보만 담고 usage/context/cost를 넣지 않는다.
+- [x] `metrics` event는 `done` 직후 같은 `turn_id`로 별도 출력한다.
+- [x] `timeout`/`failed` 후 stale recovery 전까지 새 prompt를 막는다.
 
 ## 6. Lifecycle And Idle Cleanup
 
@@ -153,25 +153,25 @@
 - [x] stream subagent wait test: `tool_result` 이후 final text 전에는 종료하지 않음
 - [x] internal prompt ignore test
 - [x] status race handling test
-- [ ] high-level `stream` command test
+- [x] high-level `stream` command test
 - [ ] internal `ensure` flow test
-- [ ] offset 기반 tail reader test
-- [ ] baseline이 send/start/resume 전에 캡처되는 race test
-- [ ] repeated prompt가 있어도 before_send_transcript.offset 기준으로 target turn을 잡는 test
+- [x] offset 기반 tail reader test
+- [x] baseline이 send/start/resume 전에 캡처되는 race test
+- [x] repeated prompt가 있어도 before_send_transcript.offset 기준으로 target turn을 잡는 test
 - [ ] ambiguous prompt fallback fail-closed test
-- [ ] transcript rotation/truncation recovery test
-- [ ] rotation candidate가 sessionId를 아직 포함하지 않는 경우의 fallback test
-- [ ] short `send_lock` conflict test
-- [ ] active_turn blocks second prompt test
+- [x] transcript rotation/truncation recovery test
+- [x] rotation candidate가 sessionId를 아직 포함하지 않는 경우의 fallback test
+- [x] short `send_lock` stale recovery test
+- [x] active_turn blocks second prompt test
 - [ ] state generation conflict retry test
-- [ ] stale owner heartbeat takeover test
+- [x] stale owner heartbeat recovery test
 - [ ] attach/reconnect without sending prompt test
 - [ ] crash after parse before emit replay test
 - [ ] crash after emit before state write replay/dedup policy test
-- [ ] stable event_id/source_offset/source_end_offset/block_index client dedupe test
+- [x] stable event_id/source_offset/source_end_offset/block_index client dedupe test
 - [ ] metrics deduplication by turn_id/source offset test
-- [ ] done and metrics event separation test
-- [ ] timeout/failed keeps active_turn test
+- [x] done and metrics event separation test
+- [x] timeout/failed keeps active_turn until stale recovery test
 - [ ] `ask` command test
 - [ ] `list/info` command test
 - [x] `kill/reap` command test
