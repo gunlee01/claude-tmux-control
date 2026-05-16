@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Web Chat App Flow for Claude Code Bridge</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --panel2: #eef3f8;
+      --line: #d9e2ef;
+      --text: #172033;
+      --muted: #66758d;
+      --blue: #2563eb;
+      --green: #12805c;
+      --amber: #a15c07;
+      --red: #c93f37;
+      --purple: #6f4bc2;
+      --teal: #0f766e;
+      --ink: #111827;
+      --shadow: 0 2px 4px rgba(31, 41, 55, .05), 0 12px 28px rgba(31, 41, 55, .08);
+      --radius: 8px;
+      --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.6 var(--sans);
+    }
+
+    button, input, select { font: inherit; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: rgba(255, 255, 255, .96);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(10px);
+    }
+
+    .topbar-inner {
+      max-width: 1220px;
+      margin: 0 auto;
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .brand {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      min-width: 240px;
+    }
+
+    .mark {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--blue), var(--teal));
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+    }
+
+    .brand-title { font-weight: 800; }
+    .brand-sub { color: var(--muted); font-size: 12px; }
+
+    .nav {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+    }
+
+    .nav button,
+    .seg button,
+    .mini-button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 7px 10px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .nav button.active,
+    .seg button.active,
+    .mini-button.active {
+      background: var(--ink);
+      border-color: var(--ink);
+      color: #fff;
+    }
+
+    .wrap {
+      max-width: 1220px;
+      margin: 0 auto;
+      padding: 24px 20px 56px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr);
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .hero-main {
+      background: linear-gradient(120deg, #1f5fe0 0%, #0f766e 58%, #6f4bc2 100%);
+      color: #fff;
+      border-radius: var(--radius);
+      padding: 28px;
+      min-height: 250px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: var(--shadow);
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: 34px; line-height: 1.14; margin-bottom: 12px; letter-spacing: 0; }
+    h2 { font-size: 20px; margin-bottom: 6px; letter-spacing: 0; }
+    h3 { font-size: 15px; margin-bottom: 7px; letter-spacing: 0; }
+    .lead { font-size: 16px; max-width: 760px; color: rgba(255, 255, 255, .9); }
+    .section-note { color: var(--muted); margin-bottom: 0; }
+
+    .hero-side,
+    .panel,
+    .card,
+    .flow-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .hero-side { padding: 18px; }
+    .panel { padding: 18px; margin-top: 18px; }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .pill {
+      border: 1px solid rgba(255, 255, 255, .35);
+      background: rgba(255, 255, 255, .13);
+      color: #fff;
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .badge.blue { background: #e8f0ff; color: var(--blue); }
+    .badge.green { background: #e7f6ef; color: var(--green); }
+    .badge.amber { background: #fff5df; color: var(--amber); }
+    .badge.red { background: #ffe8e5; color: var(--red); }
+    .badge.purple { background: #f0eafd; color: var(--purple); }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card { padding: 14px; }
+
+    .app-flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(135px, 1fr));
+      gap: 10px;
+      align-items: stretch;
+      margin-top: 16px;
+    }
+
+    .flow-card {
+      padding: 13px;
+      min-height: 118px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      position: relative;
+    }
+
+    .flow-card::after {
+      content: ">";
+      position: absolute;
+      right: -9px;
+      top: 42px;
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .flow-card:last-child::after { display: none; }
+
+    .flow-card strong {
+      display: block;
+      font-size: 14px;
+    }
+
+    .flow-card span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: end;
+      margin: 26px 0 12px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    input, select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      padding: 9px 10px;
+      min-width: 0;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font: 12px/1.55 var(--mono);
+    }
+
+    .code {
+      background: #0f172a;
+      color: #dbeafe;
+      border-radius: 8px;
+      padding: 13px;
+      border: 1px solid #172554;
+      overflow: auto;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 10px;
+    }
+
+    .event-row {
+      display: grid;
+      grid-template-columns: 150px minmax(0, 1fr) 190px;
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      align-items: start;
+    }
+
+    .event-row.active {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 2px #dbeafe;
+    }
+
+    .event-name {
+      font-family: var(--mono);
+      font-weight: 800;
+    }
+
+    .small { color: var(--muted); font-size: 12px; }
+
+    .decision {
+      border-left: 4px solid var(--blue);
+      padding: 10px 12px;
+      background: #f8fbff;
+      border-radius: 0 8px 8px 0;
+      margin: 8px 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--panel2);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .seg {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin: 12px 0;
+    }
+
+    .footer {
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      margin-top: 28px;
+      padding-top: 16px;
+      font-size: 12px;
+    }
+
+    @media (max-width: 920px) {
+      .hero, .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      .app-flow { grid-template-columns: 1fr; }
+      .flow-card::after { display: none; }
+      .form-grid { grid-template-columns: 1fr 1fr; }
+      .event-row { grid-template-columns: 1fr; }
+      .topbar-inner { align-items: flex-start; flex-direction: column; }
+    }
+
+    @media (max-width: 560px) {
+      .form-grid { grid-template-columns: 1fr; }
+      h1 { font-size: 26px; }
+      .wrap { padding: 18px 14px 42px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="mark">CC</div>
+        <div>
+          <div class="brand-title">Web Chat App Flow</div>
+          <div class="brand-sub">Claude Code tmux bridge를 웹 채팅앱에 붙이는 흐름도</div>
+        </div>
+      </div>
+      <nav class="nav" aria-label="sections">
+        <button class="active" data-jump="overview">Overview</button>
+        <button data-jump="flow">Flow</button>
+        <button data-jump="command">Command</button>
+        <button data-jump="events">Events</button>
+        <button data-jump="backend">Backend</button>
+        <button data-jump="guards">Guards</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="hero" id="overview">
+      <div class="hero-main">
+        <div>
+          <h1>브라우저 채팅창은 CLI stream 한 번을 대화 turn 하나로 다룬다</h1>
+          <p class="lead">웹앱은 사용자의 메시지를 백엔드로 보내고, 백엔드는 `claude_tmux_control.py stream`을 실행해서 JSONL event를 SSE/WebSocket으로 그대로 중계한다.</p>
+        </div>
+        <div class="pill-row">
+          <span class="pill">one browser conversation = one session_id</span>
+          <span class="pill">one submit = one stream process</span>
+          <span class="pill">done unlocks input</span>
+          <span class="pill">metrics follows done</span>
+        </div>
+      </div>
+
+      <aside class="hero-side">
+        <h2>핵심 계약</h2>
+        <div class="decision">
+          `session_id`가 없으면 CLI가 UUID를 만들고, 첫 JSONL event부터 그 값을 포함한다.
+        </div>
+        <div class="decision">
+          같은 대화창은 다음 turn부터 같은 `session_id`를 다시 보낸다.
+        </div>
+        <div class="decision">
+          tmux가 사라져도 기존 state/transcript가 있으면 `--resume`으로 복구한다.
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="flow">
+      <div class="section-head">
+        <div>
+          <h2>End-to-End Flow</h2>
+          <p class="section-note">각 상자는 한 시스템 경계를 나타냅니다. 브라우저는 tmux 세부사항을 몰라도 됩니다.</p>
+        </div>
+        <span class="badge blue">runtime path</span>
+      </div>
+
+      <div class="app-flow">
+        <div class="flow-card">
+          <strong>Browser Chat UI</strong>
+          <span>user message submit, input disabled</span>
+          <span class="badge blue">session_id optional</span>
+        </div>
+        <div class="flow-card">
+          <strong>App Backend</strong>
+          <span>spawn CLI and bridge stdout JSONL to client</span>
+          <span class="badge purple">SSE or WebSocket</span>
+        </div>
+        <div class="flow-card">
+          <strong>ctc stream</strong>
+          <span>ensure session, send prompt, tail transcript</span>
+          <span class="badge green">one turn</span>
+        </div>
+        <div class="flow-card">
+          <strong>tmux + Claude Code</strong>
+          <span>`--session-id`, `--resume`, or paste prompt</span>
+          <span class="badge amber">terminal UI</span>
+        </div>
+        <div class="flow-card">
+          <strong>Claude Transcript</strong>
+          <span>JSONL source for answer, tools, usage</span>
+          <span class="badge green">structured source</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="command">
+      <div class="section-head">
+        <div>
+          <h2>Command Builder</h2>
+          <p class="section-note">웹 서버가 실제로 실행할 high-level stream command를 만들어 봅니다.</p>
+        </div>
+        <span class="badge purple">copy target</span>
+      </div>
+
+      <div class="panel">
+        <div class="form-grid">
+          <label>
+            Session Mode
+            <select id="mode">
+              <option value="new">new chat</option>
+              <option value="existing" selected>existing chat</option>
+            </select>
+          </label>
+          <label>
+            Session ID
+            <input id="sessionId" value="550e8400-e29b-41d4-a716-446655440000" spellcheck="false">
+          </label>
+          <label>
+            Project Dir
+            <input id="projectDir" value="/srv/projects/app" spellcheck="false">
+          </label>
+          <label>
+            OAuth Source Env
+            <input id="oauthEnv" value="ACCOUNT_A_TOKEN" spellcheck="false">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Claude Command
+            <input id="claudeCommand" value="claude" spellcheck="false">
+          </label>
+          <label>
+            State Dir
+            <input id="stateDir" value="~/.cache/claude-tmux-control" spellcheck="false">
+          </label>
+          <label>
+            User Prompt
+            <input id="prompt" value="이 PR의 남은 작업을 정리해줘" spellcheck="false">
+          </label>
+          <label>
+            Transport
+            <select id="transport">
+              <option>SSE</option>
+              <option>WebSocket</option>
+            </select>
+          </label>
+        </div>
+        <div class="seg">
+          <button class="active" data-template="shell">Shell command</button>
+          <button data-template="node">Node backend</button>
+          <button data-template="python">Python backend</button>
+        </div>
+        <div class="code"><pre id="commandOutput"></pre></div>
+      </div>
+    </section>
+
+    <section id="events">
+      <div class="section-head">
+        <div>
+          <h2>Stream Event Timeline</h2>
+          <p class="section-note">브라우저 UI는 event type별로 다른 영역을 갱신합니다.</p>
+        </div>
+        <span class="badge green">JSONL contract</span>
+      </div>
+
+      <div class="seg">
+        <button class="active" data-event="user">user</button>
+        <button data-event="thinking">thinking</button>
+        <button data-event="tool_use">tool_use</button>
+        <button data-event="tool_result">tool_result</button>
+        <button data-event="assistant_text">assistant_text</button>
+        <button data-event="done">done</button>
+        <button data-event="metrics">metrics</button>
+      </div>
+      <div class="timeline" id="timeline"></div>
+    </section>
+
+    <section class="grid-2" id="backend">
+      <div class="panel">
+        <h2>Backend Responsibilities</h2>
+        <table>
+          <thead>
+            <tr><th>단계</th><th>해야 할 일</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>request</td><td>대화창이 가진 `session_id`를 넘긴다. 새 대화면 생략한다.</td></tr>
+            <tr><td>spawn</td><td>`stream --cwd ...`를 실행한다. account별 token은 `--oauth-token-env`로 선택한다.</td></tr>
+            <tr><td>relay</td><td>stdout JSONL을 한 줄씩 parse해서 SSE/WebSocket message로 전달한다.</td></tr>
+            <tr><td>persist</td><td>첫 event의 `session_id`를 conversation record에 저장한다.</td></tr>
+            <tr><td>unlock</td><td>`done` 수신 후 입력창을 다시 활성화한다. 바로 뒤 `metrics`를 usage 패널에 반영한다.</td></tr>
+            <tr><td>enrich</td><td>elapsed time과 USD cost는 앱 서버가 측정/계산해서 덧붙인다.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <h2>Session Decision Table</h2>
+        <table>
+          <thead>
+            <tr><th>상황</th><th>CLI 동작</th><th>UI 의미</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>session_id 없음</td><td>UUID 생성, `claude --session-id`</td><td>새 대화 시작</td></tr>
+            <tr><td>active tmux 있음</td><td>기존 pane에 prompt 전송</td><td>대화 이어가기</td></tr>
+            <tr><td>inactive + state/transcript 있음</td><td>`claude --resume`</td><td>복구 후 이어가기</td></tr>
+            <tr><td>cwd mismatch</td><td>`session_cwd_mismatch` error</td><td>잘못된 대화 연결 차단</td></tr>
+            <tr><td>active turn working</td><td>`turn_in_progress` error</td><td>중복 전송 차단</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="guards">
+      <div class="section-head">
+        <div>
+          <h2>Guards And Gaps</h2>
+          <p class="section-note">현재 구현 기준으로 믿어도 되는 것과 앱 서버가 보완해야 하는 것을 구분합니다.</p>
+        </div>
+        <span class="badge amber">implementation boundary</span>
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <h3>Implemented</h3>
+          <p class="small">UUID validation, cwd fail-closed, send_lock, active_turn, transcript sessionId filtering, offset tailing, done + metrics.</p>
+        </div>
+        <div class="card">
+          <h3>App Enrichment</h3>
+          <p class="small">elapsed_ms, estimated turn cost, cumulative session cost, pricing table version, UI-specific retry policy.</p>
+        </div>
+        <div class="card">
+          <h3>Future CLI Work</h3>
+          <p class="small">`ask`, `info`, explicit attach mode, state-write generation retry, cumulative usage store, machine-readable stats command.</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer">
+      Source of truth: `claude_tmux_control.py stream --session-id --cwd`. Related docs: `web-chat-integration-guide.md`, `cli-manual.md`, `test-scenarios.md`.
+    </div>
+  </main>
+
+  <script>
+    const events = [
+      {
+        name: "user",
+        badge: "blue",
+        ui: "사용자 메시지를 채팅창에 확정 표시",
+        sample: {"event":"user","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516T140515Z-46b34aaf","event_id":"...:block0:user","source_offset":14098,"source_end_offset":14619,"block_index":0,"text":"이 PR의 남은 작업을 정리해줘"}
+      },
+      {
+        name: "thinking",
+        badge: "purple",
+        ui: "접힌 진행 상태나 reasoning 영역에 표시",
+        sample: {"event":"thinking","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516T140515Z-46b34aaf","event_id":"...:block0:thinking","source_offset":25140,"source_end_offset":26687,"block_index":0,"text":""}
+      },
+      {
+        name: "tool_use",
+        badge: "amber",
+        ui: "도구 실행 카드 시작",
+        sample: {"event":"tool_use","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516T140515Z-46b34aaf","event_id":"...:block0:tool_use","name":"Bash","input":{"command":"rg -n stream ."}}
+      },
+      {
+        name: "tool_result",
+        badge: "green",
+        ui: "도구 결과 카드 업데이트. 이 event만으로 입력창을 열면 안 됨",
+        sample: {"event":"tool_result","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516T140515Z-46b34aaf","event_id":"...:block0:tool_result","tool_use_id":"toolu_01","is_error":false,"text":"claude_tmux_control.py:745:def prepare_high_level_stream"}
+      },
+      {
+        name: "assistant_text",
+        badge: "blue",
+        ui: "답변 영역에 append",
+        sample: {"event":"assistant_text","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516T140515Z-46b34aaf","event_id":"...:block0:assistant_text","source_offset":26687,"source_end_offset":27892,"block_index":0,"text":"남은 작업은 다음과 같습니다."}
+      },
+      {
+        name: "done",
+        badge: "green",
+        ui: "입력창 재활성화. 최종 answer 저장",
+        sample: {"event":"done","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516T140515Z-46b34aaf","event_id":"turn_20260516T140515Z-46b34aaf:done:29804","source_offset":29804,"source_end_offset":29804,"block_index":-1,"state":"ready","reason":"prompt visible; transcript ready","answer":"남은 작업은 다음과 같습니다."}
+      },
+      {
+        name: "metrics",
+        badge: "blue",
+        ui: "usage panel 업데이트. elapsed/cost는 앱 서버가 enrich",
+        sample: {"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516T140515Z-46b34aaf","event_id":"turn_20260516T140515Z-46b34aaf:metrics:29804","source_offset":29804,"source_end_offset":29804,"block_index":-1,"scope":"turn_final","model":"claude-sonnet-4-6","usage":{"input_tokens":10,"cache_read_tokens":11176,"cache_write_tokens":8382,"output_tokens":32},"cost":{"estimated":false,"reason":"pricing_not_configured"}}
+      }
+    ];
+
+    let selectedTemplate = "shell";
+    let selectedEvent = "user";
+
+    function value(id) {
+      return document.getElementById(id).value.trim();
+    }
+
+    function esc(value) {
+      return String(value).replace(/[&<>"']/g, ch => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      })[ch]);
+    }
+
+    function state() {
+      return {
+        mode: value("mode"),
+        sessionId: value("sessionId"),
+        projectDir: value("projectDir") || ".",
+        oauthEnv: value("oauthEnv") || "CLAUDE_CODE_OAUTH_TOKEN",
+        claudeCommand: value("claudeCommand") || "claude",
+        stateDir: value("stateDir") || "~/.cache/claude-tmux-control",
+        prompt: value("prompt") || "Hello",
+        transport: value("transport") || "SSE"
+      };
+    }
+
+    function shellCommand(s) {
+      return `TERM=xterm-256color \\
+./claude_tmux_control.py stream${s.mode === "existing" ? ` \\
+  --session-id "${esc(s.sessionId)}"` : ""} \\
+  --cwd "${esc(s.projectDir)}" \\
+  --oauth-token-env ${esc(s.oauthEnv)} \\
+  --command "${esc(s.claudeCommand)}" \\
+  --state-dir "${esc(s.stateDir)}" \\
+  "${esc(s.prompt)}"`;
+    }
+
+    function nodeCommand(s) {
+      return `import { spawn } from "node:child_process";
+
+const args = [
+  "stream",
+  "--cwd", "${esc(s.projectDir)}",
+  "--oauth-token-env", "${esc(s.oauthEnv)}",
+  "--command", "${esc(s.claudeCommand)}",
+  "--state-dir", "${esc(s.stateDir)}",
+${s.mode === "existing" ? `  "--session-id", "${esc(s.sessionId)}",` : ""}
+  "${esc(s.prompt)}"
+];
+
+const child = spawn("./claude_tmux_control.py", args, {
+  env: { ...process.env, TERM: "xterm-256color" }
+});
+
+child.stdout.on("data", chunk => {
+  for (const line of chunk.toString("utf8").split("\\n")) {
+    if (!line.trim()) continue;
+    const event = JSON.parse(line);
+    // ${esc(s.transport)} send: forward event to browser
+  }
+});`;
+    }
+
+    function pythonCommand(s) {
+      return `import json
+import os
+import subprocess
+
+cmd = [
+    "./claude_tmux_control.py",
+    "stream",
+    "--cwd", "${esc(s.projectDir)}",
+    "--oauth-token-env", "${esc(s.oauthEnv)}",
+    "--command", "${esc(s.claudeCommand)}",
+    "--state-dir", "${esc(s.stateDir)}",
+${s.mode === "existing" ? `    "--session-id", "${esc(s.sessionId)}",` : ""}
+    "${esc(s.prompt)}",
+]
+
+env = dict(os.environ)
+env["TERM"] = "xterm-256color"
+
+proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, env=env)
+for line in proc.stdout:
+    event = json.loads(line)
+    # ${esc(s.transport)} send: forward event to browser`;
+    }
+
+    function renderCommand() {
+      const s = state();
+      const out = document.getElementById("commandOutput");
+      const templates = { shell: shellCommand, node: nodeCommand, python: pythonCommand };
+      out.innerHTML = templates[selectedTemplate](s);
+    }
+
+    function renderTimeline() {
+      const root = document.getElementById("timeline");
+      root.innerHTML = events.map(event => `
+        <div class="event-row ${event.name === selectedEvent ? "active" : ""}">
+          <div>
+            <div class="event-name">${esc(event.name)}</div>
+            <span class="badge ${event.badge}">${esc(event.badge)}</span>
+          </div>
+          <div>
+            <strong>${esc(event.ui)}</strong>
+            <p class="small">모든 service-facing event는 session_id, turn_id, event_id, source offset metadata를 포함하는 방향입니다.</p>
+          </div>
+          <div class="code"><pre>${esc(JSON.stringify(event.sample, null, 2))}</pre></div>
+        </div>
+      `).join("");
+    }
+
+    document.querySelectorAll("[data-jump]").forEach(button => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll("[data-jump]").forEach(item => item.classList.remove("active"));
+        button.classList.add("active");
+        document.getElementById(button.dataset.jump).scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+
+    document.querySelectorAll("[data-template]").forEach(button => {
+      button.addEventListener("click", () => {
+        selectedTemplate = button.dataset.template;
+        document.querySelectorAll("[data-template]").forEach(item => item.classList.remove("active"));
+        button.classList.add("active");
+        renderCommand();
+      });
+    });
+
+    document.querySelectorAll("[data-event]").forEach(button => {
+      button.addEventListener("click", () => {
+        selectedEvent = button.dataset.event;
+        document.querySelectorAll("[data-event]").forEach(item => item.classList.remove("active"));
+        button.classList.add("active");
+        renderTimeline();
+      });
+    });
+
+    document.querySelectorAll("input, select").forEach(input => {
+      input.addEventListener("input", renderCommand);
+      input.addEventListener("change", renderCommand);
+    });
+
+    renderCommand();
+    renderTimeline();
+  </script>
+</body>
+</html>

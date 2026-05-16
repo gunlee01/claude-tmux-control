@@ -7,6 +7,7 @@
 - [CLI Manual](./cli-manual.md): 설치, 실행, 인증, 명령별 옵션, 외부 연동 예시
 - [Web Chat Integration Guide](./web-chat-integration-guide.md): 웹/외부 프로그램에서 다중 Claude Code session을 채팅 UI로 붙이는 방법
 - [Interactive Web Chat Guide](./web-chat-integration-guide.html): 같은 내용을 브라우저에서 탐색하는 인터랙티브 HTML 문서
+- [Web Chat App Flow](./web-chat-app-flow.html): 브라우저 채팅앱이 CLI stream을 호출하고 event를 UI에 반영하는 흐름도 HTML
 - [Local Storage Plan](./local-storage-plan.md): transcript cursor, session state, lock, offset 기반 streaming 계획
 - [Test Scenarios](./test-scenarios.md): client-style 반복 테스트와 실제 Claude Code smoke 시나리오
 - [PRD](./PRD.md): 전체 제품 요구사항과 설계 방향
