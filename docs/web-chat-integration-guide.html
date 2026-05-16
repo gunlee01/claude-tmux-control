@@ -680,7 +680,7 @@
       <div class="section-head">
         <div>
           <h2>Command Builder</h2>
-          <p class="section-note">대화창 id, 프로젝트 경로, 계정 env를 넣으면 웹 서버가 호출할 기본 command set을 만든다.</p>
+          <p class="section-note">session id, 프로젝트 경로, 계정 env를 넣으면 웹 서버가 호출할 고수준 stream command를 만든다.</p>
         </div>
         <span class="badge purple">interactive</span>
       </div>
@@ -699,11 +699,28 @@
           <input id="oauthEnv" value="ACCOUNT_A_TOKEN" spellcheck="false">
         </label>
       </div>
+      <div class="form-grid">
+        <label>
+          User Prompt
+          <input id="userPrompt" value="Finish this PR" spellcheck="false">
+        </label>
+        <label>
+          Claude Args
+          <input id="claudeArgs" value="--model opus" spellcheck="false">
+        </label>
+        <label>
+          Mode
+          <select id="sessionMode">
+            <option value="new">new session</option>
+            <option value="existing" selected>existing session</option>
+          </select>
+        </label>
+      </div>
 
       <div class="tabs">
-        <button class="tab-button active" data-command-tab="start">start</button>
-        <button class="tab-button" data-command-tab="resume">resume</button>
-        <button class="tab-button" data-command-tab="turn">one turn</button>
+        <button class="tab-button active" data-command-tab="stream">stream</button>
+        <button class="tab-button" data-command-tab="ask">ask</button>
+        <button class="tab-button" data-command-tab="internal">internal</button>
         <button class="tab-button" data-command-tab="metrics">metrics</button>
         <button class="tab-button" data-command-tab="cleanup">cleanup</button>
       </div>
@@ -837,9 +854,14 @@
           </thead>
           <tbody>
             <tr>
+              <td>session id</td>
+              <td>client 값도 UUID로 검증하고, 기존 state의 canonical cwd와 요청 cwd가 다르면 거절한다.</td>
+              <td>`session_cwd_mismatch`로 fail closed한다.</td>
+            </tr>
+            <tr>
               <td>동시 입력</td>
-              <td>같은 `session_id`는 반드시 session lock을 잡고 한 turn씩 처리한다.</td>
-              <td>현재 CLI는 lock을 내장하지 않는다.</td>
+              <td>`send_lock`은 prompt 전송만 보호하고, 긴 stream 동안은 `active_turn`이 새 prompt를 막는다.</td>
+              <td>state-write lock, owner heartbeat, stale takeover가 필요하다.</td>
             </tr>
             <tr>
               <td>완료 판단</td>
@@ -868,11 +890,11 @@
       <div class="grid-2" style="margin-top:14px">
         <div class="card">
           <h3>현재 gap</h3>
-          <p>`ensure`, `ask`, `info`, `stats`, `stream done usage summary`, session lock은 아직 future work다. `ensure`는 UUID 생성, `--session-id`, `--resume` 판단을 담당해야 한다.</p>
+          <p>고수준 `stream`, `ask`, `info`, `stats`, final metrics, `send_lock`, `active_turn`, state-write lock은 아직 future work다. `ensure`는 고수준 stream 내부 단계로 둔다.</p>
         </div>
         <div class="card">
-          <h3>문서 업데이트 규칙</h3>
-          <p>stream event, session lifecycle, usage/cost 동작이 바뀌면 Markdown guide와 이 HTML guide를 같이 갱신한다.</p>
+          <h3>local cursor storage</h3>
+          <p>`~/.cache/claude-tmux-control/sessions/&lt;session_id&gt;.json`에 transcript offset, turn cursor, active owner, event id, usage totals를 저장해서 전체 JSONL 재읽기를 피한다.</p>
         </div>
       </div>
     </section>
@@ -886,52 +908,52 @@
     const flowData = [
       {
         key: "lock",
-        title: "Acquire Lock",
-        desc: "session별 동시 입력 차단",
-        detail: "같은 session_id에 두 prompt를 동시에 보내면 transcript target turn과 완료 판정이 꼬일 수 있다.",
-        command: "lock.acquire(session_id)"
+        title: "Call Stream",
+        desc: "한 turn 시작",
+        detail: "웹 서버는 session_id가 있으면 넘기고, 없으면 생략한다. bridge가 UUID 검증, cwd mismatch 거절, 짧은 send_lock, start/resume, prompt 전송을 처리한다.",
+        command: "./claude_tmux_control.py stream --session-id \"$SESSION_ID\" --cwd \"$PROJECT_DIR\" \"$USER_PROMPT\""
       },
       {
         key: "start",
-        title: "Ensure Session",
-        desc: "UUID 생성 또는 resume",
-        detail: "session_id가 없으면 UUID를 만들고 --session-id로 첫 시작한다. session_id가 있는데 tmux가 없으면 --resume으로 복구한다.",
-        command: "TERM=xterm-256color ./claude_tmux_control.py start \"$TMUX_SESSION\" --cwd \"$PROJECT_DIR\" --oauth-token-env ACCOUNT_A_TOKEN -- --session-id \"$SESSION_ID\""
+        title: "Ensure Internally",
+        desc: "UUID 생성/재사용/resume",
+        detail: "stream 내부에서 session_id가 없으면 UUID를 만들고, active tmux가 있으면 재사용하고, 없으면 --session-id 또는 --resume으로 Claude Code를 시작한다. 이 metadata는 로컬 state에 저장한다.",
+        command: "~/.cache/claude-tmux-control/sessions/<session_id>.json"
       },
       {
         key: "ready",
-        title: "Check Ready",
-        desc: "이전 turn 완료 확인",
-        detail: "done 이전에 새 입력을 보내지 않는다. 짧은 timeout으로 ready 여부를 확인하고 working이면 UI 정책에 따라 대기하거나 거절한다.",
-        command: "./claude_tmux_control.py wait-ready \"$TMUX_SESSION\" --timeout 5"
+        title: "Send Prompt",
+        desc: "초기 인자 또는 tmux 입력",
+        detail: "전송 전 transcript baseline과 active_turn owner/heartbeat를 state에 저장한다. 새 세션과 resume 세션은 Claude command 뒤에 prompt를 바로 붙인다. active tmux 세션이면 기존 Claude process에 prompt를 paste한다.",
+        command: "claude --session-id \"$SESSION_ID\" \"$USER_PROMPT\"\nclaude --resume \"$SESSION_ID\" \"$USER_PROMPT\""
       },
       {
         key: "send",
-        title: "Send Prompt",
-        desc: "tmux pane에 입력",
-        detail: "입력은 stdin/stdout이 아니라 tmux buffer paste와 Enter로 전달된다.",
-        command: "./claude_tmux_control.py send \"$TMUX_SESSION\" \"$USER_PROMPT\""
+        title: "Stream Events",
+        desc: "진행 이벤트 수신",
+        detail: "send_lock은 이미 풀린 상태다. stream owner가 heartbeat를 갱신하며 저장된 transcript offset 이후의 새 JSONL line만 읽는다.",
+        command: "seek(read_offset) -> emit {turn_id,event_id,source_offset,source_end_offset,block_index,...}"
       },
       {
         key: "stream",
-        title: "Stream JSONL",
-        desc: "진행 이벤트 수신",
-        detail: "stdout을 line-by-line JSON parse해서 thinking/tool/text를 UI에 push한다.",
-        command: "./claude_tmux_control.py stream \"$TMUX_SESSION\" --timeout 900 --idle 2"
+        title: "Done",
+        desc: "입력창 재활성화",
+        detail: "한 turn이 완료되면 answer-completion event로 done을 보낸다. usage/context/cost는 done에 넣지 않는다.",
+        command: "{\"event\":\"done\",\"session_id\":\"...\",\"turn_id\":\"...\",\"answer\":\"...\"}"
       },
       {
         key: "metrics",
         title: "Collect Metrics",
         desc: "시간/token/cost 계산",
-        detail: "elapsed는 앱 서버가 측정하고, token/context는 raw events에서 추출한다. cost는 pricing table로 계산한다.",
-        command: "./claude_tmux_control.py events \"$TMUX_SESSION\" --tail 200 --json"
+        detail: "done 직후 별도 metrics event를 보낸다. cache read/write, model, context, turn/session cost를 포함한다.",
+        command: "{\"event\":\"metrics\",\"turn_id\":\"...\",\"event_id\":\"...:metrics:330\",\"source_offset\":330,\"source_end_offset\":330,\"block_index\":-1,\"scope\":\"turn_final\",\"usage\":{\"cache_write_tokens\":500}}"
       },
       {
         key: "unlock",
-        title: "Release Lock",
-        desc: "다음 입력 허용",
-        detail: "stream에서 done을 받은 뒤 입력창을 다시 활성화하고 session lock을 해제한다.",
-        command: "lock.release(session_id)"
+        title: "Return",
+        desc: "stream process 종료",
+        detail: "metrics까지 보낸 뒤 active_turn을 정리하고 stream 명령은 종료된다. 다음 turn은 같은 session_id로 다시 stream을 호출한다.",
+        command: "exit 0"
       }
     ];
 
@@ -940,85 +962,94 @@
         name: "thinking",
         meta: "reasoning/progress",
         badge: "purple",
-        sample: {"event":"thinking","session_id":"550e8400-e29b-41d4-a716-446655440000","timestamp":"2026-05-16T12:00:00.000Z","text":"사용자의 요청을 구현 흐름으로 나누는 중..."},
+        sample: {"event":"thinking","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00010-00080:block0:thinking","source_offset":10,"source_end_offset":80,"block_index":0,"timestamp":"2026-05-16T12:00:00.000Z","text":"사용자의 요청을 구현 흐름으로 나누는 중..."},
         notice: "접힌 reasoning 영역이나 진행 상태 영역에 표시한다. 모든 환경에서 항상 나오는 것은 아니다."
       },
       {
         name: "tool_use",
         meta: "tool call start",
         badge: "yellow",
-        sample: {"event":"tool_use","session_id":"550e8400-e29b-41d4-a716-446655440000","timestamp":"2026-05-16T12:00:01.000Z","id":"toolu_01","name":"Bash","input":{"command":"rg -n \"stream\" ."}},
+        sample: {"event":"tool_use","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00081-00130:block0:tool_use","source_offset":81,"source_end_offset":130,"block_index":0,"timestamp":"2026-05-16T12:00:01.000Z","id":"toolu_01","name":"Bash","input":{"command":"rg -n \"stream\" ."}},
         notice: "도구 실행 시작 카드로 보여준다. 이 event만 보고 turn 완료로 판단하면 안 된다."
       },
       {
         name: "tool_result",
         meta: "tool call result",
         badge: "green",
-        sample: {"event":"tool_result","session_id":"550e8400-e29b-41d4-a716-446655440000","timestamp":"2026-05-16T12:00:02.000Z","tool_use_id":"toolu_01","text":"claude_tmux_control.py:612:def _print_stream","is_error":false},
+        sample: {"event":"tool_result","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00131-00210:block0:tool_result","source_offset":131,"source_end_offset":210,"block_index":0,"timestamp":"2026-05-16T12:00:02.000Z","tool_use_id":"toolu_01","text":"claude_tmux_control.py:612:def _print_stream","is_error":false},
         notice: "tool output 또는 error를 표시한다. Task/subagent tool result 뒤에도 최종 assistant_text를 기다려야 한다."
       },
       {
         name: "assistant_text",
         meta: "answer chunk",
         badge: "blue",
-        sample: {"event":"assistant_text","session_id":"550e8400-e29b-41d4-a716-446655440000","timestamp":"2026-05-16T12:00:03.000Z","text":"현재 CLI는 stream 명령으로 최신 turn을 JSONL로 출력합니다."},
+        sample: {"event":"assistant_text","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00211-00330:block0:assistant_text","source_offset":211,"source_end_offset":330,"block_index":0,"timestamp":"2026-05-16T12:00:03.000Z","text":"현재 CLI는 stream 명령으로 최신 turn을 JSONL로 출력합니다."},
         notice: "답변 영역에 append한다. 현재 구현은 block 단위 event라 token-by-token streaming은 아니다."
       },
       {
         name: "done",
         meta: "turn complete",
         badge: "green",
-        sample: {"event":"done","session_id":"550e8400-e29b-41d4-a716-446655440000","state":"ready","reason":"prompt visible; transcript ready","answer":"현재 CLI는 stream 명령으로 최신 turn을 JSONL로 출력합니다."},
+        sample: {"event":"done","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:done:330","state":"ready","reason":"prompt visible; transcript ready","answer":"현재 CLI는 stream 명령으로 최신 turn을 JSONL로 출력합니다."},
         notice: "이 event를 받은 뒤 입력창을 다시 활성화한다. 바로 다음 별도 metrics event로 turn_final 메트릭을 보낸다."
       },
       {
         name: "metrics",
         meta: "turn final metrics",
         badge: "blue",
-        sample: {"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","scope":"turn_final","model":"claude-sonnet-4-5-20250929","elapsed_ms":18342,"usage":{"input_tokens":12000,"cache_read_tokens":8000,"cache_write_tokens":500,"output_tokens":1400},"context":{"current_size":64000,"window_size":200000},"cost":{"turn_usd":0.0572,"session_usd":0.2516,"estimated":true,"pricing_version":"anthropic-2026-05-16"}},
+        sample: {"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:metrics:330","source_offset":330,"source_end_offset":330,"block_index":-1,"scope":"turn_final","model":"claude-sonnet-4-5-20250929","elapsed_ms":18342,"usage":{"input_tokens":12000,"cache_read_tokens":8000,"cache_write_tokens":500,"output_tokens":1400},"context":{"current_size":64000,"window_size":200000},"cost":{"turn_usd":0.0572,"session_usd":0.2516,"estimated":true,"pricing_version":"anthropic-2026-05-16"}},
         notice: "기본 전달 시점은 done 직후다. stream 중간 metrics는 raw transcript에 usage/context/model이 먼저 나온 경우에만 best-effort 옵션으로 둔다."
       },
       {
         name: "timeout",
         meta: "not complete",
         badge: "red",
-        sample: {"event":"timeout","session_id":"550e8400-e29b-41d4-a716-446655440000","state":"timeout","reason":"not ready after 900.0s; last=working"},
+        sample: {"event":"timeout","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","state":"timeout","reason":"not ready after 900.0s; last=working"},
         notice: "프로세스가 끝났더라도 session이 계속 처리 중일 수 있다. UI에는 처리 중/재연결 상태로 보여준다."
       }
     ];
 
     const commandTemplates = {
-      start: {
-        title: "new session",
-        render: s => `SESSION_ID="${escapeHtml(s.sessionId)}"
-TMUX_SESSION="${escapeHtml(s.tmux)}"
-
-TERM=xterm-256color \\
-./claude_tmux_control.py start "${escapeHtml(s.tmux)}" \\
+      stream: {
+        title: "high-level stream",
+        render: s => `TERM=xterm-256color \\
+./claude_tmux_control.py stream${s.mode === "existing" ? ` \\
+  --session-id "${escapeHtml(s.sessionId)}"` : ""} \\
   --cwd "${escapeHtml(s.projectDir)}" \\
   --oauth-token-env ${escapeHtml(s.oauthEnv)} \\
-  -- --session-id "${escapeHtml(s.sessionId)}"`
+  "${escapeHtml(s.userPrompt)}"${s.claudeArgs ? ` \\
+  -- ${escapeHtml(s.claudeArgs)}` : ""}`
       },
-      resume: {
-        title: "resume inactive session",
-        render: s => `SESSION_ID="${escapeHtml(s.sessionId)}"
-TMUX_SESSION="${escapeHtml(s.tmux)}"
-
-TERM=xterm-256color \\
-./claude_tmux_control.py start "${escapeHtml(s.tmux)}" \\
+      ask: {
+        title: "non-streaming ask",
+        render: s => `TERM=xterm-256color \\
+./claude_tmux_control.py ask${s.mode === "existing" ? ` \\
+  --session-id "${escapeHtml(s.sessionId)}"` : ""} \\
   --cwd "${escapeHtml(s.projectDir)}" \\
   --oauth-token-env ${escapeHtml(s.oauthEnv)} \\
-  -- --resume "${escapeHtml(s.sessionId)}"`
+  "${escapeHtml(s.userPrompt)}"
+
+# waits until the turn is complete, then returns final answer + metrics`
       },
-      turn: {
-        title: "one turn",
-        render: s => `./claude_tmux_control.py wait-ready "${escapeHtml(s.tmux)}" --timeout 5
-./claude_tmux_control.py send "${escapeHtml(s.tmux)}" "$USER_PROMPT"
-<span class="highlight">./claude_tmux_control.py stream "${escapeHtml(s.tmux)}" --timeout 900 --idle 2</span>`
+      internal: {
+        title: "internal tmux detail",
+        render: s => `# 서비스 클라이언트는 이 값을 직접 넘기지 않는다.
+SESSION_ID="${escapeHtml(s.sessionId)}"
+TMUX_SESSION="ctc-csess-$SESSION_ID"
+
+# new session:
+claude --session-id "$SESSION_ID" "${escapeHtml(s.userPrompt)}"
+
+# resume inactive session:
+claude --resume "$SESSION_ID" "${escapeHtml(s.userPrompt)}"
+
+# active tmux session:
+tmux load-buffer + paste-buffer + send-keys Enter`
       },
       metrics: {
         title: "metrics source",
-        render: s => `<span class="highlight">./claude_tmux_control.py events "${escapeHtml(s.tmux)}" --tail 200 --json</span>
+        render: s => `<span class="highlight"># high-level stream emits this after done</span>
+{"event":"metrics","session_id":"${escapeHtml(s.sessionId)}","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:metrics:330","source_offset":330,"source_end_offset":330,"block_index":-1,"scope":"turn_final",...}
 
 # 앱 서버에서 latest user turn 이후 raw event를 보고 추출
 # event.usage / event.message.usage / event.response.usage
@@ -1036,7 +1067,7 @@ TERM=xterm-256color \\
     };
 
     let selectedFlow = "start";
-    let selectedCommandTab = "start";
+    let selectedCommandTab = "stream";
     let selectedEvent = "tool_use";
 
     function slug(value) {
@@ -1053,7 +1084,10 @@ TERM=xterm-256color \\
         sessionId,
         tmux: `ctc-csess-${sessionId}`,
         projectDir: document.getElementById("projectDir").value || ".",
-        oauthEnv: slug(document.getElementById("oauthEnv").value || "CLAUDE_CODE_OAUTH_TOKEN")
+        oauthEnv: slug(document.getElementById("oauthEnv").value || "CLAUDE_CODE_OAUTH_TOKEN"),
+        userPrompt: document.getElementById("userPrompt").value || "Finish this PR",
+        claudeArgs: document.getElementById("claudeArgs").value.trim(),
+        mode: document.getElementById("sessionMode").value
       };
     }
 
@@ -1160,8 +1194,9 @@ TERM=xterm-256color \\
       });
     });
 
-    document.querySelectorAll("#sessionId, #projectDir, #oauthEnv").forEach(input => {
+    document.querySelectorAll("#sessionId, #projectDir, #oauthEnv, #userPrompt, #claudeArgs, #sessionMode").forEach(input => {
       input.addEventListener("input", renderCommands);
+      input.addEventListener("change", renderCommands);
     });
 
     document.querySelectorAll("#inputTokens, #cacheReadTokens, #cacheWriteTokens, #outputTokens, #inputPrice, #cacheReadPrice, #cacheWritePrice, #outputPrice, #previousCost").forEach(input => {

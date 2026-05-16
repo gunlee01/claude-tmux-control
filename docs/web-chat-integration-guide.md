@@ -38,12 +38,19 @@ tmux_session = ctc-csess-550e8400-e29b-41d4-a716-446655440000
 UUID v4
 ```
 
+클라이언트가 `session_id`를 보내도 bridge는 UUID 형식을 검증해야 합니다.
+
+UUID가 아니면 state path나 tmux session name에 사용하지 않고 요청을 거절합니다.
+
+기존 state가 있는 `session_id`에 다른 `cwd`가 들어오면 canonical path 기준으로 비교한 뒤 `session_cwd_mismatch`로 fail closed합니다.
+
 ### 실행 원본
 
 | 목적 | CLI 명령 | 원본 |
 | --- | --- | --- |
-| session 생성/재사용 | `ensure` target, 현재는 `start` 조합 | `tmux new-session` + Claude `--session-id`/`--resume` |
-| prompt 입력 | `send` | `tmux load-buffer` + `paste-buffer` |
+| 대화 한 턴 실행 | `stream [--session-id] --cwd <path> "<prompt>"` target | session 생성/재사용/resume + prompt 입력 + JSONL stream |
+| session 생성/재사용 | `ensure` internal step | `tmux new-session` + Claude `--session-id`/`--resume` |
+| prompt 입력 | `send` low-level fallback | `tmux load-buffer` + `paste-buffer` |
 | 진행 stream | `stream` | Claude Code transcript JSONL + tmux ready check |
 | raw event 조회 | `events --json` | Claude Code transcript JSONL |
 | 최종 답변만 조회 | `answer` | Claude Code transcript JSONL |
@@ -51,31 +58,40 @@ UUID v4
 | session 종료 | `kill` | `tmux kill-session` |
 | 오래된 session 정리 | `reap` | tmux session + local state |
 
-## 2. Startup Flow
+## 2. Primary Stream Flow
 
-웹 서버는 첫 prompt에서 `session_id`가 없으면 UUID를 생성합니다.
+웹 서버가 주로 사용할 고수준 명령은 `stream`입니다.
 
-현재 CLI에는 `ensure`가 아직 없으므로, 구현 전까지는 앱 서버가 UUID 생성과 `start` command 구성을 담당합니다.
+`stream`은 prompt를 받아서 한 대화 turn을 실행하고, 진행 이벤트를 JSONL로 출력한 뒤 `done`과 final `metrics`까지 내보내는 명령이어야 합니다.
 
-첫 시작은 Claude Code에 같은 UUID를 `--session-id`로 넘깁니다.
+새 대화:
 
 ```bash
-SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-TMUX_SESSION="ctc-csess-$SESSION_ID"
-
 TERM=xterm-256color \
-./claude_tmux_control.py start "$TMUX_SESSION" \
+./claude_tmux_control.py stream \
   --cwd "$PROJECT_DIR" \
-  -- --session-id "$SESSION_ID"
+  "$USER_PROMPT"
 ```
 
-Claude Code 옵션을 그대로 넘겨야 하면 `start` 뒤에 붙입니다.
+기존 대화:
 
 ```bash
 TERM=xterm-256color \
-./claude_tmux_control.py start "$TMUX_SESSION" \
+./claude_tmux_control.py stream \
+  --session-id "$SESSION_ID" \
   --cwd "$PROJECT_DIR" \
-  -- --session-id "$SESSION_ID" --model opus --add-dir ../shared
+  "$USER_PROMPT"
+```
+
+Claude Code 옵션을 그대로 넘겨야 하면 `--` 뒤에 둡니다.
+
+```bash
+TERM=xterm-256color \
+./claude_tmux_control.py stream \
+  --session-id "$SESSION_ID" \
+  --cwd "$PROJECT_DIR" \
+  "$USER_PROMPT" \
+  -- --model opus --add-dir ../shared
 ```
 
 계정별 OAuth token을 써야 하면 요청 처리 프로세스에서 source env를 선택합니다.
@@ -83,32 +99,70 @@ TERM=xterm-256color \
 ```bash
 ACCOUNT_A_TOKEN="$TOKEN" \
 TERM=xterm-256color \
-./claude_tmux_control.py start "$TMUX_SESSION" \
+./claude_tmux_control.py stream \
+  --session-id "$SESSION_ID" \
   --cwd "$PROJECT_DIR" \
   --oauth-token-env ACCOUNT_A_TOKEN \
-  -- --session-id "$SESSION_ID"
+  "$USER_PROMPT"
 ```
 
-`start`는 같은 tmux session이 이미 있으면 재사용합니다.
+고수준 `stream` 내부 동작:
 
-따라서 웹 서버는 "없으면 만들고, 있으면 그대로 사용" 흐름에 `start`를 그대로 쓸 수 있습니다.
+```text
+if session_id is empty:
+  generate UUID
+  tmux_session = ctc-csess-<uuid>
+  start Claude Code with --session-id <uuid> "<prompt>"
 
-tmux session이 이미 종료된 상태에서 클라이언트가 `session_id`를 보내면 새 tmux session을 만들고 Claude Code를 resume합니다.
+else if tmux ctc-csess-<session_id> exists:
+  send "<prompt>" to the active Claude Code process
 
-```bash
-TMUX_SESSION="ctc-csess-$SESSION_ID"
-
-TERM=xterm-256color \
-./claude_tmux_control.py start "$TMUX_SESSION" \
-  --cwd "$PROJECT_DIR" \
-  -- --resume "$SESSION_ID"
+else:
+  tmux_session = ctc-csess-<session_id>
+  start Claude Code with --resume <session_id> "<prompt>"
 ```
 
-향후 `ensure` 명령은 이 판단을 CLI 내부에서 처리해야 합니다.
+stream은 로컬 session state를 사용해서 transcript cursor를 관리합니다.
+
+저장 위치:
+
+```text
+~/.cache/claude-tmux-control/sessions/<session_id>.json
+```
+
+새 turn의 시작점은 다음 순서로 찾습니다.
+
+```text
+1. 저장된 current turn cursor
+2. prompt 전송 직전 transcript offset 이후의 첫 user event
+3. prompt 전송 직전 timestamp 이후의 첫 user event
+4. prompt hash/text matching fallback
+```
+
+중요한 제약:
+
+- transcript baseline은 prompt를 보내기 전에 캡처합니다.
+- offset cursor는 `scan_offset`, `replay_start_offset`, `read_offset`, `last_stdout_flushed_offset`처럼 역할별로 분리합니다.
+- 같은 `session_id`에 진행 중인 turn이 있으면 새 prompt를 보내지 않습니다.
+- 재연결은 새 prompt 전송이 아니라 active turn에 attach하는 방식으로 처리합니다.
+
+turn이 anchor되면 이후 polling은 transcript 전체를 다시 읽지 않고 저장된 offset 이후의 새 JSONL line만 읽는 방향입니다.
+
+웹용 high-level stream의 기본 polling interval은 `2.0`초로 둡니다.
+
+현재 CLI에는 이 고수준 `stream`이 아직 없고, 구현된 `stream <tmux_session>`은 low-level read stream입니다.
+
+구현 전까지 `start -> send -> stream` 조합은 smoke/debug 전용으로만 사용합니다.
+
+production fallback으로 쓰려면 앱 서버가 같은 `send_lock`, `active_turn`, owner heartbeat, conservative replay cursor 계약을 직접 구현해야 합니다.
+
+이때 `TMUX_SESSION=ctc-csess-$SESSION_ID`는 내부 구현 detail이며, 최종 클라이언트 계약에는 노출하지 않습니다.
+
+내부 fallback 예시는 CLI manual을 봅니다.
 
 ## 3. One Turn Flow
 
-한 사용자 입력 turn은 반드시 session별 lock 안에서 처리합니다.
+한 사용자 입력 turn은 `send_lock`과 `active_turn`으로 보호합니다.
 
 같은 `tmux_session`에 동시에 두 prompt를 보내면 transcript와 완료 판정이 꼬일 수 있습니다.
 
@@ -116,26 +170,24 @@ TERM=xterm-256color \
 
 ```text
 POST /conversations/:id/messages
-  -> if request.session_id is empty, generate UUID
-  -> tmux_session = ctc-csess-<session_id>
-  -> acquire lock(session_id)
-  -> if tmux exists, reuse it
-  -> else if this is a new session, start Claude with --session-id <session_id>
-  -> else start Claude with --resume <session_id>
-  -> status 또는 wait-ready로 이전 turn 완료 확인
-  -> send prompt
-  -> stream events until done
+  -> run high-level stream with optional request.session_id and prompt
+  -> bridge acquires short send_lock
+  -> bridge creates/reuses/resumes Claude Code session
+  -> bridge captures transcript baseline before send/start/resume
+  -> bridge persists active_turn with owner and heartbeat
+  -> bridge sends prompt or passes it as initial Claude command argument
+  -> bridge releases send_lock
+  -> stream owner tails transcript from stored offset
+  -> bridge streams events until done
   -> include session_id in every client event
-  -> collect usage/context/cost
-  -> release lock(session_id)
+  -> emit done, then emit separate final metrics
+  -> clear active_turn only after the turn is confirmed complete
 ```
 
 CLI 예:
 
 ```bash
-./claude_tmux_control.py wait-ready "$TMUX_SESSION" --timeout 5
-./claude_tmux_control.py send "$TMUX_SESSION" "$USER_PROMPT"
-./claude_tmux_control.py stream "$TMUX_SESSION" --timeout 900 --idle 2
+./claude_tmux_control.py stream --session-id "$SESSION_ID" --cwd "$PROJECT_DIR" "$USER_PROMPT"
 ```
 
 `wait-ready`가 실패하면 정책을 정해야 합니다.
@@ -145,11 +197,23 @@ CLI 예:
 | 아직 working | 새 입력 거절 또는 현재 stream에 attach |
 | timeout | UI에 "아직 처리 중" 표시 |
 | needs confirmation | session 재시작 또는 운영자 확인 |
-| inactive | `start`로 session 재생성 후 입력 |
+| inactive | `stream --session-id ...`가 내부에서 `--resume`으로 재생성 |
 
-현재 CLI에는 `ensure`/`ask` 단일 명령이 아직 없습니다.
+`send_lock`은 prompt 전송 구간만 보호하는 짧은 lock입니다.
 
-그래서 앱 서버가 `start -> send -> stream`을 조합합니다.
+긴 stream 동안 새 prompt를 막는 것은 `active_turn` state입니다.
+
+브라우저가 끊겼다가 다시 붙으면 새 prompt를 보내지 않고 `active_turn`에 attach합니다.
+
+`timeout`이나 `failed`는 "입력 가능" 신호가 아닙니다.
+
+이 경우 `active_turn`을 유지하고, attach/inspect/kill로 이전 turn이 끝났는지 확인한 뒤 다음 입력을 허용합니다.
+
+`ensure`는 사용자가 주로 직접 호출할 명령이 아니라, `stream` 내부에서 수행하는 session 보장 단계입니다.
+
+`ask`는 stream이 필요 없을 때 쓰는 non-streaming convenience 명령입니다.
+
+`ask`는 전체 turn이 끝난 뒤 최종 answer와 metrics를 한 번에 반환합니다.
 
 ## 4. Stream Handling
 
@@ -158,7 +222,7 @@ CLI 예:
 앱 서버는 child process stdout을 line-by-line으로 읽고, 각 줄을 JSON으로 parse합니다.
 
 ```bash
-./claude_tmux_control.py stream "$TMUX_SESSION" --timeout 900 --idle 2
+./claude_tmux_control.py stream --session-id "$SESSION_ID" --cwd "$PROJECT_DIR" "$USER_PROMPT"
 ```
 
 대표 event:
@@ -171,15 +235,17 @@ CLI 예:
 | `tool_result` | tool call 결과 | tool output 또는 error |
 | `assistant_text` | assistant 답변 text block | 답변 영역에 append |
 | `done` | turn 완료 | 입력창 재활성화 |
+| `metrics` | turn final metrics | token/context/cost 패널 갱신 |
 | `timeout` | 완료 전 timeout | 처리 중/재시도 UI |
 
 예:
 
 ```json
-{"event":"tool_use","session_id":"550e8400-e29b-41d4-a716-446655440000","timestamp":"2026-05-16T12:00:01.000Z","id":"toolu_...","name":"Bash","input":{"command":"ls"}}
-{"event":"tool_result","session_id":"550e8400-e29b-41d4-a716-446655440000","timestamp":"2026-05-16T12:00:02.000Z","tool_use_id":"toolu_...","text":"README.md\n"}
-{"event":"assistant_text","session_id":"550e8400-e29b-41d4-a716-446655440000","timestamp":"2026-05-16T12:00:03.000Z","text":"현재 디렉터리는..."}
-{"event":"done","session_id":"550e8400-e29b-41d4-a716-446655440000","state":"ready","reason":"prompt visible; transcript ready","answer":"현재 디렉터리는..."}
+{"event":"tool_use","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00010-00080:block0:tool_use","source_offset":10,"source_end_offset":80,"block_index":0,"timestamp":"2026-05-16T12:00:01.000Z","id":"toolu_...","name":"Bash","input":{"command":"ls"}}
+{"event":"tool_result","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00081-00130:block0:tool_result","source_offset":81,"source_end_offset":130,"block_index":0,"timestamp":"2026-05-16T12:00:02.000Z","tool_use_id":"toolu_...","text":"README.md\n"}
+{"event":"assistant_text","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00131-00220:block0:assistant_text","source_offset":131,"source_end_offset":220,"block_index":0,"timestamp":"2026-05-16T12:00:03.000Z","text":"현재 디렉터리는..."}
+{"event":"done","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:done:220","state":"ready","reason":"prompt visible; transcript ready","answer":"현재 디렉터리는..."}
+{"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:metrics:220","source_offset":220,"source_end_offset":220,"block_index":-1,"scope":"turn_final","usage":{"input_tokens":12000,"cache_read_tokens":8000,"cache_write_tokens":500,"output_tokens":1400}}
 ```
 
 현재 `stream` 명령은 아직 `session_id`를 자동 포함하지 않습니다.
@@ -197,7 +263,7 @@ idle
   -> idle
 ```
 
-`done`을 받기 전에는 같은 session에 새 `send`를 하지 않습니다.
+`done`을 받기 전에는 같은 session에 새 prompt를 보내지 않습니다.
 
 `tool_result`만 보고 완료로 판단하면 안 됩니다.
 
@@ -234,9 +300,7 @@ elapsed_ms = finished - started
 
 usage/context 필드는 Claude Code transcript schema에 따라 위치와 이름이 달라질 수 있으므로, 통계 수집은 raw event에서 하는 편이 낫습니다.
 
-```bash
-./claude_tmux_control.py events "$TMUX_SESSION" --tail 200 --json
-```
+고수준 `stats`/`metrics` 명령이 생기기 전까지는 bridge 내부에서 해당 tmux session의 raw events를 읽어 계산합니다.
 
 앱 서버는 최신 user turn 이후의 raw event를 보고 다음 위치를 우선 탐색합니다.
 
@@ -290,6 +354,11 @@ model              <- event/message/response model
 {
   "event": "metrics",
   "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "turn_id": "turn_20260516_0001",
+  "event_id": "turn_20260516_0001:metrics:220",
+  "source_offset": 220,
+  "source_end_offset": 220,
+  "block_index": -1,
   "scope": "turn_final",
   "model": "claude-sonnet-4-5-20250929",
   "elapsed_ms": 18342,
@@ -311,6 +380,10 @@ model              <- event/message/response model
   }
 }
 ```
+
+final `metrics`는 replay될 수 있으므로 `turn_id`와 deterministic `event_id`로 dedupe합니다.
+
+`done`과 `metrics`의 synthetic `event_id`는 `<turn_id>:done:<completed_offset>`, `<turn_id>:metrics:<completed_offset>` 형식을 사용합니다.
 
 중간 metrics도 기술적으로는 가능합니다.
 
@@ -362,9 +435,7 @@ bridge `session_id`, tmux session name, Claude transcript 내부 `sessionId`는 
 
 검증용으로는 `events --json` raw event에서 Claude transcript의 `sessionId`가 같은지 확인할 수 있습니다.
 
-```bash
-./claude_tmux_control.py events "$TMUX_SESSION" --tail 50 --json
-```
+이 명령도 고수준 `info --session-id <session_id>`가 생기면 직접 tmux session name을 요구하지 않아야 합니다.
 
 향후 `info` 명령이 생기면 `session_id`, `tmux_session`, Claude `sessionId`, transcript path를 한 번에 반환하게 할 예정입니다.
 
@@ -376,58 +447,30 @@ bridge `session_id`, tmux session name, Claude transcript 내부 `sessionId`는 
 
 ```python
 def send_turn(session_id, project_dir, prompt, account_env):
-    session_id = session_id or new_uuid()
-    tmux_session = f"ctc-csess-{session_id}"
     started_at = monotonic()
 
-    with session_lock(session_id):
-        if tmux_exists(tmux_session):
-            start_args = None
-        elif is_new_session(session_id):
-            start_args = ["--session-id", session_id]
-        else:
-            start_args = ["--resume", session_id]
+    command = [
+        "./claude_tmux_control.py",
+        "stream",
+        "--cwd",
+        project_dir,
+        "--oauth-token-env",
+        account_env,
+    ]
+    if session_id:
+        command += ["--session-id", session_id]
+    command.append(prompt)
 
-        if start_args:
-            run([
-                "./claude_tmux_control.py",
-                "start",
-                tmux_session,
-                "--cwd",
-                project_dir,
-                "--oauth-token-env",
-                account_env,
-                "--",
-                *start_args,
-            ])
+    for event in stream_jsonl(command):
+        session_id = event["session_id"]
+        if event["event"] == "metrics":
+            event["elapsed_ms"] = event.get("elapsed_ms") or int((monotonic() - started_at) * 1000)
+            event["cost"] = event.get("cost") or estimate_or_mark_unavailable(event)
+        push_to_client(session_id, event)
+        if event["event"] == "done":
+            answer = event["answer"]
 
-        run([
-            "./claude_tmux_control.py",
-            "wait-ready",
-            tmux_session,
-            "--timeout",
-            "5",
-        ])
-
-        run(["./claude_tmux_control.py", "send", tmux_session, prompt])
-
-        for event in stream_jsonl([
-            "./claude_tmux_control.py",
-            "stream",
-            tmux_session,
-            "--timeout",
-            "900",
-            "--idle",
-            "2",
-        ]):
-            event["session_id"] = session_id
-            push_to_client(session_id, event)
-            if event["event"] == "done":
-                finished_at = monotonic()
-                metrics = collect_metrics(tmux_session)
-                metrics["elapsed_ms"] = int((finished_at - started_at) * 1000)
-                push_to_client(session_id, {"event": "metrics", "session_id": session_id, **metrics})
-                return event["answer"]
+    return answer
 ```
 
 ## 8. Session Cleanup
@@ -463,16 +506,21 @@ cron, systemd timer, app scheduler 중 하나에서 호출합니다.
 
 웹 채팅 제품 관점에서 아직 남은 CLI 개선점입니다.
 
-- `ensure <session-id>`: session 생성/재사용을 machine-readable metadata로 반환
+- 고수준 `stream [--session-id] --cwd <path> "<prompt>"` 구현
   - `session-id`가 없으면 UUID 생성
-  - 첫 시작이면 `claude --session-id <uuid>`
-  - tmux가 없고 기존 `session-id`가 있으면 `claude --resume <uuid>`
-- `ask <session-id>`: `ensure + send + stream`을 하나로 묶은 명령
+  - 첫 시작이면 `claude --session-id <uuid> "<prompt>"`
+  - tmux가 없고 기존 `session-id`가 있으면 `claude --resume <uuid> "<prompt>"`
+  - tmux가 active면 기존 Claude Code process에 prompt 전송
+  - 한 turn의 progress/done/metrics를 JSONL로 출력
+- `ensure`: 고수준 `stream` 내부에서 쓰는 session 보장 단계로 유지
+- `ask [--session-id] --cwd <path> "<prompt>"`: streaming 없이 전체 turn 완료 후 최종 answer와 metrics를 한 번에 반환
 - `info <session-id>`: tmux/Claude transcript/sessionId metadata 반환
 - 모든 stream/done/answer JSON 응답에 `session_id` 포함
 - `status --json`, `answer --json`, `turn --json`
-- `stream`의 `done` event에 usage/context summary 포함
-- session별 send lock 구현
+- `done` 직후 별도 `metrics` event 출력
+- 짧은 `send_lock`, state-write lock, durable `active_turn` 구현
+- `active_turn` owner heartbeat와 stale takeover 구현
+- stable `turn_id`/`event_id`/`source_offset`/`source_end_offset`/`block_index` 기반 at-least-once replay 구현
 - transcript rotation follow
 - cost 계산을 위한 model/usage extraction helper
 

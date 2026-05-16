@@ -71,6 +71,8 @@ bridge가 UUID 기반 `session_id`를 생성하고 Claude Code 첫 실행에 `--
 - Derive tmux session names from bridge `session_id`.
 - The bridge owns the canonical `session_id`.
 - Generate `session_id` as UUID v4 when the client does not provide one.
+- Validate client-provided `session_id` as UUID before using it in a path, state filename, or tmux session name.
+- If existing state has a different canonical `cwd` from the request, fail closed with `session_cwd_mismatch`.
 - Pass the generated id to first-run Claude Code as `--session-id <session_id>`.
 - Reuse tmux session name `ctc-csess-<session_id>`.
 - If the client provides `session_id` and the tmux session is inactive, restart Claude Code with `--resume <session_id>`.
@@ -83,8 +85,17 @@ bridge가 UUID 기반 `session_id`를 생성하고 Claude Code 첫 실행에 `--
 - Pass caller-provided OAuth tokens into new tmux sessions as `CLAUDE_CODE_OAUTH_TOKEN`.
 - Select account tokens at process invocation time, for example by setting different source env variables per request.
 - Store lightweight local session state only for operational hints such as last prompt and cwd.
-- Do not rely on local state as the authoritative session mapping.
-- Resolve transcript by cwd-specific Claude project directory and the latest user prompt.
+- Use local state for transcript cursoring, turn anchors, locks, usage totals, and efficient streaming.
+- Do not rely on local state as the authoritative session mapping; derive tmux session name from bridge `session_id`.
+- Store transcript path/file identity and offsets to avoid repeatedly reading the whole JSONL file.
+- Capture transcript baseline before any send/start/resume action.
+- Anchor a new turn by `before_send_transcript.offset` or `before_send_wall_time_utc` first, using prompt matching only as unambiguous fallback.
+- Split locking into short `send_lock`, state-write lock, and durable `active_turn`; do not rely on one whole-stream lock.
+- Store state `generation`, writer metadata, active turn owner pid/host, heartbeat, and stream epoch to make reconnect/takeover deterministic.
+- Treat stream delivery as at-least-once until a future client acknowledgement protocol exists. Every streamed event must have stable `turn_id`, deterministic `event_id`, source start/end offset, and block ordinal metadata so clients can deduplicate replay.
+- Support attach/reconnect semantics before allowing web clients to reconnect to an in-progress turn.
+- Default high-level web stream polling interval is 2.0 seconds.
+- Resolve transcript by cwd-specific Claude project directory, pinned file identity, and Claude transcript `sessionId` when available. Prompt matching is only a diagnostic fallback and must fail closed if ambiguous.
 - Ignore internal Claude Code hook prompts such as session-summary prompts when extracting user turns.
 - Add machine-readable output options for service integration.
 - Add commands for session lifecycle:
@@ -117,9 +128,15 @@ Existing commands remain:
 - `kill`
 - `reap`
 
-`stream <session>` contract:
+High-level `stream [--session-id <id>] --cwd <path> <prompt...>` contract:
 
 - Emits one JSON object per line.
+- Accepts the user prompt for one conversation turn.
+- Generates a UUID `session_id` when omitted.
+- Uses tmux session name `ctc-csess-<session_id>` internally.
+- If tmux session is inactive and this is a new session, launches Claude Code with `--session-id <session_id> <prompt>`.
+- If tmux session is inactive and `session_id` was provided, launches Claude Code with `--resume <session_id> <prompt>`.
+- If tmux session is active, sends the prompt to the existing Claude Code process.
 - Emits normalized events: `user`, `thinking`, `tool_use`, `tool_result`, `assistant_text`.
 - Emits `done` and exits `0` only after the target turn is complete.
 - Does not treat `tool_use`, `tool_result`, or thinking-only assistant events as complete.
@@ -129,19 +146,22 @@ Existing commands remain:
 - Final metrics include model, elapsed time, input tokens, cache read tokens, cache write tokens, output tokens, context size, estimated turn cost, and estimated session cumulative cost when available.
 - Mid-stream metrics are optional best-effort events only when new transcript events already contain usage/context/model fields.
 
-Proposed additions:
+Proposed additions and high-level commands:
 
-- `ensure <session-id> --cwd <path>`
+- `stream [--session-id <id>] --cwd <path> <prompt...>`
+  - Primary service-facing command for web chat.
+  - Ensures/reuses/resumes the session, sends the prompt, streams one full turn, then emits final metrics.
+- internal `ensure <session-id> --cwd <path>`
   - If `session-id` is omitted, generate a UUID v4.
   - Use tmux session name `ctc-csess-<session-id>`.
   - If the tmux session exists, reuse it.
   - If this is a new session, create tmux session and launch Claude Code with `--session-id <session-id>`.
   - If this is a known session but tmux is inactive, create tmux session and launch Claude Code with `--resume <session-id>`.
   - Output resolved session metadata.
-- `ask <session-id> <prompt...>`
+- `ask [--session-id <id>] --cwd <path> <prompt...>`
   - Ensure active session.
   - Send prompt.
-  - Optionally wait and return answer or turn.
+  - Wait until the full turn is done and return final answer plus metrics without streaming progress events.
 - `list`
   - List active tmux sessions controlled by this CLI.
 - `info <session-id>`
@@ -175,6 +195,11 @@ Suggested final metrics event:
 {
   "event": "metrics",
   "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "turn_id": "turn_20260516_0001",
+  "event_id": "turn_20260516_0001:metrics:82300",
+  "source_offset": 82300,
+  "source_end_offset": 82300,
+  "block_index": -1,
   "scope": "turn_final",
   "model": "claude-sonnet-4-5-20250929",
   "elapsed_ms": 18342,
@@ -196,6 +221,15 @@ Suggested final metrics event:
   }
 }
 ```
+
+Synthetic `done` and final `metrics` ids are deterministic:
+
+```text
+<turn_id>:done:<completed_offset>
+<turn_id>:metrics:<completed_offset>
+```
+
+They use `completed_offset` as both `source_offset` and `source_end_offset`, with `block_index = -1`.
 
 ## Status Detection Model
 
@@ -231,6 +265,75 @@ The useful event shapes include:
 
 Transcript writes are asynchronous. Immediately after sending a prompt, the prompt may not yet be present in the file. During that race window the bridge should report `working`, not `ready`.
 
+## Local Storage And Cursoring
+
+High-level web chat uses a small local JSON state store under:
+
+```text
+~/.cache/claude-tmux-control/
+```
+
+The state store is used for:
+
+- session metadata
+- tmux session name derived from `session_id`
+- transcript path/file identity
+- transcript read offset
+- current turn start/current/emitted offsets
+- prompt hash and preview
+- short send lock metadata
+- durable active turn state
+- usage totals and estimated session cumulative cost
+- state generation and writer metadata
+- active turn owner, heartbeat, takeover epoch, and failure state
+
+This storage is not an external mapping database.
+
+The canonical identity remains the bridge `session_id`, and tmux session name is derived as:
+
+```text
+ctc-csess-<session_id>
+```
+
+For each new high-level `stream` call, the bridge records transcript file identity, offset, and wall-clock timestamp before sending the prompt. It then finds the current turn in this order:
+
+```text
+1. existing turn cursor in state
+2. first user event after before_send_transcript.offset
+3. first user event after before_send_wall_time_utc
+4. latest user event matching prompt hash/text, only if unambiguous
+```
+
+If no transcript exists before first launch, the bridge records an explicit `no_transcript_baseline` with the pre-send wall-clock timestamp. That fallback may only select events after that timestamp.
+
+After the target turn is anchored, the stream loop should read only new JSONL bytes from the last stored offset.
+
+Transcript rotation or truncation is detected by file identity or file size moving backwards, then the transcript is resolved again. If the transcript lacks Claude `sessionId`, recovery must prove the file lineage belongs to the active bridge session or fail closed with an ambiguous transcript error.
+
+Cursor fields must stay separate:
+
+```text
+transcript.scan_offset
+turn.anchor_start_offset
+turn.anchor_end_offset
+turn.replay_start_offset
+turn.read_offset
+turn.last_stdout_flushed_offset
+turn.completed_offset
+```
+
+If reconnect happens in v1, replay from conservative `replay_start_offset`.
+
+`last_stdout_flushed_offset` is diagnostic only because stdout flush does not prove that the app server or browser received the event.
+
+Only a future acknowledgement protocol may advance replay past the conservative anchor.
+
+State writes use a dedicated state-write lock plus `generation` compare/update. `send_lock` only covers ensure/start/resume/send. The stream owner keeps `active_turn.heartbeat_at` fresh; reconnect may attach read-only, and takeover is allowed only when the owner process is gone or the heartbeat lease is stale.
+
+`timeout` and `failed` events do not mean the session is ready for another prompt. They leave `active_turn` in place with `claude_state` as `working` or `unknown` until attach/inspect/kill confirms the prior turn ended.
+
+`done` is the answer-completion event. It must not carry usage/context/cost summary fields. Final usage and cost are emitted immediately after `done` as a separate `metrics` event for the same `turn_id`.
+
 ## Testing Decisions
 
 - Test `tmux` command construction with a fake runner.
@@ -246,6 +349,11 @@ Transcript writes are asynchronous. Immediately after sending a prompt, the prom
   - latest assistant text + screen ready -> `ready`
   - confirmation screen -> `needs_confirmation`
 - Test `answer --tail N` and `turn --tail N`.
+- Test state generation conflict handling and writer metadata preservation.
+- Test active turn heartbeat, stale owner takeover, and attach without prompt send.
+- Test at-least-once replay using stable `event_id` and source offsets.
+- Test that `timeout` or `failed` does not allow a new prompt until the prior turn is resolved.
+- Test that `done` and `metrics` are separate events with the same `turn_id`.
 - Add smoke tests using a harmless shell command in tmux.
 
 ## Out of Scope
@@ -266,5 +374,6 @@ The main reliability risk is transcript selection. The safest path is to combine
 - bridge-generated UUID session id
 - tmux session name `ctc-csess-<session_id>`
 - cwd-specific Claude project transcript directory
-- latest prompt matching
+- transcript file identity and offset/time baseline captured before send/start/resume
 - Claude transcript `sessionId` verification when available
+- prompt matching only as an unambiguous diagnostic fallback
