@@ -1,0 +1,1196 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Code tmux Bridge Web Chat Guide</title>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --surface: #ffffff;
+      --surface2: #eef3f8;
+      --border: #dbe3ee;
+      --text: #182033;
+      --muted: #63718b;
+      --blue: #2f68d8;
+      --green: #16875b;
+      --red: #d94841;
+      --yellow: #b7791f;
+      --purple: #7752c8;
+      --teal: #0f766e;
+      --ink: #101828;
+      --shadow: 0 1px 3px rgba(38, 53, 85, .08), 0 8px 24px rgba(38, 53, 85, .08);
+      --radius: 8px;
+      --mono: "SF Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.6 var(--sans);
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    .topbar {
+      background: #ffffff;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .topbar-inner {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .mark {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--blue), var(--teal));
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-weight: 800;
+    }
+
+    .brand-title {
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .brand-sub {
+      color: var(--muted);
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .nav {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+
+    .nav button,
+    .tab-button,
+    .mini-button {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 7px 10px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .nav button.active,
+    .tab-button.active,
+    .mini-button.active {
+      background: var(--ink);
+      border-color: var(--ink);
+      color: #fff;
+    }
+
+    .main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px 20px 56px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(300px, .8fr);
+      gap: 18px;
+      align-items: stretch;
+      margin-bottom: 18px;
+    }
+
+    .hero-band {
+      background: linear-gradient(120deg, #2f68d8 0%, #0f766e 56%, #7752c8 100%);
+      color: #fff;
+      border-radius: var(--radius);
+      padding: 28px;
+      min-height: 230px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: var(--shadow);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 4vw, 48px);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .lead {
+      margin: 14px 0 0;
+      font-size: 16px;
+      color: rgba(255, 255, 255, .9);
+      max-width: 760px;
+    }
+
+    .hero-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 22px;
+    }
+
+    .pill {
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .15);
+      border: 1px solid rgba(255, 255, 255, .25);
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+
+    .summary {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .summary h2,
+    section h2 {
+      margin: 0 0 12px;
+      font-size: 19px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    .summary ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .summary li + li {
+      margin-top: 8px;
+    }
+
+    section {
+      margin-top: 18px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+
+    .section-note {
+      color: var(--muted);
+      margin: 0;
+      max-width: 760px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: var(--radius);
+      padding: 14px;
+    }
+
+    .card h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      line-height: 1.35;
+    }
+
+    .card p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .role-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .role-row {
+      display: grid;
+      grid-template-columns: 150px minmax(0, 1fr);
+      gap: 10px;
+      padding: 9px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface2);
+    }
+
+    .role-row strong {
+      color: var(--ink);
+    }
+
+    .flow-wrap {
+      overflow-x: auto;
+      padding: 4px 0 2px;
+    }
+
+    .flow {
+      min-width: 860px;
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .flow-step {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 12px;
+      min-height: 102px;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .flow-step.active {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(47, 104, 216, .14);
+    }
+
+    .flow-step::after {
+      content: "→";
+      position: absolute;
+      right: -14px;
+      top: 39px;
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .flow-step:last-child::after {
+      content: "";
+    }
+
+    .step-kicker {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+
+    .step-title {
+      font-weight: 800;
+      color: var(--ink);
+      line-height: 1.3;
+    }
+
+    .step-desc {
+      color: var(--muted);
+      margin-top: 6px;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .detail-panel {
+      margin-top: 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fbfcff;
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .command-box {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+
+    .code-head {
+      height: 34px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--border);
+      background: #f7f9fc;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .dot.red { background: #ef6a5b; }
+    .dot.yellow { background: #f4bf4f; }
+    .dot.green { background: #61c454; }
+
+    pre {
+      margin: 0;
+      padding: 14px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.55;
+      color: #172033;
+      background: #fff;
+    }
+
+    .highlight {
+      display: block;
+      margin: 0 -14px;
+      padding: 0 14px 0 11px;
+      border-left: 3px solid #d97706;
+      background: #fff8e8;
+    }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .event-view {
+      display: grid;
+      grid-template-columns: 270px minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    .event-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .event-item {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 10px;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .event-item.active {
+      border-color: var(--purple);
+      box-shadow: 0 0 0 3px rgba(119, 82, 200, .14);
+    }
+
+    .event-name {
+      font-family: var(--mono);
+      font-weight: 800;
+      color: var(--ink);
+    }
+
+    .event-meta {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--muted);
+    }
+
+    .badge.blue { color: var(--blue); background: #edf4ff; border-color: #cfe0ff; }
+    .badge.green { color: var(--green); background: #ecfdf5; border-color: #c8f1dd; }
+    .badge.yellow { color: var(--yellow); background: #fff8e8; border-color: #f3dfb8; }
+    .badge.purple { color: var(--purple); background: #f4f0ff; border-color: #ded4ff; }
+    .badge.red { color: var(--red); background: #fff0f0; border-color: #ffd1d1; }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    input,
+    select {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      color: var(--text);
+      padding: 9px 10px;
+      min-width: 0;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 12px;
+    }
+
+    .metric-value {
+      font-size: 22px;
+      font-weight: 850;
+      color: var(--ink);
+      line-height: 1.2;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 3px;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+    }
+
+    th,
+    td {
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--border);
+      padding: 10px;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      background: #f7f9fc;
+    }
+
+    .notice {
+      border: 1px solid #f3dfb8;
+      background: #fff9eb;
+      color: #6b4b15;
+      border-radius: var(--radius);
+      padding: 12px;
+      margin-top: 12px;
+    }
+
+    .footer {
+      color: var(--muted);
+      margin-top: 18px;
+      font-size: 12px;
+    }
+
+    @media (max-width: 900px) {
+      .topbar-inner,
+      .hero,
+      .grid-2,
+      .grid-3,
+      .event-view,
+      .form-grid,
+      .metric-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar-inner {
+        display: grid;
+      }
+
+      .main {
+        padding: 18px 14px 42px;
+      }
+
+      .hero-band {
+        padding: 22px;
+      }
+
+      .role-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="mark">cc</div>
+        <div>
+          <div class="brand-title">cc-tmux-bridge web chat guide</div>
+          <div class="brand-sub">Claude Code interactive session을 웹 채팅 UI로 붙이는 운영 지도</div>
+        </div>
+      </div>
+      <div class="nav" aria-label="sections">
+        <button class="active" data-jump="overview">개요</button>
+        <button data-jump="flow">Turn Flow</button>
+        <button data-jump="commands">Commands</button>
+        <button data-jump="events">Stream</button>
+        <button data-jump="metrics">Metrics</button>
+        <button data-jump="ops">Ops</button>
+      </div>
+    </div>
+  </div>
+
+  <main class="main">
+    <div class="hero" id="overview">
+      <div class="hero-band">
+        <div>
+          <h1>웹 대화창 하나는 bridge session_id 하나를 계속 쓴다</h1>
+          <p class="lead">bridge가 UUID를 만들고 `ctc-csess-&lt;session_id&gt;` tmux session을 띄운다. 첫 시작은 `--session-id`, 복구는 `--resume`으로 Claude Code session을 연결한다.</p>
+        </div>
+        <div class="hero-pills">
+          <span class="pill">tmux session reuse</span>
+          <span class="pill">JSONL stream</span>
+          <span class="pill">tool call visibility</span>
+          <span class="pill">turn metrics</span>
+        </div>
+      </div>
+
+      <div class="summary">
+        <h2>TL;DR</h2>
+        <ul>
+          <li>새 대화는 bridge가 UUID `session_id`를 만들고 클라이언트에 돌려준다.</li>
+          <li>같은 웹 대화창은 같은 `ctc-csess-&lt;session_id&gt;` tmux session을 사용한다.</li>
+          <li>tmux가 죽어 있으면 같은 `session_id`로 `claude --resume`을 실행한다.</li>
+          <li>UI 진행 정보는 `stream`의 `thinking`, `tool_use`, `tool_result`, `assistant_text`, `done`을 line-by-line으로 읽는다.</li>
+          <li>elapsed time은 앱 서버가 직접 측정하고, token/context는 raw transcript event에서 추출한다.</li>
+          <li>cost는 CLI가 계산하지 않는다. 앱 서버의 pricing table version 기준으로 estimated cost를 계산한다.</li>
+        </ul>
+      </div>
+    </div>
+
+    <section>
+      <div class="section-head">
+        <div>
+          <h2>Session Identity</h2>
+          <p class="section-note">canonical id는 bridge가 만든 UUID다. tmux session name과 Claude Code session id는 이 값을 기준으로 맞춘다.</p>
+        </div>
+        <span class="badge blue">mapping rule</span>
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <h3>session_id</h3>
+          <p>bridge가 생성한 UUID. 클라이언트는 다음 요청에 이 값을 그대로 돌려준다.</p>
+        </div>
+        <div class="card">
+          <h3>tmux_session</h3>
+          <p>`ctc-csess-&lt;session_id&gt;` 형식. CLI가 실제로 제어하는 tmux key다.</p>
+        </div>
+        <div class="card">
+          <h3>Claude sessionId</h3>
+          <p>첫 시작 때 `--session-id &lt;session_id&gt;`로 맞춘 Claude Code 내부 id다.</p>
+        </div>
+      </div>
+
+      <div class="role-list">
+        <div class="role-row">
+          <strong>권장 형식</strong>
+          <span>UUID v4를 사용한다. `:`는 tmux target separator라서 session name에 넣지 않는다.</span>
+        </div>
+        <div class="role-row">
+          <strong>재사용 기준</strong>
+          <span>`tmux has-session -t ctc-csess-&lt;session_id&gt;`가 active면 같은 Claude Code process를 계속 쓴다.</span>
+        </div>
+        <div class="role-row">
+          <strong>매핑 저장소</strong>
+          <span>별도 매핑 DB 없이 tmux session name에서 복원한다. transcript `sessionId`는 검증 metadata다.</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="flow">
+      <div class="section-head">
+        <div>
+          <h2>One Turn Flow</h2>
+          <p class="section-note">각 단계를 클릭하면 앱 서버가 해야 할 일과 CLI 호출 예시가 바뀐다.</p>
+        </div>
+        <span class="badge green">clickable flow</span>
+      </div>
+
+      <div class="flow-wrap">
+        <div class="flow" id="flowSteps"></div>
+      </div>
+      <div class="detail-panel" id="flowDetail"></div>
+    </section>
+
+    <section id="commands">
+      <div class="section-head">
+        <div>
+          <h2>Command Builder</h2>
+          <p class="section-note">대화창 id, 프로젝트 경로, 계정 env를 넣으면 웹 서버가 호출할 기본 command set을 만든다.</p>
+        </div>
+        <span class="badge purple">interactive</span>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          Session ID
+          <input id="sessionId" value="550e8400-e29b-41d4-a716-446655440000" spellcheck="false">
+        </label>
+        <label>
+          Project Dir
+          <input id="projectDir" value="/srv/projects/app" spellcheck="false">
+        </label>
+        <label>
+          OAuth Source Env
+          <input id="oauthEnv" value="ACCOUNT_A_TOKEN" spellcheck="false">
+        </label>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-button active" data-command-tab="start">start</button>
+        <button class="tab-button" data-command-tab="resume">resume</button>
+        <button class="tab-button" data-command-tab="turn">one turn</button>
+        <button class="tab-button" data-command-tab="metrics">metrics</button>
+        <button class="tab-button" data-command-tab="cleanup">cleanup</button>
+      </div>
+
+      <div class="command-box">
+        <div class="code-head"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span id="commandTitle">start session</span></div>
+        <pre id="commandOutput"></pre>
+      </div>
+    </section>
+
+    <section id="events">
+      <div class="section-head">
+        <div>
+          <h2>Stream Event To UI</h2>
+          <p class="section-note">`stream` stdout을 JSONL로 읽고 event type에 따라 UI 영역을 갱신한다.</p>
+        </div>
+        <span class="badge yellow">JSONL</span>
+      </div>
+
+      <div class="event-view">
+        <div class="event-list" id="eventList"></div>
+        <div>
+          <div class="command-box">
+            <div class="code-head"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span id="eventTitle">event detail</span></div>
+            <pre id="eventCode"></pre>
+          </div>
+          <div class="notice" id="eventNotice"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="metrics">
+      <div class="section-head">
+        <div>
+          <h2>Turn Metrics</h2>
+          <p class="section-note">elapsed time은 앱 서버 wall-clock으로 재고, token/context/cost는 raw event와 pricing table로 계산한다.</p>
+        </div>
+        <span class="badge blue">estimated</span>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          Input Tokens
+          <input id="inputTokens" type="number" value="12000" min="0">
+        </label>
+        <label>
+          Cache Read Tokens
+          <input id="cacheReadTokens" type="number" value="8000" min="0">
+        </label>
+        <label>
+          Cache Write Tokens
+          <input id="cacheWriteTokens" type="number" value="500" min="0">
+        </label>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          Output Tokens
+          <input id="outputTokens" type="number" value="1400" min="0">
+        </label>
+        <label>
+          Input $ / 1M
+          <input id="inputPrice" type="number" value="3" min="0" step="0.1">
+        </label>
+        <label>
+          Cache Read $ / 1M
+          <input id="cacheReadPrice" type="number" value="0.3" min="0" step="0.1">
+        </label>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          Cache Write $ / 1M
+          <input id="cacheWritePrice" type="number" value="3.75" min="0" step="0.1">
+        </label>
+        <label>
+          Output $ / 1M
+          <input id="outputPrice" type="number" value="15" min="0" step="0.1">
+        </label>
+        <label>
+          Session Previous Cost $
+          <input id="previousCost" type="number" value="0.1944" min="0" step="0.0001">
+        </label>
+      </div>
+
+      <div class="metric-grid">
+        <div class="metric">
+          <div class="metric-value" id="totalTokens">0</div>
+          <div class="metric-label">total billed-ish tokens</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value" id="estimatedCost">$0.0000</div>
+          <div class="metric-label">turn cost</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value" id="cacheRatio">0%</div>
+          <div class="metric-label">cache read ratio</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value" id="contextSize">0</div>
+          <div class="metric-label">example context size</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value" id="sessionCost">$0.0000</div>
+          <div class="metric-label">session cumulative cost</div>
+        </div>
+      </div>
+
+      <div class="notice">
+        기본 계약은 `done` 직후 별도 `metrics` event를 보내는 것이다. 중간 metrics는 transcript event에 usage/context/model이 먼저 기록될 때만 best-effort로 가능하다.
+      </div>
+    </section>
+
+    <section id="ops">
+      <div class="section-head">
+        <div>
+          <h2>Operational Decisions</h2>
+          <p class="section-note">웹 서비스로 붙일 때 가장 먼저 정해야 하는 운영 정책이다.</p>
+        </div>
+        <span class="badge red">checklist</span>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>주제</th>
+              <th>권장 정책</th>
+              <th>CLI 기준</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>동시 입력</td>
+              <td>같은 `session_id`는 반드시 session lock을 잡고 한 turn씩 처리한다.</td>
+              <td>현재 CLI는 lock을 내장하지 않는다.</td>
+            </tr>
+            <tr>
+              <td>완료 판단</td>
+              <td>`done` event 전에는 입력창을 비활성화한다.</td>
+              <td>`stream`은 transcript ready + tmux ready + idle window를 조합한다.</td>
+            </tr>
+            <tr>
+              <td>툴콜 표시</td>
+              <td>`tool_use`는 실행 시작, `tool_result`는 결과로 렌더링한다.</td>
+              <td>둘 다 완료 신호가 아니다.</td>
+            </tr>
+            <tr>
+              <td>오래된 session</td>
+              <td>scheduler에서 `reap --idle-seconds 1800 --prefix ctc-`를 주기 실행한다.</td>
+              <td>`reap`은 daemon이 아니라 scan 후 종료한다.</td>
+            </tr>
+            <tr>
+              <td>비용</td>
+              <td>앱 서버가 raw usage와 pricing table로 estimated cost를 계산한다.</td>
+              <td>CLI는 cost를 보장하지 않는다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grid-2" style="margin-top:14px">
+        <div class="card">
+          <h3>현재 gap</h3>
+          <p>`ensure`, `ask`, `info`, `stats`, `stream done usage summary`, session lock은 아직 future work다. `ensure`는 UUID 생성, `--session-id`, `--resume` 판단을 담당해야 한다.</p>
+        </div>
+        <div class="card">
+          <h3>문서 업데이트 규칙</h3>
+          <p>stream event, session lifecycle, usage/cost 동작이 바뀌면 Markdown guide와 이 HTML guide를 같이 갱신한다.</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer">
+      Generated for cc-tmux-bridge docs. Source guide: web-chat-integration-guide.md
+    </div>
+  </main>
+
+  <script>
+    const flowData = [
+      {
+        key: "lock",
+        title: "Acquire Lock",
+        desc: "session별 동시 입력 차단",
+        detail: "같은 session_id에 두 prompt를 동시에 보내면 transcript target turn과 완료 판정이 꼬일 수 있다.",
+        command: "lock.acquire(session_id)"
+      },
+      {
+        key: "start",
+        title: "Ensure Session",
+        desc: "UUID 생성 또는 resume",
+        detail: "session_id가 없으면 UUID를 만들고 --session-id로 첫 시작한다. session_id가 있는데 tmux가 없으면 --resume으로 복구한다.",
+        command: "TERM=xterm-256color ./claude_tmux_control.py start \"$TMUX_SESSION\" --cwd \"$PROJECT_DIR\" --oauth-token-env ACCOUNT_A_TOKEN -- --session-id \"$SESSION_ID\""
+      },
+      {
+        key: "ready",
+        title: "Check Ready",
+        desc: "이전 turn 완료 확인",
+        detail: "done 이전에 새 입력을 보내지 않는다. 짧은 timeout으로 ready 여부를 확인하고 working이면 UI 정책에 따라 대기하거나 거절한다.",
+        command: "./claude_tmux_control.py wait-ready \"$TMUX_SESSION\" --timeout 5"
+      },
+      {
+        key: "send",
+        title: "Send Prompt",
+        desc: "tmux pane에 입력",
+        detail: "입력은 stdin/stdout이 아니라 tmux buffer paste와 Enter로 전달된다.",
+        command: "./claude_tmux_control.py send \"$TMUX_SESSION\" \"$USER_PROMPT\""
+      },
+      {
+        key: "stream",
+        title: "Stream JSONL",
+        desc: "진행 이벤트 수신",
+        detail: "stdout을 line-by-line JSON parse해서 thinking/tool/text를 UI에 push한다.",
+        command: "./claude_tmux_control.py stream \"$TMUX_SESSION\" --timeout 900 --idle 2"
+      },
+      {
+        key: "metrics",
+        title: "Collect Metrics",
+        desc: "시간/token/cost 계산",
+        detail: "elapsed는 앱 서버가 측정하고, token/context는 raw events에서 추출한다. cost는 pricing table로 계산한다.",
+        command: "./claude_tmux_control.py events \"$TMUX_SESSION\" --tail 200 --json"
+      },
+      {
+        key: "unlock",
+        title: "Release Lock",
+        desc: "다음 입력 허용",
+        detail: "stream에서 done을 받은 뒤 입력창을 다시 활성화하고 session lock을 해제한다.",
+        command: "lock.release(session_id)"
+      }
+    ];
+
+    const events = [
+      {
+        name: "thinking",
+        meta: "reasoning/progress",
+        badge: "purple",
+        sample: {"event":"thinking","session_id":"550e8400-e29b-41d4-a716-446655440000","timestamp":"2026-05-16T12:00:00.000Z","text":"사용자의 요청을 구현 흐름으로 나누는 중..."},
+        notice: "접힌 reasoning 영역이나 진행 상태 영역에 표시한다. 모든 환경에서 항상 나오는 것은 아니다."
+      },
+      {
+        name: "tool_use",
+        meta: "tool call start",
+        badge: "yellow",
+        sample: {"event":"tool_use","session_id":"550e8400-e29b-41d4-a716-446655440000","timestamp":"2026-05-16T12:00:01.000Z","id":"toolu_01","name":"Bash","input":{"command":"rg -n \"stream\" ."}},
+        notice: "도구 실행 시작 카드로 보여준다. 이 event만 보고 turn 완료로 판단하면 안 된다."
+      },
+      {
+        name: "tool_result",
+        meta: "tool call result",
+        badge: "green",
+        sample: {"event":"tool_result","session_id":"550e8400-e29b-41d4-a716-446655440000","timestamp":"2026-05-16T12:00:02.000Z","tool_use_id":"toolu_01","text":"claude_tmux_control.py:612:def _print_stream","is_error":false},
+        notice: "tool output 또는 error를 표시한다. Task/subagent tool result 뒤에도 최종 assistant_text를 기다려야 한다."
+      },
+      {
+        name: "assistant_text",
+        meta: "answer chunk",
+        badge: "blue",
+        sample: {"event":"assistant_text","session_id":"550e8400-e29b-41d4-a716-446655440000","timestamp":"2026-05-16T12:00:03.000Z","text":"현재 CLI는 stream 명령으로 최신 turn을 JSONL로 출력합니다."},
+        notice: "답변 영역에 append한다. 현재 구현은 block 단위 event라 token-by-token streaming은 아니다."
+      },
+      {
+        name: "done",
+        meta: "turn complete",
+        badge: "green",
+        sample: {"event":"done","session_id":"550e8400-e29b-41d4-a716-446655440000","state":"ready","reason":"prompt visible; transcript ready","answer":"현재 CLI는 stream 명령으로 최신 turn을 JSONL로 출력합니다."},
+        notice: "이 event를 받은 뒤 입력창을 다시 활성화한다. 바로 다음 별도 metrics event로 turn_final 메트릭을 보낸다."
+      },
+      {
+        name: "metrics",
+        meta: "turn final metrics",
+        badge: "blue",
+        sample: {"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","scope":"turn_final","model":"claude-sonnet-4-5-20250929","elapsed_ms":18342,"usage":{"input_tokens":12000,"cache_read_tokens":8000,"cache_write_tokens":500,"output_tokens":1400},"context":{"current_size":64000,"window_size":200000},"cost":{"turn_usd":0.0572,"session_usd":0.2516,"estimated":true,"pricing_version":"anthropic-2026-05-16"}},
+        notice: "기본 전달 시점은 done 직후다. stream 중간 metrics는 raw transcript에 usage/context/model이 먼저 나온 경우에만 best-effort 옵션으로 둔다."
+      },
+      {
+        name: "timeout",
+        meta: "not complete",
+        badge: "red",
+        sample: {"event":"timeout","session_id":"550e8400-e29b-41d4-a716-446655440000","state":"timeout","reason":"not ready after 900.0s; last=working"},
+        notice: "프로세스가 끝났더라도 session이 계속 처리 중일 수 있다. UI에는 처리 중/재연결 상태로 보여준다."
+      }
+    ];
+
+    const commandTemplates = {
+      start: {
+        title: "new session",
+        render: s => `SESSION_ID="${escapeHtml(s.sessionId)}"
+TMUX_SESSION="${escapeHtml(s.tmux)}"
+
+TERM=xterm-256color \\
+./claude_tmux_control.py start "${escapeHtml(s.tmux)}" \\
+  --cwd "${escapeHtml(s.projectDir)}" \\
+  --oauth-token-env ${escapeHtml(s.oauthEnv)} \\
+  -- --session-id "${escapeHtml(s.sessionId)}"`
+      },
+      resume: {
+        title: "resume inactive session",
+        render: s => `SESSION_ID="${escapeHtml(s.sessionId)}"
+TMUX_SESSION="${escapeHtml(s.tmux)}"
+
+TERM=xterm-256color \\
+./claude_tmux_control.py start "${escapeHtml(s.tmux)}" \\
+  --cwd "${escapeHtml(s.projectDir)}" \\
+  --oauth-token-env ${escapeHtml(s.oauthEnv)} \\
+  -- --resume "${escapeHtml(s.sessionId)}"`
+      },
+      turn: {
+        title: "one turn",
+        render: s => `./claude_tmux_control.py wait-ready "${escapeHtml(s.tmux)}" --timeout 5
+./claude_tmux_control.py send "${escapeHtml(s.tmux)}" "$USER_PROMPT"
+<span class="highlight">./claude_tmux_control.py stream "${escapeHtml(s.tmux)}" --timeout 900 --idle 2</span>`
+      },
+      metrics: {
+        title: "metrics source",
+        render: s => `<span class="highlight">./claude_tmux_control.py events "${escapeHtml(s.tmux)}" --tail 200 --json</span>
+
+# 앱 서버에서 latest user turn 이후 raw event를 보고 추출
+# event.usage / event.message.usage / event.response.usage
+# event.model / event.message.model / event.response.model
+# event.context / event.context_window / event.context_usage
+#
+# cache_read_tokens  <- cache_read_input_tokens
+# cache_write_tokens <- cache_creation_input_tokens`
+      },
+      cleanup: {
+        title: "cleanup",
+        render: () => `./claude_tmux_control.py reap --idle-seconds 1800 --prefix ctc- --dry-run
+./claude_tmux_control.py reap --idle-seconds 1800 --prefix ctc-`
+      }
+    };
+
+    let selectedFlow = "start";
+    let selectedCommandTab = "start";
+    let selectedEvent = "tool_use";
+
+    function slug(value) {
+      return String(value || "")
+        .trim()
+        .replace(/[^A-Za-z0-9_.-]/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_+|_+$/g, "") || "conversation";
+    }
+
+    function state() {
+      const sessionId = slug(document.getElementById("sessionId").value);
+      return {
+        sessionId,
+        tmux: `ctc-csess-${sessionId}`,
+        projectDir: document.getElementById("projectDir").value || ".",
+        oauthEnv: slug(document.getElementById("oauthEnv").value || "CLAUDE_CODE_OAUTH_TOKEN")
+      };
+    }
+
+    function renderFlow() {
+      const container = document.getElementById("flowSteps");
+      container.innerHTML = "";
+      for (const item of flowData) {
+        const node = document.createElement("button");
+        node.className = `flow-step ${item.key === selectedFlow ? "active" : ""}`;
+        node.type = "button";
+        node.innerHTML = `<div class="step-kicker">${item.key}</div><div class="step-title">${item.title}</div><div class="step-desc">${item.desc}</div>`;
+        node.addEventListener("click", () => {
+          selectedFlow = item.key;
+          renderFlow();
+        });
+        container.appendChild(node);
+      }
+
+      const item = flowData.find(x => x.key === selectedFlow) || flowData[0];
+      document.getElementById("flowDetail").innerHTML = `
+        <div><span class="badge blue">${item.title}</span></div>
+        <div>${item.detail}</div>
+        <div class="command-box">
+          <div class="code-head"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span>command / app action</span></div>
+          <pre>${escapeHtml(item.command)}</pre>
+        </div>
+      `;
+    }
+
+    function renderCommands() {
+      const s = state();
+      const template = commandTemplates[selectedCommandTab];
+      document.getElementById("commandTitle").textContent = template.title;
+      document.getElementById("commandOutput").innerHTML = template.render(s);
+      document.querySelectorAll("[data-command-tab]").forEach(button => {
+        button.classList.toggle("active", button.dataset.commandTab === selectedCommandTab);
+      });
+    }
+
+    function renderEvents() {
+      const list = document.getElementById("eventList");
+      list.innerHTML = "";
+      for (const item of events) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `event-item ${item.name === selectedEvent ? "active" : ""}`;
+        button.innerHTML = `<div class="event-name">${item.name}</div><div class="event-meta">${item.meta}</div>`;
+        button.addEventListener("click", () => {
+          selectedEvent = item.name;
+          renderEvents();
+        });
+        list.appendChild(button);
+      }
+
+      const event = events.find(x => x.name === selectedEvent) || events[0];
+      document.getElementById("eventTitle").textContent = event.name;
+      document.getElementById("eventCode").textContent = JSON.stringify(event.sample, null, 2);
+      document.getElementById("eventNotice").innerHTML = `<span class="badge ${event.badge}">${event.name}</span> ${event.notice}`;
+    }
+
+    function renderMetrics() {
+      const inputTokens = number("inputTokens");
+      const cacheReadTokens = number("cacheReadTokens");
+      const cacheWriteTokens = number("cacheWriteTokens");
+      const outputTokens = number("outputTokens");
+      const inputPrice = number("inputPrice");
+      const cacheReadPrice = number("cacheReadPrice");
+      const cacheWritePrice = number("cacheWritePrice");
+      const outputPrice = number("outputPrice");
+      const previousCost = number("previousCost");
+
+      const total = inputTokens + cacheReadTokens + cacheWriteTokens + outputTokens;
+      const cost = (
+        inputTokens * inputPrice +
+        cacheReadTokens * cacheReadPrice +
+        cacheWriteTokens * cacheWritePrice +
+        outputTokens * outputPrice
+      ) / 1_000_000;
+      const ratio = total ? Math.round((cacheReadTokens / total) * 100) : 0;
+      const contextSize = inputTokens + cacheReadTokens + cacheWriteTokens;
+
+      document.getElementById("totalTokens").textContent = total.toLocaleString();
+      document.getElementById("estimatedCost").textContent = `$${cost.toFixed(4)}`;
+      document.getElementById("cacheRatio").textContent = `${ratio}%`;
+      document.getElementById("contextSize").textContent = contextSize.toLocaleString();
+      document.getElementById("sessionCost").textContent = `$${(previousCost + cost).toFixed(4)}`;
+    }
+
+    function number(id) {
+      return Number(document.getElementById(id).value || 0);
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    document.querySelectorAll("[data-command-tab]").forEach(button => {
+      button.addEventListener("click", () => {
+        selectedCommandTab = button.dataset.commandTab;
+        renderCommands();
+      });
+    });
+
+    document.querySelectorAll("#sessionId, #projectDir, #oauthEnv").forEach(input => {
+      input.addEventListener("input", renderCommands);
+    });
+
+    document.querySelectorAll("#inputTokens, #cacheReadTokens, #cacheWriteTokens, #outputTokens, #inputPrice, #cacheReadPrice, #cacheWritePrice, #outputPrice, #previousCost").forEach(input => {
+      input.addEventListener("input", renderMetrics);
+    });
+
+    document.querySelectorAll("[data-jump]").forEach(button => {
+      button.addEventListener("click", () => {
+        const target = document.getElementById(button.dataset.jump);
+        if (target) target.scrollIntoView({behavior: "smooth", block: "start"});
+      });
+    });
+
+    const sections = [...document.querySelectorAll("main > .hero, main > section")];
+    const navButtons = [...document.querySelectorAll("[data-jump]")];
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries
+        .filter(entry => entry.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      const id = visible.target.id;
+      navButtons.forEach(button => button.classList.toggle("active", button.dataset.jump === id));
+    }, {threshold: [0.2, 0.45, 0.7]});
+    sections.forEach(section => observer.observe(section));
+
+    renderFlow();
+    renderCommands();
+    renderEvents();
+    renderMetrics();
+  </script>
+</body>
+</html>
