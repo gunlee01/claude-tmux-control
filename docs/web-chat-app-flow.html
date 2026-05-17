@@ -556,7 +556,7 @@
             <tr><td>relay</td><td>stdout JSONL을 한 줄씩 parse해서 SSE/WebSocket message로 전달한다.</td></tr>
             <tr><td>persist</td><td>첫 event의 `session_id`를 conversation record에 저장한다.</td></tr>
             <tr><td>unlock</td><td>`done` 수신 후 입력창을 다시 활성화한다. 바로 뒤 `metrics`를 usage 패널에 반영한다.</td></tr>
-            <tr><td>enrich</td><td>elapsed time과 USD cost는 앱 서버가 측정/계산해서 덧붙인다.</td></tr>
+            <tr><td>enrich</td><td>elapsed time과 session cumulative cost는 앱 서버가 측정/누적해서 덧붙인다.</td></tr>
           </tbody>
         </table>
       </div>
@@ -594,7 +594,7 @@
         </div>
         <div class="card">
           <h3>App Enrichment</h3>
-          <p class="small">elapsed_ms, estimated turn cost, cumulative session cost, pricing table version, UI-specific retry policy.</p>
+          <p class="small">elapsed_ms, cumulative session cost, UI-specific retry policy. Turn cost는 CLI의 `claude_pricing.json` 계산값을 사용한다.</p>
         </div>
         <div class="card">
           <h3>Future CLI Work</h3>
@@ -649,8 +649,8 @@
       {
         name: "metrics",
         badge: "blue",
-        ui: "usage panel 업데이트. elapsed/cost는 앱 서버가 enrich",
-        sample: {"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516T140515Z-46b34aaf","event_id":"turn_20260516T140515Z-46b34aaf:metrics:29804","source_offset":29804,"source_end_offset":29804,"block_index":-1,"scope":"turn_final","model":"claude-sonnet-4-6","usage":{"input_tokens":10,"cache_read_tokens":11176,"cache_write_tokens":8382,"output_tokens":32},"cost":{"estimated":false,"reason":"pricing_not_configured"}}
+        ui: "usage panel 업데이트. elapsed/session cumulative cost는 앱 서버가 enrich",
+        sample: {"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516T140515Z-46b34aaf","event_id":"turn_20260516T140515Z-46b34aaf:metrics:29804","source_offset":29804,"source_end_offset":29804,"block_index":-1,"scope":"turn_final","model":"claude-sonnet-4-6","usage":{"input_tokens":10,"cache_read_tokens":11176,"cache_write_tokens":8382,"output_tokens":32},"cost":{"estimated":true,"currency":"USD","pricing_version":"anthropic-2026-05-18","model":"claude-sonnet-4.6","model_match":"exact","cache_write_ttl":"1h","turn_usd":0.0541548}}
       }
     ];
 

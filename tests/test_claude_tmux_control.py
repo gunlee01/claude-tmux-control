@@ -1478,7 +1478,7 @@ class StreamTest(unittest.TestCase):
                         "type": "assistant",
                         "timestamp": "t1",
                         "message": {"content": [{"type": "text", "text": "final answer"}]},
-                        "model": "claude-test",
+                        "model": "claude-sonnet-4-6",
                         "usage": {
                             "input_tokens": 10,
                             "cache_read_input_tokens": 3,
@@ -1543,9 +1543,39 @@ class StreamTest(unittest.TestCase):
             self.assertEqual(payloads[-1]["event_id"], f"turn_test:metrics:{completed_offset}")
             self.assertEqual(payloads[-1]["usage"]["cache_read_tokens"], 3)
             self.assertEqual(payloads[-1]["usage"]["cache_write_tokens"], 2)
+            self.assertTrue(payloads[-1]["cost"]["estimated"])
+            self.assertEqual(payloads[-1]["cost"]["model"], "claude-sonnet-4.6")
+            self.assertEqual(payloads[-1]["cost"]["cache_write_ttl"], "1h")
+            self.assertEqual(payloads[-1]["cost"]["turn_usd"], 0.0001179)
             state = ctc.read_bridge_state(runtime.state_path)
             self.assertIsNone(state["active_turn"])
             self.assertEqual(state["last_turn"]["completed_offset"], completed_offset)
+
+    def test_estimate_turn_cost_falls_back_to_latest_family_pricing(self):
+        usage = {
+            "input_tokens": 1_000_000,
+            "cache_read_tokens": 1_000_000,
+            "cache_write_tokens": 1_000_000,
+            "output_tokens": 1_000_000,
+        }
+
+        cost = ctc.estimate_turn_cost("claude-sonnet-9-9", usage)
+
+        self.assertTrue(cost["estimated"])
+        self.assertEqual(cost["model"], "claude-sonnet-4.6")
+        self.assertEqual(cost["model_match"], "family_latest")
+        self.assertEqual(cost["turn_usd"], 24.3)
+
+    def test_estimate_turn_cost_treats_hiku_as_haiku_latest(self):
+        cost = ctc.estimate_turn_cost(
+            "claude-hiku-experimental",
+            {"input_tokens": 1_000_000, "output_tokens": 1_000_000},
+        )
+
+        self.assertTrue(cost["estimated"])
+        self.assertEqual(cost["model"], "claude-haiku-4.5")
+        self.assertEqual(cost["model_match"], "family_latest")
+        self.assertEqual(cost["turn_usd"], 6.0)
 
     def test_high_level_stream_starts_from_before_send_offset_for_repeated_prompt(self):
         with tempfile.TemporaryDirectory() as tmp:

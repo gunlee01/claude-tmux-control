@@ -28,9 +28,11 @@ CLAUDE_LAUNCH_COMMANDS = {"start", "launch", "chat"}
 DEFAULT_BUFFER_NAME = "claude-tmux-control"
 DEFAULT_TRANSCRIPT_ROOT = Path.home() / ".claude"
 DEFAULT_STATE_DIR = Path.home() / ".cache" / "claude-tmux-control"
+DEFAULT_PRICING_TABLE = Path(__file__).with_name("claude_pricing.json")
 DEFAULT_CONTROLLED_PREFIX = "ctc-"
 DEFAULT_WEB_SESSION_PREFIX = "ctc-csess-"
 STATE_SCHEMA_VERSION = 1
+_PRICING_TABLE_CACHE: dict | None = None
 WORKING_PATTERNS = (
     re.compile(r"\besc\b.*\binterrupt\b", re.IGNORECASE),
     re.compile(r"\bthinking\b", re.IGNORECASE),
@@ -1776,6 +1778,7 @@ def high_level_metrics_payload(runtime: StreamRuntime, turn_events: Sequence[dic
     usage = latest_usage(turn_events)
     context = latest_context(turn_events)
     model = latest_model(turn_events)
+    normalized_usage = normalize_usage(usage)
     return _compact_payload(
         {
             "event": "metrics",
@@ -1787,9 +1790,9 @@ def high_level_metrics_payload(runtime: StreamRuntime, turn_events: Sequence[dic
             "block_index": -1,
             "scope": "turn_final",
             "model": model,
-            "usage": normalize_usage(usage),
+            "usage": normalized_usage,
             "context": context or None,
-            "cost": {"estimated": False, "reason": "pricing_not_configured"},
+            "cost": estimate_turn_cost(model, normalized_usage),
         }
     )
 
@@ -1831,6 +1834,142 @@ def latest_model(events: Sequence[dict]) -> str | None:
         ):
             if isinstance(value, str) and value:
                 return value
+    return None
+
+
+def estimate_turn_cost(
+    model: str | None,
+    usage: Mapping[str, object] | None,
+    pricing_table: Mapping[str, object] | None = None,
+) -> dict:
+    if not usage:
+        return {"estimated": False, "reason": "usage_unavailable"}
+    if not model:
+        return {"estimated": False, "reason": "model_unavailable"}
+
+    table = pricing_table or load_pricing_table()
+    if not table:
+        return {"estimated": False, "reason": "pricing_table_unavailable"}
+
+    selection = select_pricing_model(model, table)
+    if selection is None:
+        return {"estimated": False, "reason": "pricing_model_not_found", "model": model}
+
+    model_id, model_pricing, match_type = selection
+    rates = model_pricing.get("rates_per_mtok")
+    if not isinstance(rates, dict):
+        return {"estimated": False, "reason": "pricing_rates_missing", "model": model}
+
+    cache_write_ttl = str(table.get("default_cache_write_ttl") or "1h")
+    cache_write_key = "cache_write_1h" if cache_write_ttl == "1h" else "cache_write_5m"
+    used_rates = {
+        "input": _float_value(rates, "input"),
+        "cache_read": _float_value(rates, "cache_read"),
+        "cache_write": _float_value(rates, cache_write_key),
+        "output": _float_value(rates, "output"),
+    }
+    if any(value is None for value in used_rates.values()):
+        return {"estimated": False, "reason": "pricing_rates_incomplete", "model": model_id}
+
+    line_items = {
+        "input_usd": _usd_line_item(usage, "input_tokens", used_rates["input"]),
+        "cache_read_usd": _usd_line_item(usage, "cache_read_tokens", used_rates["cache_read"]),
+        "cache_write_usd": _usd_line_item(usage, "cache_write_tokens", used_rates["cache_write"]),
+        "output_usd": _usd_line_item(usage, "output_tokens", used_rates["output"]),
+    }
+    turn_usd = round(sum(line_items.values()), 8)
+    return {
+        "estimated": True,
+        "currency": str(table.get("currency") or "USD"),
+        "pricing_version": str(table.get("version") or ""),
+        "pricing_source": str(table.get("source_url") or ""),
+        "pricing_checked_at": str(table.get("checked_at") or ""),
+        "model": model_id,
+        "model_match": match_type,
+        "cache_write_ttl": cache_write_ttl,
+        "rates_per_mtok": used_rates,
+        "line_items": line_items,
+        "turn_usd": turn_usd,
+    }
+
+
+def load_pricing_table(path: Path = DEFAULT_PRICING_TABLE) -> dict | None:
+    global _PRICING_TABLE_CACHE
+    if path == DEFAULT_PRICING_TABLE and _PRICING_TABLE_CACHE is not None:
+        return _PRICING_TABLE_CACHE
+    try:
+        table = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if path == DEFAULT_PRICING_TABLE:
+        _PRICING_TABLE_CACHE = table
+    return table
+
+
+def select_pricing_model(model: str, table: Mapping[str, object]) -> tuple[str, Mapping[str, object], str] | None:
+    models = table.get("models")
+    if not isinstance(models, dict):
+        return None
+
+    normalized_model = _pricing_key(model)
+    aliases: list[tuple[str, str]] = []
+    for model_id, model_pricing in models.items():
+        if not isinstance(model_id, str) or not isinstance(model_pricing, dict):
+            continue
+        values = [model_id]
+        raw_aliases = model_pricing.get("aliases")
+        if isinstance(raw_aliases, list):
+            values.extend(alias for alias in raw_aliases if isinstance(alias, str))
+        for alias in values:
+            aliases.append((_pricing_key(alias), model_id))
+
+    for alias_key, model_id in sorted(aliases, key=lambda item: len(item[0]), reverse=True):
+        if normalized_model == alias_key or normalized_model.startswith(alias_key + "-"):
+            model_pricing = models.get(model_id)
+            if isinstance(model_pricing, dict):
+                return model_id, model_pricing, "exact"
+
+    family = _pricing_family(normalized_model)
+    families = table.get("families")
+    if not family or not isinstance(families, dict):
+        return None
+    family_config = families.get(family)
+    if not isinstance(family_config, dict):
+        return None
+    latest = family_config.get("latest")
+    if not isinstance(latest, str):
+        return None
+    model_pricing = models.get(latest)
+    if not isinstance(model_pricing, dict):
+        return None
+    return latest, model_pricing, "family_latest"
+
+
+def _pricing_key(value: str) -> str:
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", value.lower())).strip("-")
+
+
+def _pricing_family(normalized_model: str) -> str | None:
+    if "sonnet" in normalized_model:
+        return "sonnet"
+    if "opus" in normalized_model:
+        return "opus"
+    if "haiku" in normalized_model or "hiku" in normalized_model:
+        return "haiku"
+    return None
+
+
+def _usd_line_item(usage: Mapping[str, object], token_key: str, rate_per_mtok: float | None) -> float:
+    tokens = _numeric_value(usage, token_key) or 0
+    if rate_per_mtok is None:
+        return 0.0
+    return round(float(tokens) * rate_per_mtok / 1_000_000, 8)
+
+
+def _float_value(source: Mapping[str, object], key: str) -> float | None:
+    value = source.get(key)
+    if isinstance(value, int | float):
+        return float(value)
     return None
 
 

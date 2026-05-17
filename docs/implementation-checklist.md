@@ -133,10 +133,11 @@
 - [x] session별 send lock을 구현한다.
 - [x] streaming UI를 위한 low-level `stream <tmux-session>` JSONL 출력 포맷을 정의하고 구현한다.
 - [x] 웹 채팅 주력 high-level `stream [--session-id] --cwd <path> <prompt>` 계약을 구현한다.
-- [x] `stream` 완료 후 별도 `metrics` event로 model/usage/context와 cost unavailable marker를 출력한다.
+- [x] `stream` 완료 후 별도 `metrics` event로 model/usage/context와 estimated turn cost를 출력한다.
 - [x] final metrics usage에는 input/output/cache_read/cache_write tokens를 포함한다.
 - [ ] final metrics elapsed_ms를 CLI에서 직접 출력한다.
-- [ ] final metrics cost에는 estimated turn USD와 estimated session cumulative USD를 포함한다.
+- [x] final metrics cost에는 pricing table 기반 estimated turn USD를 포함한다.
+- [ ] final metrics cost에는 estimated session cumulative USD를 포함한다.
 - [ ] raw transcript에서 model/usage/context를 추출하는 machine-readable stats 명령을 추가한다.
 - [ ] 중간 metrics는 transcript event에 usage/context/model이 있는 경우에만 best-effort 옵션으로 제공한다.
 - [ ] long-running command timeout 정책을 정의한다.

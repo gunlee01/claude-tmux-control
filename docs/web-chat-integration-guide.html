@@ -616,7 +616,7 @@
           <li>tmux가 죽어 있으면 같은 `session_id`로 `claude --resume`을 실행한다.</li>
           <li>UI 진행 정보는 `stream`의 `thinking`, `tool_use`, `tool_result`, `assistant_text`, `done`을 line-by-line으로 읽는다.</li>
           <li>elapsed time은 앱 서버가 직접 측정하고, token/context는 raw transcript event에서 추출한다.</li>
-          <li>cost는 CLI가 계산하지 않는다. 앱 서버의 pricing table version 기준으로 estimated cost를 계산한다.</li>
+          <li>turn cost는 CLI가 `claude_pricing.json` 기준으로 계산한다. session cumulative cost는 앱 서버가 누적한다.</li>
         </ul>
       </div>
     </div>
@@ -793,8 +793,8 @@
 
       <div class="form-grid">
         <label>
-          Cache Write $ / 1M
-          <input id="cacheWritePrice" type="number" value="3.75" min="0" step="0.1">
+          Cache Write $ / 1M (1h)
+          <input id="cacheWritePrice" type="number" value="6" min="0" step="0.1">
         </label>
         <label>
           Output $ / 1M
@@ -945,7 +945,7 @@
         key: "metrics",
         title: "Collect Metrics",
         desc: "model/token/context 전달",
-        detail: "done 직후 별도 metrics event를 보낸다. 현재 CLI는 model, usage, context가 transcript에 있을 때 포함하고, cost는 pricing_not_configured marker로 둔다. elapsed/cost enrich는 앱 서버가 맡는다.",
+        detail: "done 직후 별도 metrics event를 보낸다. 현재 CLI는 model, usage, context가 transcript에 있을 때 포함하고, claude_pricing.json 기준 estimated turn cost를 계산한다. elapsed/session cumulative cost enrich는 앱 서버가 맡는다.",
         command: "{\"event\":\"metrics\",\"turn_id\":\"...\",\"event_id\":\"...:metrics:330\",\"source_offset\":330,\"source_end_offset\":330,\"block_index\":-1,\"scope\":\"turn_final\",\"usage\":{\"cache_write_tokens\":500}}"
       },
       {
@@ -997,8 +997,8 @@
         name: "metrics",
         meta: "turn final metrics",
         badge: "blue",
-        sample: {"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:metrics:330","source_offset":330,"source_end_offset":330,"block_index":-1,"scope":"turn_final","model":"claude-sonnet-4-6","usage":{"input_tokens":12000,"cache_read_tokens":8000,"cache_write_tokens":500,"output_tokens":1400},"context":{"current_size":64000},"cost":{"estimated":false,"reason":"pricing_not_configured"}},
-        notice: "기본 전달 시점은 done 직후다. elapsed_ms와 USD cost는 앱 서버가 stream 시작/종료 시각과 pricing table로 enrich한다."
+        sample: {"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:metrics:330","source_offset":330,"source_end_offset":330,"block_index":-1,"scope":"turn_final","model":"claude-sonnet-4-6","usage":{"input_tokens":12000,"cache_read_tokens":8000,"cache_write_tokens":500,"output_tokens":1400},"context":{"current_size":64000},"cost":{"estimated":true,"currency":"USD","pricing_version":"anthropic-2026-05-18","model":"claude-sonnet-4.6","model_match":"exact","cache_write_ttl":"1h","turn_usd":0.0624}},
+        notice: "기본 전달 시점은 done 직후다. elapsed_ms와 session cumulative cost는 앱 서버가 stream 시작/종료 시각과 turn_usd 누적으로 enrich한다."
       },
       {
         name: "timeout",

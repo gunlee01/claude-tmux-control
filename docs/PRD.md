@@ -144,8 +144,8 @@ High-level `stream [--session-id <id>] --cwd <path> <prompt...>` contract:
 - Does not complete a subagent flow until the `Task` tool result is followed by final assistant text.
 - Combines transcript readiness with tmux screen readiness and a short idle window.
 - Emits final turn metrics after `done` as a separate `metrics` event.
-- Current final metrics include model, input tokens, cache read tokens, cache write tokens, output tokens, context fields when present, and a cost unavailable marker.
-- Elapsed time, estimated turn cost, and estimated session cumulative cost are app-server enrichment or future CLI work.
+- Current final metrics include model, input tokens, cache read tokens, cache write tokens, output tokens, context fields when present, and pricing-table-based estimated turn cost when model/usage can be resolved.
+- Elapsed time and estimated session cumulative cost are app-server enrichment or future CLI work.
 - Mid-stream metrics are optional best-effort events only when new transcript events already contain usage/context/model fields.
 
 Proposed additions and high-level commands:
@@ -214,8 +214,13 @@ Current final metrics event:
     "current_size": 64000
   },
   "cost": {
-    "estimated": false,
-    "reason": "pricing_not_configured"
+    "estimated": true,
+    "currency": "USD",
+    "pricing_version": "anthropic-2026-05-18",
+    "model": "claude-sonnet-4.6",
+    "model_match": "exact",
+    "cache_write_ttl": "1h",
+    "turn_usd": 0.0624
   }
 }
 ```

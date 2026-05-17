@@ -342,7 +342,7 @@ model              <- event/message/response model
 - Claude Code 버전별로 transcript schema가 바뀔 수 있습니다.
 - 모든 event에 usage가 있는 것은 아닙니다.
 - usage가 여러 event에 나뉘어 있으면 최신 assistant/result event의 값을 우선 사용하거나, 앱 정책에 맞게 합산합니다.
-- 현재 CLI는 cost를 계산하지 않습니다.
+- 현재 CLI는 `claude_pricing.json`을 기준으로 turn cost를 계산합니다.
 
 ### Metrics Delivery Timing
 
@@ -371,8 +371,13 @@ model              <- event/message/response model
     "current_size": 64000
   },
   "cost": {
-    "estimated": false,
-    "reason": "pricing_not_configured"
+    "estimated": true,
+    "currency": "USD",
+    "pricing_version": "anthropic-2026-05-18",
+    "model": "claude-sonnet-4.6",
+    "model_match": "exact",
+    "cache_write_ttl": "1h",
+    "turn_usd": 0.0624
   }
 }
 ```
@@ -391,7 +396,9 @@ final `metrics`는 replay될 수 있으므로 `turn_id`와 deterministic `event_
 
 ### Cost
 
-cost는 앱 서버가 계산하는 것이 안전합니다.
+turn cost는 CLI가 `claude_pricing.json`으로 계산합니다.
+
+session cumulative cost는 아직 CLI가 저장하지 않으므로 앱 서버가 completed turn의 `cost.turn_usd`를 누적하는 것이 안전합니다.
 
 필요한 값:
 
@@ -404,9 +411,9 @@ output_tokens
 pricing table version
 ```
 
-가격표는 자주 바뀔 수 있으므로 CLI에 하드코딩하지 않습니다.
+가격표는 `claude_pricing.json`에 분리되어 있습니다.
 
-앱 서버가 가격표 버전과 계산식을 저장하고, UI에는 "estimated" 표시를 붙이는 것을 권장합니다.
+모델 버전이 정확히 매칭되지 않으면 CLI는 family별 최신 버전 단가를 사용하고 `model_match: "family_latest"`를 표시합니다.
 
 ## 6. Session Id Ownership
 

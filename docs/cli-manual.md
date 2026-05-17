@@ -756,7 +756,7 @@ tool call과 중간 진행까지 보려면:
 - explicit `stream --attach --session-id <id>` reconnect mode
 - state-write lock과 generation compare/update retry 강화
 - completed-turn cumulative usage/session cost 저장
-- pricing table 기반 cost 계산
+- pricing table 갱신 자동화와 provider/region multiplier 지원
 - transcript rotation follow 고도화
 
 이 항목들은 `implementation-checklist.md`에서 추적합니다.
