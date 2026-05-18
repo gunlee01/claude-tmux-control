@@ -275,6 +275,17 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     turn.add_argument("--interval", type=float, default=1.0, help="seconds between refreshes with --follow")
     turn.add_argument("--count", "--tail", dest="count", type=int, default=1, help="number of recent turns to print")
 
+    info = subparsers.add_parser("info", help="Print high-level web session metadata.")
+    info.add_argument("session_id", help="web-facing Claude session id UUID")
+    info.add_argument("--state-dir", type=Path, default=DEFAULT_STATE_DIR, help="bridge state directory")
+    info.add_argument("--root", type=Path, default=DEFAULT_TRANSCRIPT_ROOT, help="Claude config/transcript directory")
+    info.add_argument("--json", action="store_true", help="print machine-readable JSON")
+
+    list_cmd = subparsers.add_parser("list", help="List high-level controlled web sessions.")
+    list_cmd.add_argument("--state-dir", type=Path, default=DEFAULT_STATE_DIR, help="bridge state directory")
+    list_cmd.add_argument("--root", type=Path, default=DEFAULT_TRANSCRIPT_ROOT, help="Claude config/transcript directory")
+    list_cmd.add_argument("--json", action="store_true", help="print machine-readable JSON")
+
     stream = subparsers.add_parser("stream", help="Stream one turn as JSONL until the answer is complete.")
     stream.add_argument(
         "session",
@@ -435,6 +446,12 @@ def _run_command(args: argparse.Namespace, controller: TmuxController) -> int:
 
     if args.command_name == "turn":
         return _print_latest_turn(args, controller)
+
+    if args.command_name == "info":
+        return _print_high_level_info(args, controller)
+
+    if args.command_name == "list":
+        return _print_high_level_list(args, controller)
 
     if args.command_name == "stream":
         if _is_high_level_stream_args(args):
@@ -659,6 +676,144 @@ def _print_latest_turn(args: argparse.Namespace, controller: TmuxController) -> 
         if not args.follow:
             return 0
         time.sleep(args.interval)
+
+
+def _print_high_level_info(args: argparse.Namespace, controller: TmuxController) -> int:
+    try:
+        payload = build_session_info_payload(args.session_id, args.state_dir, args.root, controller)
+    except ValueError as error:
+        print(json.dumps({"event": "error", "error": str(error)}, ensure_ascii=False), file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        print(_format_session_info(payload))
+    return 0
+
+
+def _print_high_level_list(args: argparse.Namespace, controller: TmuxController) -> int:
+    payload = build_session_list_payload(args.state_dir, args.root, controller)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        sessions = payload.get("sessions")
+        if not sessions:
+            print("no sessions")
+            return 0
+        for item in sessions:
+            print(
+                f"{item.get('session_id')} "
+                f"tmux={item.get('tmux_session')} "
+                f"active={item.get('tmux_active')} "
+                f"cwd={item.get('cwd') or ''}"
+            )
+    return 0
+
+
+def build_session_info_payload(
+    session_id: str,
+    state_dir: Path,
+    root: Path,
+    controller: TmuxController,
+) -> dict:
+    actual_session_id = validate_or_create_session_id(session_id)
+    state_path = web_session_state_path(actual_session_id, state_dir)
+    state = read_bridge_state(state_path) or {}
+    tmux_session = str(state.get("tmux_session") or web_tmux_session_name(actual_session_id))
+    cwd = state.get("cwd")
+    transcript = _session_info_transcript_path(state, root, cwd, actual_session_id)
+    active_turn = state.get("active_turn") if isinstance(state.get("active_turn"), dict) else None
+    last_turn = state.get("last_turn") if isinstance(state.get("last_turn"), dict) else None
+    completed_turns = state.get("completed_turns")
+    completed_count = len(completed_turns) if isinstance(completed_turns, list) else 0
+    return _compact_payload(
+        {
+            "event": "info",
+            "session_id": actual_session_id,
+            "tmux_session": tmux_session,
+            "tmux_active": controller.session_exists(tmux_session),
+            "cwd": cwd if isinstance(cwd, str) else None,
+            "state_path": str(state_path),
+            "state_exists": state_path.exists(),
+            "transcript_path": str(transcript) if transcript else None,
+            "claude_transcript_session_id": extract_transcript_session_id(transcript) if transcript else None,
+            "active_turn": active_turn,
+            "last_turn": last_turn,
+            "completed_turn_count": completed_count,
+            "usage_totals": state.get("usage_totals") if isinstance(state.get("usage_totals"), dict) else None,
+            "cost_totals": state.get("cost_totals") if isinstance(state.get("cost_totals"), dict) else None,
+        }
+    )
+
+
+def build_session_list_payload(state_dir: Path, root: Path, controller: TmuxController) -> dict:
+    session_ids: set[str] = set()
+    sessions_dir = state_dir / "sessions"
+    if sessions_dir.is_dir():
+        for path in sessions_dir.glob("*.json"):
+            try:
+                session_ids.add(validate_or_create_session_id(path.stem))
+            except ValueError:
+                continue
+
+    for tmux_session in controller.list_sessions():
+        if not tmux_session.startswith(DEFAULT_WEB_SESSION_PREFIX):
+            continue
+        candidate = tmux_session[len(DEFAULT_WEB_SESSION_PREFIX) :]
+        try:
+            session_ids.add(validate_or_create_session_id(candidate))
+        except ValueError:
+            continue
+
+    sessions = [
+        build_session_info_payload(session_id, state_dir, root, controller)
+        for session_id in sorted(session_ids)
+    ]
+    return {"event": "list", "sessions": sessions, "count": len(sessions)}
+
+
+def _session_info_transcript_path(state: Mapping[str, object], root: Path, cwd: object, session_id: str) -> Path | None:
+    transcript = state.get("transcript")
+    if isinstance(transcript, Mapping) and isinstance(transcript.get("path"), str):
+        path = Path(str(transcript["path"]))
+        if path.exists():
+            return path
+    if isinstance(cwd, str) and cwd:
+        return resolve_high_level_transcript(root, Path(cwd), dict(state), session_id=session_id)
+    return None
+
+
+def extract_transcript_session_id(path: Path) -> str | None:
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as file:
+            for line in file:
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(event, dict):
+                    session_id = _event_session_id(event)
+                    if session_id:
+                        return session_id
+    except OSError:
+        return None
+    return None
+
+
+def _format_session_info(payload: Mapping[str, object]) -> str:
+    lines = [
+        f"session_id: {payload.get('session_id')}",
+        f"tmux_session: {payload.get('tmux_session')}",
+        f"tmux_active: {payload.get('tmux_active')}",
+    ]
+    if payload.get("cwd"):
+        lines.append(f"cwd: {payload.get('cwd')}")
+    if payload.get("transcript_path"):
+        lines.append(f"transcript_path: {payload.get('transcript_path')}")
+    if payload.get("claude_transcript_session_id"):
+        lines.append(f"claude_transcript_session_id: {payload.get('claude_transcript_session_id')}")
+    lines.append(f"completed_turn_count: {payload.get('completed_turn_count') or 0}")
+    return "\n".join(lines)
 
 
 def _print_stream(args: argparse.Namespace, controller: TmuxController) -> int:

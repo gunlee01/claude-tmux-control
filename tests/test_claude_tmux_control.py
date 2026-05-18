@@ -361,6 +361,22 @@ class CliTest(unittest.TestCase):
         self.assertEqual(args.session, "work")
         self.assertEqual(args.count, 2)
 
+    def test_parse_info_accepts_session_id_and_json(self):
+        session_id = "550e8400-e29b-41d4-a716-446655440000"
+        args = ctc.parse_args(["info", session_id, "--json"])
+
+        self.assertEqual(args.command_name, "info")
+        self.assertEqual(args.session_id, session_id)
+        self.assertEqual(args.state_dir, ctc.DEFAULT_STATE_DIR)
+        self.assertTrue(args.json)
+
+    def test_parse_list_accepts_json(self):
+        args = ctc.parse_args(["list", "--json"])
+
+        self.assertEqual(args.command_name, "list")
+        self.assertEqual(args.state_dir, ctc.DEFAULT_STATE_DIR)
+        self.assertTrue(args.json)
+
     def test_parse_stream_requires_session_name(self):
         args = ctc.parse_args(["stream", "work", "--timeout", "300", "--idle", "1.5"])
 
@@ -908,6 +924,108 @@ class HighLevelStreamSetupTest(unittest.TestCase):
             state = ctc.read_bridge_state(ctc.web_session_state_path(session_id, state_dir))
             self.assertIsNone(state["active_turn"])
             self.assertEqual(state["last_turn"]["stream_state"], "failed")
+
+
+class HighLevelSessionInfoTest(unittest.TestCase):
+    def test_build_session_info_reads_state_tmux_and_transcript_session_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / "session.jsonl"
+            transcript.parent.mkdir(parents=True)
+            transcript.write_text(
+                json_line({"sessionId": session_id, "type": "user", "message": {"content": "hello"}}),
+                encoding="utf-8",
+            )
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "cwd": str(cwd),
+                        "transcript": {"path": str(transcript)},
+                        "active_turn": {"turn_id": "turn_active"},
+                        "last_turn": {"turn_id": "turn_last"},
+                        "completed_turns": [{"turn_id": "turn_last"}],
+                        "usage_totals": {"input_tokens": 10},
+                        "cost_totals": {"currency": "USD", "session_usd": 0.01},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = True
+
+            payload = ctc.build_session_info_payload(session_id, state_dir, root, controller)
+
+            self.assertEqual(payload["event"], "info")
+            self.assertEqual(payload["session_id"], session_id)
+            self.assertEqual(payload["tmux_session"], ctc.web_tmux_session_name(session_id))
+            self.assertTrue(payload["tmux_active"])
+            self.assertEqual(payload["transcript_path"], str(transcript))
+            self.assertEqual(payload["claude_transcript_session_id"], session_id)
+            self.assertEqual(payload["active_turn"]["turn_id"], "turn_active")
+            self.assertEqual(payload["last_turn"]["turn_id"], "turn_last")
+            self.assertEqual(payload["completed_turn_count"], 1)
+            self.assertEqual(payload["usage_totals"]["input_tokens"], 10)
+            self.assertEqual(payload["cost_totals"]["session_usd"], 0.01)
+
+    def test_build_session_info_reports_inactive_when_tmux_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps({"schema_version": 1, "session_id": session_id, "cwd": str(Path(tmp))}),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = False
+
+            payload = ctc.build_session_info_payload(session_id, state_dir, root, controller)
+
+            self.assertFalse(payload["tmux_active"])
+            self.assertTrue(payload["state_exists"])
+
+    def test_build_session_list_includes_state_and_tmux_only_sessions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            state_session = "550e8400-e29b-41d4-a716-446655440000"
+            tmux_only = "660e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(state_session, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps({"schema_version": 1, "session_id": state_session, "cwd": str(Path(tmp))}),
+                encoding="utf-8",
+            )
+            (state_path.parent / "not-a-uuid.json").write_text("{}", encoding="utf-8")
+            controller = Mock()
+            controller.list_sessions.return_value = [
+                ctc.web_tmux_session_name(tmux_only),
+                "work",
+                "ctc-csess-not-a-uuid",
+            ]
+            controller.session_exists.side_effect = lambda name: name == ctc.web_tmux_session_name(tmux_only)
+
+            payload = ctc.build_session_list_payload(state_dir, root, controller)
+
+            self.assertEqual(payload["event"], "list")
+            self.assertEqual(payload["count"], 2)
+            self.assertEqual(
+                sorted(item["session_id"] for item in payload["sessions"]),
+                [state_session, tmux_only],
+            )
+            by_id = {item["session_id"]: item for item in payload["sessions"]}
+            self.assertFalse(by_id[state_session]["tmux_active"])
+            self.assertTrue(by_id[tmux_only]["tmux_active"])
 
 
 class ScreenStatusTest(unittest.TestCase):
