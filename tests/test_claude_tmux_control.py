@@ -619,6 +619,33 @@ class HighLevelStreamSetupTest(unittest.TestCase):
             self.assertEqual(state["active_turn"]["claude_state"], "starting")
             self.assertTrue(state["active_turn"]["no_transcript_baseline"])
 
+    def test_build_pending_turn_state_preserves_completed_turn_totals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=ctc.web_tmux_session_name(session_id),
+                state_path=Path(tmp) / "state.json",
+                state_dir=Path(tmp),
+                cwd=Path(tmp),
+                prompt="next",
+                turn_id="turn_next",
+                before_send_offset=10,
+                replay_start_offset=10,
+            )
+            previous = {
+                "generation": 3,
+                "completed_turns": [{"turn_id": "turn_old", "cost": {"currency": "USD", "turn_usd": 0.1}}],
+                "usage_totals": {"input_tokens": 10},
+                "cost_totals": {"currency": "USD", "session_usd": 0.1},
+            }
+
+            state = ctc.build_pending_turn_state(previous, runtime, transcript=None, wall_time=1000.0)
+
+            self.assertEqual(state["completed_turns"], previous["completed_turns"])
+            self.assertEqual(state["usage_totals"], previous["usage_totals"])
+            self.assertEqual(state["cost_totals"], previous["cost_totals"])
+
     def test_prepare_high_level_stream_starts_new_supplied_session_with_session_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_id = "550e8400-e29b-41d4-a716-446655440000"

@@ -76,6 +76,10 @@ class WebChatClientScriptTest(unittest.TestCase):
         self.assertEqual(module.validate_event_order([{"event": "done"}, {"event": "metrics"}]), [])
         self.assertIn("metrics_before_done", module.validate_event_order([{"event": "metrics"}, {"event": "done"}]))
         self.assertIn("missing_done", module.validate_event_order([{"event": "metrics"}]))
+        self.assertIn(
+            "client_parse_error",
+            module.validate_event_order([{"event": "client_parse_error"}, {"event": "done"}, {"event": "metrics"}]),
+        )
 
     def test_summarize_events_validates_expected_answer(self):
         module = load_web_chat_client_module()

@@ -275,32 +275,32 @@ Claude Code는 tool result 이후에 최종 assistant text를 이어서 쓸 수 
 
 | 값 | 권장 source | 현재 CLI 지원 |
 | --- | --- | --- |
-| model | transcript `model` 계열 field | `events --json` raw event에서 추출 |
-| elapsed time | 앱 서버 wall-clock | 앱에서 측정 |
-| input tokens | transcript `usage` 계열 field | `events --json` raw event에서 추출 |
-| cache write tokens | transcript `usage.cache_creation_input_tokens` | `events --json` raw event에서 추출 |
-| cache read tokens | transcript `usage` 계열 field | `events --json` raw event에서 추출 |
-| output tokens | transcript `usage` 계열 field | `events --json` raw event에서 추출 |
-| context size | transcript `context` 계열 field | `events --json` raw event에서 추출 |
-| cost | 앱 서버 계산 | CLI가 보장하지 않음 |
+| model | final `metrics.model` | 지원 |
+| elapsed time | final `metrics.elapsed_ms` | 지원 |
+| input tokens | final `metrics.usage.input_tokens` | 지원 |
+| cache write tokens | final `metrics.usage.cache_write_tokens` | 지원 |
+| cache read tokens | final `metrics.usage.cache_read_tokens` | 지원 |
+| output tokens | final `metrics.usage.output_tokens` | 지원 |
+| context size | final `metrics.context` | transcript에 있으면 지원 |
+| turn cost | final `metrics.cost.turn_usd` | pricing table 기준 추정 |
+| session cumulative cost | final `metrics.cost.session_usd` 또는 `info.cost_totals.session_usd` | completed turn records 기준 |
 
 ### Elapsed Time
 
-가장 안정적인 방식은 앱 서버에서 직접 측정하는 것입니다.
+CLI가 turn 시작부터 완료까지의 `elapsed_ms`를 final `metrics`에 넣습니다.
 
 ```text
-turn_started_at = before send
-turn_finished_at = when stream emits done
-elapsed_ms = finished - started
+done
+metrics.elapsed_ms
 ```
 
 ### Token And Context
 
-`stream`은 UI용 normalized event입니다.
+`stream`은 UI용 normalized event이며, final `metrics`는 통계용 필드를 함께 제공합니다.
 
-usage/context 필드는 Claude Code transcript schema에 따라 위치와 이름이 달라질 수 있으므로, 통계 수집은 raw event에서 하는 편이 낫습니다.
+usage/context 필드는 Claude Code transcript schema에 따라 위치와 이름이 달라질 수 있으므로, CLI가 최신 turn의 raw event를 읽어 normalized `usage`/`context`로 변환합니다.
 
-고수준 `stats`/`metrics` 명령이 생기기 전까지는 bridge 내부에서 해당 tmux session의 raw events를 읽어 계산합니다.
+별도 raw 분석이 필요하면 `events --json` 또는 향후 `stats` 명령을 추가합니다.
 
 앱 서버는 최신 user turn 이후의 raw event를 보고 다음 위치를 우선 탐색합니다.
 

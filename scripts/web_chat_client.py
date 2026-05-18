@@ -88,6 +88,8 @@ def summarize_events(events: Sequence[dict], returncode: int | None, expected_an
 def validate_event_order(events: Sequence[dict]) -> list[str]:
     event_names = [str(event.get("event") or "") for event in events]
     errors: list[str] = []
+    if "client_parse_error" in event_names:
+        errors.append("client_parse_error")
     if "done" not in event_names:
         errors.append("missing_done")
     if "metrics" not in event_names:

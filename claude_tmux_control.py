@@ -1344,6 +1344,9 @@ def build_pending_turn_state(state: dict, runtime: StreamRuntime, transcript: Pa
             "anchor_strategy": None,
         },
         "last_turn": state.get("last_turn"),
+        "completed_turns": state.get("completed_turns") if isinstance(state.get("completed_turns"), list) else [],
+        "usage_totals": state.get("usage_totals") if isinstance(state.get("usage_totals"), dict) else {},
+        "cost_totals": state.get("cost_totals") if isinstance(state.get("cost_totals"), dict) else {},
     }
     return payload
 
