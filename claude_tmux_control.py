@@ -325,6 +325,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     stream.add_argument("--interval", type=float, default=2.0, help="seconds between transcript checks")
     stream.add_argument("--timeout", type=float, default=300.0, help="maximum seconds to stream")
     stream.add_argument("--idle", type=float, default=2.0, help="ready state must remain stable this many seconds")
+    stream.add_argument("--attach", action="store_true", help="attach to the active high-level turn without sending")
 
     kill = subparsers.add_parser("kill", help="Terminate one tmux session.")
     kill.add_argument("session", help="tmux session name")
@@ -862,7 +863,12 @@ def _print_stream(args: argparse.Namespace, controller: TmuxController) -> int:
 
 
 def _is_high_level_stream_args(args: argparse.Namespace) -> bool:
-    return bool(getattr(args, "cwd", None) or getattr(args, "session_id", None) or getattr(args, "prompt", None))
+    return bool(
+        getattr(args, "cwd", None)
+        or getattr(args, "session_id", None)
+        or getattr(args, "prompt", None)
+        or getattr(args, "attach", False)
+    )
 
 
 def _high_level_prompt_from_args(args: argparse.Namespace) -> str:
@@ -913,6 +919,22 @@ def run_high_level_turn(
     controller: TmuxController,
     write: Callable[[str], object],
 ) -> dict:
+    if getattr(args, "attach", False):
+        if not getattr(args, "session_id", None):
+            return {"exit_code": 2, "error": "attach requires --session-id"}
+        try:
+            runtime, transcript = prepare_high_level_attach(
+                controller=controller,
+                session_id=args.session_id,
+                state_dir=args.state_dir,
+                root=args.root,
+            )
+        except ValueError as error:
+            return {"exit_code": 2, "error": str(error)}
+        except RuntimeError as error:
+            return {"exit_code": 5, "error": str(error)}
+        return _stream_prepared_high_level_turn(args, controller, runtime, transcript, write)
+
     if args.cwd is None:
         return {"exit_code": 2, "error": "high-level stream requires --cwd"}
 
@@ -951,6 +973,16 @@ def run_high_level_turn(
             "events": [],
         }
 
+    return _stream_prepared_high_level_turn(args, controller, runtime, transcript, write)
+
+
+def _stream_prepared_high_level_turn(
+    args: argparse.Namespace,
+    controller: TmuxController,
+    runtime: StreamRuntime,
+    transcript: Path,
+    write: Callable[[str], object],
+) -> dict:
     captured: list[dict] = []
 
     def capture_and_write(line: str) -> object:
@@ -1057,6 +1089,93 @@ def prepare_high_level_stream(
             raise
 
         return runtime
+
+
+def prepare_high_level_attach(
+    controller: TmuxController,
+    session_id: str,
+    state_dir: Path = DEFAULT_STATE_DIR,
+    root: Path = DEFAULT_TRANSCRIPT_ROOT,
+) -> tuple[StreamRuntime, Path]:
+    actual_session_id = validate_or_create_session_id(session_id)
+    state_path = web_session_state_path(actual_session_id, state_dir)
+    state = read_bridge_state(state_path) or {}
+    active = state.get("active_turn")
+    if not isinstance(active, dict) or active.get("stream_state") not in {"active", "timeout"}:
+        raise RuntimeError("no_active_turn")
+
+    cwd_value = state.get("cwd")
+    if not isinstance(cwd_value, str) or not cwd_value:
+        raise RuntimeError("session_cwd_missing")
+    cwd = Path(cwd_value)
+    tmux_session = str(state.get("tmux_session") or web_tmux_session_name(actual_session_id))
+    if not controller.session_exists(tmux_session):
+        raise RuntimeError("tmux_session_missing")
+
+    transcript = _attach_transcript_path(state, active, root, cwd, actual_session_id)
+    if transcript is None:
+        raise RuntimeError("transcript_missing")
+
+    replay_start = _int_or_none(active.get("anchor_start_offset"))
+    if replay_start is None:
+        replay_start = _int_or_none(active.get("replay_start_offset"))
+    if replay_start is None:
+        replay_start = _int_or_none(active.get("read_offset"))
+    if replay_start is None:
+        replay_start = 0
+
+    wall_started = _parse_utc_timestamp(str(active.get("before_send_wall_time_utc") or ""))
+    started_monotonic = time.monotonic()
+    if wall_started is not None:
+        started_monotonic = max(0.0, time.monotonic() - max(0.0, time.time() - wall_started))
+
+    active["owner_pid"] = os.getpid()
+    active["owner_hostname"] = socket.gethostname()
+    active["heartbeat_at"] = _utc_timestamp(time.time())
+    active["stream_state"] = "active"
+    state["active_turn"] = active
+    _write_high_level_state(state_path, state)
+
+    return (
+        StreamRuntime(
+            session_id=actual_session_id,
+            tmux_session=tmux_session,
+            state_path=state_path,
+            state_dir=state_dir,
+            cwd=cwd,
+            prompt=str(active.get("prompt_preview") or ""),
+            turn_id=str(active.get("turn_id") or make_turn_id()),
+            before_send_offset=replay_start,
+            replay_start_offset=replay_start,
+            before_send_transcript=transcript,
+            started_at_monotonic=started_monotonic,
+            started_at_utc=str(active.get("before_send_wall_time_utc") or "") or None,
+        ),
+        transcript,
+    )
+
+
+def _attach_transcript_path(
+    state: Mapping[str, object],
+    active: Mapping[str, object],
+    root: Path,
+    cwd: Path,
+    session_id: str,
+) -> Path | None:
+    for source in (active.get("before_send_transcript"), state.get("transcript")):
+        if isinstance(source, Mapping) and isinstance(source.get("path"), str):
+            path = Path(str(source["path"]))
+            if path.exists():
+                return path
+    return resolve_high_level_transcript(root, cwd, dict(state), session_id=session_id)
+
+
+def _int_or_none(value: object) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return None
 
 
 def validate_or_create_session_id(session_id: str | None = None) -> str:

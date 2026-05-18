@@ -406,6 +406,15 @@ class CliTest(unittest.TestCase):
         self.assertEqual(ctc._high_level_prompt_from_args(args), "hello Claude")
         self.assertTrue(ctc._is_high_level_stream_args(args))
 
+    def test_parse_high_level_stream_accepts_attach_without_cwd(self):
+        session_id = "550e8400-e29b-41d4-a716-446655440000"
+        args = ctc.parse_args(["stream", "--attach", "--session-id", session_id])
+
+        self.assertEqual(args.command_name, "stream")
+        self.assertTrue(args.attach)
+        self.assertEqual(args.session_id, session_id)
+        self.assertTrue(ctc._is_high_level_stream_args(args))
+
     def test_parse_kill_requires_session_name(self):
         args = ctc.parse_args(["kill", "ctc-old"])
 
@@ -1086,6 +1095,179 @@ class HighLevelAskTest(unittest.TestCase):
         self.assertEqual(payload["reason"], "not ready")
         self.assertNotIn("answer", payload)
         self.assertEqual(payload["events_seen"], 1)
+
+
+class HighLevelAttachTest(unittest.TestCase):
+    def test_prepare_high_level_attach_reuses_active_turn_without_sending_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / "session.jsonl"
+            transcript.parent.mkdir(parents=True)
+            user_line = json_line({"sessionId": session_id, "type": "user", "message": {"content": "question"}})
+            transcript.write_text(
+                user_line
+                + json_line(
+                    {
+                        "sessionId": session_id,
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": "final answer"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "cwd": str(cwd),
+                        "transcript": {"path": str(transcript)},
+                        "active_turn": {
+                            "turn_id": "turn_active",
+                            "stream_state": "active",
+                            "claude_state": "working",
+                            "prompt_preview": "question",
+                            "before_send_wall_time_utc": "2026-05-18T00:00:00Z",
+                            "before_send_transcript": {"path": str(transcript)},
+                            "anchor_start_offset": 0,
+                            "anchor_end_offset": len(user_line),
+                            "replay_start_offset": 0,
+                            "read_offset": 0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = True
+
+            runtime, attached_transcript = ctc.prepare_high_level_attach(controller, session_id, state_dir, root)
+
+            self.assertEqual(runtime.turn_id, "turn_active")
+            self.assertEqual(runtime.prompt, "question")
+            self.assertEqual(runtime.before_send_offset, 0)
+            self.assertEqual(attached_transcript, transcript)
+            self.assertFalse(controller.send_prompt.called)
+
+    def test_run_high_level_turn_attach_streams_existing_turn_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / "session.jsonl"
+            transcript.parent.mkdir(parents=True)
+            user_line = json_line({"sessionId": session_id, "type": "user", "message": {"content": "question"}})
+            transcript.write_text(
+                user_line
+                + json_line(
+                    {
+                        "sessionId": session_id,
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": "final answer"}]},
+                        "model": "claude-sonnet-4-6",
+                        "usage": {"input_tokens": 1, "output_tokens": 1},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "cwd": str(cwd),
+                        "transcript": {"path": str(transcript)},
+                        "active_turn": {
+                            "turn_id": "turn_active",
+                            "stream_state": "active",
+                            "claude_state": "working",
+                            "prompt_preview": "question",
+                            "before_send_wall_time_utc": "2026-05-18T00:00:00Z",
+                            "before_send_transcript": {"path": str(transcript)},
+                            "anchor_start_offset": 0,
+                            "anchor_end_offset": len(user_line),
+                            "replay_start_offset": 0,
+                            "read_offset": 0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = True
+            controller.capture_screen.return_value = "Done\nclaude> "
+            args = ctc.parse_args(
+                [
+                    "stream",
+                    "--attach",
+                    "--session-id",
+                    session_id,
+                    "--state-dir",
+                    str(state_dir),
+                    "--root",
+                    str(root),
+                    "--interval",
+                    "0",
+                    "--idle",
+                    "0",
+                    "--timeout",
+                    "1",
+                ]
+            )
+            writes = []
+
+            result = ctc.run_high_level_turn(args, controller, writes.append)
+
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["turn_id"], "turn_active")
+            self.assertEqual(result["done"]["answer"], "final answer")
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            self.assertEqual([payload["event"] for payload in payloads], ["user", "assistant_text", "done", "metrics"])
+            self.assertTrue(all(payload["turn_id"] == "turn_active" for payload in payloads))
+            self.assertFalse(controller.send_prompt.called)
+
+    def test_prepare_high_level_attach_rejects_missing_active_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(json.dumps({"session_id": session_id}), encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "no_active_turn"):
+                ctc.prepare_high_level_attach(Mock(), session_id, state_dir, Path(tmp) / "claude")
+
+    def test_prepare_high_level_attach_rejects_missing_tmux_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "session_id": session_id,
+                        "cwd": str(Path(tmp)),
+                        "active_turn": {"turn_id": "turn", "stream_state": "active"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = False
+
+            with self.assertRaisesRegex(RuntimeError, "tmux_session_missing"):
+                ctc.prepare_high_level_attach(controller, session_id, state_dir, Path(tmp) / "claude")
 
 
 class ScreenStatusTest(unittest.TestCase):
