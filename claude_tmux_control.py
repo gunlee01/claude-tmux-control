@@ -197,6 +197,17 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="claude-tmux-control",
         description="Start, feed, and read an interactive Claude Code session through tmux.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Common web client flow:
+  claude-tmux-control stream --cwd PATH [--session-id UUID] PROMPT
+  claude-tmux-control stream --attach --session-id UUID
+  claude-tmux-control info UUID --json
+  claude-tmux-control reap --idle-seconds 1800 --prefix ctc-
+
+Docs:
+  docs/quickstart-web-client.md
+  docs/cli-manual.md
+  docs/operations.md""",
     )
     subparsers = parser.add_subparsers(dest="command_name", required=True)
 

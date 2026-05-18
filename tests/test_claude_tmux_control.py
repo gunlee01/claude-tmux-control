@@ -208,6 +208,17 @@ class TmuxControllerTest(unittest.TestCase):
 
 
 class CliTest(unittest.TestCase):
+    def test_top_level_help_includes_common_web_flow(self):
+        stdout = io.StringIO()
+
+        with self.assertRaises(SystemExit), redirect_stdout(stdout):
+            ctc.parse_args(["--help"])
+
+        output = stdout.getvalue()
+        self.assertIn("Common web client flow:", output)
+        self.assertIn("stream --cwd PATH [--session-id UUID] PROMPT", output)
+        self.assertIn("docs/quickstart-web-client.md", output)
+
     def test_parse_start_defaults_to_claude_command(self):
         args = ctc.parse_args(["start", "work"])
 
