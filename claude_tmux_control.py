@@ -92,6 +92,8 @@ class StreamRuntime:
     before_send_offset: int
     replay_start_offset: int
     before_send_transcript: Path | None = None
+    started_at_monotonic: float = 0.0
+    started_at_utc: str | None = None
 
 
 class RenderedScreenFollower:
@@ -788,6 +790,8 @@ def prepare_high_level_stream(
             before_send_offset=before_send_offset,
             replay_start_offset=before_send_offset,
             before_send_transcript=transcript,
+            started_at_monotonic=time.monotonic(),
+            started_at_utc=_utc_timestamp(now()),
         )
 
         pending_state = build_pending_turn_state(
@@ -1665,11 +1669,19 @@ def stream_high_level_transcript_until_done(
             if ready_since is None:
                 ready_since = now()
             elif now() - ready_since >= idle_seconds:
+                elapsed_ms = _elapsed_ms(runtime, now())
+                state = read_bridge_state(runtime.state_path) or {}
                 done = high_level_done_payload(runtime, current_turn_events, last_status, completed_offset)
-                metrics = high_level_metrics_payload(runtime, current_turn_events, completed_offset)
+                metrics = high_level_metrics_payload(
+                    runtime,
+                    current_turn_events,
+                    completed_offset,
+                    elapsed_ms=elapsed_ms,
+                    state=state,
+                )
                 _write_jsonl(write, done)
                 _write_jsonl(write, metrics)
-                _mark_turn_done(runtime, completed_offset)
+                _mark_turn_done(runtime, current_turn_events, completed_offset, elapsed_ms, metrics)
                 return last_status
         else:
             ready_since = None
@@ -1774,11 +1786,19 @@ def high_level_done_payload(
     )
 
 
-def high_level_metrics_payload(runtime: StreamRuntime, turn_events: Sequence[dict], completed_offset: int) -> dict:
+def high_level_metrics_payload(
+    runtime: StreamRuntime,
+    turn_events: Sequence[dict],
+    completed_offset: int,
+    elapsed_ms: int | None = None,
+    state: Mapping[str, object] | None = None,
+) -> dict:
     usage = latest_usage(turn_events)
     context = latest_context(turn_events)
     model = latest_model(turn_events)
     normalized_usage = normalize_usage(usage)
+    cost = estimate_turn_cost(model, normalized_usage)
+    cost = add_session_cost_to_turn_cost(cost, state)
     return _compact_payload(
         {
             "event": "metrics",
@@ -1789,10 +1809,11 @@ def high_level_metrics_payload(runtime: StreamRuntime, turn_events: Sequence[dic
             "source_end_offset": completed_offset,
             "block_index": -1,
             "scope": "turn_final",
+            "elapsed_ms": elapsed_ms,
             "model": model,
             "usage": normalized_usage,
             "context": context or None,
-            "cost": estimate_turn_cost(model, normalized_usage),
+            "cost": cost,
         }
     )
 
@@ -1891,6 +1912,114 @@ def estimate_turn_cost(
         "line_items": line_items,
         "turn_usd": turn_usd,
     }
+
+
+def add_session_cost_to_turn_cost(cost: Mapping[str, object], state: Mapping[str, object] | None) -> dict:
+    enriched = dict(cost)
+    if not enriched.get("estimated"):
+        return enriched
+    turn_usd = _numeric_value(enriched, "turn_usd")
+    if turn_usd is None:
+        return enriched
+    previous_total = 0.0
+    if isinstance(state, Mapping):
+        cost_totals = state.get("cost_totals")
+        if isinstance(cost_totals, Mapping):
+            previous_total = float(_numeric_value(cost_totals, "session_usd") or 0.0)
+    enriched["session_usd"] = round(previous_total + float(turn_usd), 8)
+    return enriched
+
+
+def _elapsed_ms(runtime: StreamRuntime, current_monotonic: float) -> int:
+    return max(0, int(round((current_monotonic - runtime.started_at_monotonic) * 1000)))
+
+
+def build_completed_turn_record(
+    runtime: StreamRuntime,
+    turn_events: Sequence[dict],
+    completed_offset: int,
+    elapsed_ms: int | None,
+    metrics: Mapping[str, object],
+) -> dict:
+    return _compact_payload(
+        {
+            "turn_id": runtime.turn_id,
+            "session_id": runtime.session_id,
+            "completed_at": _utc_timestamp(time.time()),
+            "started_at": runtime.started_at_utc,
+            "answer": extract_latest_answer_text(turn_events),
+            "anchor_start_offset": _active_turn_value(runtime.state_path, "anchor_start_offset"),
+            "anchor_end_offset": _active_turn_value(runtime.state_path, "anchor_end_offset"),
+            "completed_offset": completed_offset,
+            "elapsed_ms": elapsed_ms,
+            "model": metrics.get("model"),
+            "usage": metrics.get("usage"),
+            "context": metrics.get("context"),
+            "cost": _turn_cost_for_completed_record(metrics.get("cost")),
+        }
+    )
+
+
+def add_completed_turn_to_state(state: dict, completed_record: Mapping[str, object]) -> dict:
+    payload = dict(state)
+    existing = payload.get("completed_turns")
+    turns = [turn for turn in existing if isinstance(turn, dict)] if isinstance(existing, list) else []
+    turn_id = completed_record.get("turn_id")
+    turns = [turn for turn in turns if turn.get("turn_id") != turn_id]
+    turns.append(dict(completed_record))
+    turns = turns[-200:]
+    payload["completed_turns"] = turns
+    payload["usage_totals"] = usage_totals_from_completed_turns(turns)
+    payload["cost_totals"] = cost_totals_from_completed_turns(turns)
+    return payload
+
+
+def usage_totals_from_completed_turns(turns: Sequence[Mapping[str, object]]) -> dict:
+    totals: dict[str, int | float] = {}
+    for turn in turns:
+        usage = turn.get("usage")
+        if not isinstance(usage, Mapping):
+            continue
+        for key in ("input_tokens", "cache_read_tokens", "cache_write_tokens", "output_tokens"):
+            value = _numeric_value(usage, key)
+            if value is not None:
+                totals[key] = totals.get(key, 0) + value
+    return totals
+
+
+def cost_totals_from_completed_turns(turns: Sequence[Mapping[str, object]]) -> dict:
+    session_usd = 0.0
+    has_cost = False
+    for turn in turns:
+        cost = turn.get("cost")
+        if not isinstance(cost, Mapping):
+            continue
+        if cost.get("currency") != "USD":
+            continue
+        turn_usd = _numeric_value(cost, "turn_usd")
+        if turn_usd is None:
+            continue
+        has_cost = True
+        session_usd += float(turn_usd)
+    if not has_cost:
+        return {}
+    return {"currency": "USD", "session_usd": round(session_usd, 8)}
+
+
+def _turn_cost_for_completed_record(cost: object) -> dict | None:
+    if not isinstance(cost, Mapping):
+        return None
+    turn_cost = dict(cost)
+    turn_cost.pop("session_usd", None)
+    return turn_cost
+
+
+def _active_turn_value(state_path: Path, key: str) -> object:
+    state = read_bridge_state(state_path) or {}
+    active = state.get("active_turn")
+    if isinstance(active, Mapping):
+        return active.get(key)
+    return None
 
 
 def load_pricing_table(path: Path = DEFAULT_PRICING_TABLE) -> dict | None:
@@ -2026,9 +2155,26 @@ def _mark_turn_working(runtime: StreamRuntime, turn_events: Sequence[dict], read
     _write_high_level_state(runtime.state_path, state)
 
 
-def _mark_turn_done(runtime: StreamRuntime, completed_offset: int) -> None:
+def _mark_turn_done(
+    runtime: StreamRuntime,
+    turn_events: Sequence[dict],
+    completed_offset: int,
+    elapsed_ms: int | None,
+    metrics: Mapping[str, object],
+) -> None:
     state = read_bridge_state(runtime.state_path) or {}
+    completed_record = build_completed_turn_record(runtime, turn_events, completed_offset, elapsed_ms, metrics)
     state = _mark_active_turn_state(state, runtime, "ready", "done", completed_offset=completed_offset)
+    last_turn = state.get("last_turn")
+    if isinstance(last_turn, dict):
+        last_turn["answer"] = completed_record.get("answer")
+        last_turn["elapsed_ms"] = elapsed_ms
+        last_turn["model"] = completed_record.get("model")
+        last_turn["usage"] = completed_record.get("usage")
+        last_turn["context"] = completed_record.get("context")
+        last_turn["cost"] = completed_record.get("cost")
+        state["last_turn"] = _compact_payload(last_turn)
+    state = add_completed_turn_to_state(state, completed_record)
     _write_high_level_state(runtime.state_path, state)
 
 

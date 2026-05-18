@@ -1543,13 +1543,53 @@ class StreamTest(unittest.TestCase):
             self.assertEqual(payloads[-1]["event_id"], f"turn_test:metrics:{completed_offset}")
             self.assertEqual(payloads[-1]["usage"]["cache_read_tokens"], 3)
             self.assertEqual(payloads[-1]["usage"]["cache_write_tokens"], 2)
+            self.assertEqual(payloads[-1]["elapsed_ms"], 1000)
             self.assertTrue(payloads[-1]["cost"]["estimated"])
             self.assertEqual(payloads[-1]["cost"]["model"], "claude-sonnet-4.6")
             self.assertEqual(payloads[-1]["cost"]["cache_write_ttl"], "1h")
             self.assertEqual(payloads[-1]["cost"]["turn_usd"], 0.0001179)
+            self.assertEqual(payloads[-1]["cost"]["session_usd"], 0.0001179)
             state = ctc.read_bridge_state(runtime.state_path)
             self.assertIsNone(state["active_turn"])
             self.assertEqual(state["last_turn"]["completed_offset"], completed_offset)
+            self.assertEqual(state["last_turn"]["answer"], "final answer")
+            self.assertEqual(state["last_turn"]["elapsed_ms"], 1000)
+            self.assertEqual(state["completed_turns"][0]["turn_id"], "turn_test")
+            self.assertEqual(state["completed_turns"][0]["answer"], "final answer")
+            self.assertEqual(state["completed_turns"][0]["usage"]["cache_read_tokens"], 3)
+            self.assertEqual(state["usage_totals"]["input_tokens"], 10)
+            self.assertEqual(state["usage_totals"]["cache_read_tokens"], 3)
+            self.assertEqual(state["usage_totals"]["cache_write_tokens"], 2)
+            self.assertEqual(state["usage_totals"]["output_tokens"], 5)
+            self.assertEqual(state["cost_totals"]["currency"], "USD")
+            self.assertEqual(state["cost_totals"]["session_usd"], 0.0001179)
+
+    def test_completed_turn_totals_deduplicate_by_turn_id(self):
+        first = {
+            "turn_id": "turn_a",
+            "usage": {"input_tokens": 10, "cache_read_tokens": 2},
+            "cost": {"estimated": True, "currency": "USD", "turn_usd": 0.1},
+        }
+        replacement = {
+            "turn_id": "turn_a",
+            "usage": {"input_tokens": 3, "output_tokens": 4},
+            "cost": {"estimated": True, "currency": "USD", "turn_usd": 0.2},
+        }
+        second = {
+            "turn_id": "turn_b",
+            "usage": {"input_tokens": 7, "cache_write_tokens": 5},
+            "cost": {"estimated": False, "currency": "USD", "turn_usd": 0.3},
+        }
+
+        state = ctc.add_completed_turn_to_state({}, first)
+        state = ctc.add_completed_turn_to_state(state, replacement)
+        state = ctc.add_completed_turn_to_state(state, second)
+
+        self.assertEqual([turn["turn_id"] for turn in state["completed_turns"]], ["turn_a", "turn_b"])
+        self.assertEqual(state["usage_totals"]["input_tokens"], 10)
+        self.assertEqual(state["usage_totals"]["output_tokens"], 4)
+        self.assertEqual(state["usage_totals"]["cache_write_tokens"], 5)
+        self.assertEqual(state["cost_totals"]["session_usd"], 0.5)
 
     def test_estimate_turn_cost_falls_back_to_latest_family_pricing(self):
         usage = {
