@@ -107,7 +107,7 @@
 - [x] 마지막 prompt가 user event에 들어있는 transcript를 우선 선택한다.
 - [x] tool output 파일에 prompt 문자열이 들어간 경우를 transcript 후보에서 배제한다.
 - [x] internal session-summary prompt를 `answer`/`turn`에서 제외한다.
-- [ ] transcript 내부 Claude `sessionId`를 추출하고 CLI session id와 함께 보여준다.
+- [x] transcript 내부 Claude `sessionId`를 추출하고 CLI session id와 함께 보여준다.
 - [ ] transcript가 rotate/new file로 바뀌는 경우 follow mode가 새 파일로 넘어가도록 한다.
 
 ## 8. Status Detection
