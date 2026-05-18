@@ -286,6 +286,24 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     list_cmd.add_argument("--root", type=Path, default=DEFAULT_TRANSCRIPT_ROOT, help="Claude config/transcript directory")
     list_cmd.add_argument("--json", action="store_true", help="print machine-readable JSON")
 
+    ask = subparsers.add_parser("ask", help="Run one high-level turn and print only the final answer/metrics JSON.")
+    ask.add_argument("prompt", nargs="*", help="prompt text")
+    ask.add_argument("--session-id", help="web-facing Claude session id UUID for high-level ask")
+    ask.add_argument("--cwd", type=Path, required=True, help="working directory for high-level ask")
+    ask.add_argument("--command", dest="claude_command", default="claude", help="Claude Code command")
+    ask.add_argument(
+        "--oauth-token-env",
+        default=CLAUDE_OAUTH_TOKEN_ENV,
+        help=f"source environment variable to pass as {CLAUDE_OAUTH_TOKEN_ENV}",
+    )
+    ask.add_argument("--state-dir", type=Path, default=DEFAULT_STATE_DIR, help="bridge state directory")
+    ask.add_argument("--transcript", type=Path, help="specific transcript JSONL path")
+    ask.add_argument("--root", type=Path, default=DEFAULT_TRANSCRIPT_ROOT, help="Claude config/transcript directory")
+    ask.add_argument("--interval", type=float, default=2.0, help="seconds between transcript checks")
+    ask.add_argument("--timeout", type=float, default=300.0, help="maximum seconds to wait")
+    ask.add_argument("--idle", type=float, default=2.0, help="ready state must remain stable this many seconds")
+    ask.add_argument("--json", action="store_true", help="accepted for symmetry; ask always prints JSON")
+
     stream = subparsers.add_parser("stream", help="Stream one turn as JSONL until the answer is complete.")
     stream.add_argument(
         "session",
@@ -453,6 +471,9 @@ def _run_command(args: argparse.Namespace, controller: TmuxController) -> int:
     if args.command_name == "list":
         return _print_high_level_list(args, controller)
 
+    if args.command_name == "ask":
+        return _run_high_level_ask(args, controller)
+
     if args.command_name == "stream":
         if _is_high_level_stream_args(args):
             return _run_high_level_stream(args, controller)
@@ -548,7 +569,7 @@ def check_runtime_dependencies(
         )
 
     if args.command_name not in CLAUDE_LAUNCH_COMMANDS and not (
-        args.command_name == "stream" and getattr(args, "cwd", None)
+        args.command_name in {"stream", "ask"} and getattr(args, "cwd", None)
     ):
         return None
 
@@ -846,21 +867,58 @@ def _is_high_level_stream_args(args: argparse.Namespace) -> bool:
 
 def _high_level_prompt_from_args(args: argparse.Namespace) -> str:
     parts = []
-    if args.session:
-        parts.append(args.session)
-    parts.extend(args.prompt or [])
+    session = getattr(args, "session", None)
+    if session:
+        parts.append(session)
+    parts.extend(getattr(args, "prompt", None) or [])
     return " ".join(parts)
 
 
 def _run_high_level_stream(args: argparse.Namespace, controller: TmuxController) -> int:
+    result = run_high_level_turn(args, controller, sys.stdout.write)
+    if result.get("error"):
+        print(json.dumps({"event": "error", "error": result["error"]}, ensure_ascii=False), file=sys.stderr)
+    elif result.get("stderr"):
+        print(str(result["stderr"]), file=sys.stderr)
+    return int(result.get("exit_code") or 0)
+
+
+def _run_high_level_ask(args: argparse.Namespace, controller: TmuxController) -> int:
+    result = run_high_level_turn(args, controller, lambda _line: None)
+    if result.get("error"):
+        print(json.dumps({"event": "error", "error": result["error"]}, ensure_ascii=False), file=sys.stderr)
+        return int(result.get("exit_code") or 1)
+
+    done = result.get("done") if isinstance(result.get("done"), dict) else {}
+    metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else None
+    status = result.get("status")
+    payload = _compact_payload(
+        {
+            "event": "ask_result",
+            "session_id": result.get("session_id"),
+            "turn_id": result.get("turn_id"),
+            "state": status.state if isinstance(status, ScreenStatus) else None,
+            "reason": status.reason if isinstance(status, ScreenStatus) else result.get("stderr"),
+            "answer": done.get("answer") if isinstance(done, dict) else None,
+            "metrics": metrics,
+            "events_seen": len(result.get("events") or []),
+        }
+    )
+    print(json.dumps(payload, ensure_ascii=False))
+    return int(result.get("exit_code") or 0)
+
+
+def run_high_level_turn(
+    args: argparse.Namespace,
+    controller: TmuxController,
+    write: Callable[[str], object],
+) -> dict:
     if args.cwd is None:
-        print("high-level stream requires --cwd", file=sys.stderr)
-        return 2
+        return {"exit_code": 2, "error": "high-level stream requires --cwd"}
 
     prompt = _high_level_prompt_from_args(args)
     if not prompt:
-        print("high-level stream requires prompt text", file=sys.stderr)
-        return 2
+        return {"exit_code": 2, "error": "high-level stream requires prompt text"}
 
     try:
         runtime = prepare_high_level_stream(
@@ -874,11 +932,9 @@ def _run_high_level_stream(args: argparse.Namespace, controller: TmuxController)
             env=claude_environment_from_args(args),
         )
     except ValueError as error:
-        print(json.dumps({"event": "error", "error": str(error)}, ensure_ascii=False), file=sys.stderr)
-        return 2
+        return {"exit_code": 2, "error": str(error)}
     except RuntimeError as error:
-        print(json.dumps({"event": "error", "error": str(error)}, ensure_ascii=False), file=sys.stderr)
-        return 5
+        return {"exit_code": 5, "error": str(error)}
 
     transcript = args.transcript or wait_for_high_level_transcript(args.root, runtime, args.timeout, args.interval)
     if transcript is None:
@@ -886,8 +942,26 @@ def _run_high_level_stream(args: argparse.Namespace, controller: TmuxController)
             runtime.state_path,
             _mark_active_turn_state(read_bridge_state(runtime.state_path) or {}, runtime, "working", "timeout"),
         )
-        print(f"no transcript found under {args.root}", file=sys.stderr)
-        return 2
+        return {
+            "exit_code": 2,
+            "session_id": runtime.session_id,
+            "turn_id": runtime.turn_id,
+            "status": ScreenStatus("timeout", f"no transcript found under {args.root}"),
+            "stderr": f"no transcript found under {args.root}",
+            "events": [],
+        }
+
+    captured: list[dict] = []
+
+    def capture_and_write(line: str) -> object:
+        for raw in line.splitlines():
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                captured.append(payload)
+        return write(line)
 
     status = stream_high_level_transcript_until_done(
         transcript,
@@ -897,8 +971,19 @@ def _run_high_level_stream(args: argparse.Namespace, controller: TmuxController)
         interval=args.interval,
         timeout=args.timeout,
         idle_seconds=args.idle,
+        write=capture_and_write,
     )
-    return 0 if status.state == "ready" else 3
+    done = next((payload for payload in reversed(captured) if payload.get("event") == "done"), None)
+    metrics = next((payload for payload in reversed(captured) if payload.get("event") == "metrics"), None)
+    return {
+        "exit_code": 0 if status.state == "ready" else 3,
+        "session_id": runtime.session_id,
+        "turn_id": runtime.turn_id,
+        "status": status,
+        "events": captured,
+        "done": done,
+        "metrics": metrics,
+    }
 
 
 def prepare_high_level_stream(

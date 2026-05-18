@@ -1,11 +1,13 @@
 import json
+import io
 import os
 import subprocess
 import tempfile
 import unittest
 import uuid
+from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import claude_tmux_control as ctc
 
@@ -376,6 +378,15 @@ class CliTest(unittest.TestCase):
         self.assertEqual(args.command_name, "list")
         self.assertEqual(args.state_dir, ctc.DEFAULT_STATE_DIR)
         self.assertTrue(args.json)
+
+    def test_parse_ask_accepts_high_level_prompt(self):
+        session_id = "550e8400-e29b-41d4-a716-446655440000"
+        args = ctc.parse_args(["ask", "--session-id", session_id, "--cwd", "/tmp/project", "hello", "Claude"])
+
+        self.assertEqual(args.command_name, "ask")
+        self.assertEqual(args.session_id, session_id)
+        self.assertEqual(args.cwd, Path("/tmp/project"))
+        self.assertEqual(ctc._high_level_prompt_from_args(args), "hello Claude")
 
     def test_parse_stream_requires_session_name(self):
         args = ctc.parse_args(["stream", "work", "--timeout", "300", "--idle", "1.5"])
@@ -1026,6 +1037,55 @@ class HighLevelSessionInfoTest(unittest.TestCase):
             by_id = {item["session_id"]: item for item in payload["sessions"]}
             self.assertFalse(by_id[state_session]["tmux_active"])
             self.assertTrue(by_id[tmux_only]["tmux_active"])
+
+
+class HighLevelAskTest(unittest.TestCase):
+    def test_run_high_level_ask_prints_final_answer_and_metrics(self):
+        args = ctc.parse_args(["ask", "--cwd", "/tmp/project", "hello"])
+        result = {
+            "exit_code": 0,
+            "session_id": "550e8400-e29b-41d4-a716-446655440000",
+            "turn_id": "turn_test",
+            "status": ctc.ScreenStatus("ready", "done"),
+            "events": [{"event": "assistant_text"}, {"event": "done"}, {"event": "metrics"}],
+            "done": {"event": "done", "answer": "final answer"},
+            "metrics": {"event": "metrics", "elapsed_ms": 1000},
+        }
+        stdout = io.StringIO()
+
+        with patch.object(ctc, "run_high_level_turn", return_value=result), redirect_stdout(stdout):
+            exit_code = ctc._run_high_level_ask(args, Mock())
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["event"], "ask_result")
+        self.assertEqual(payload["session_id"], result["session_id"])
+        self.assertEqual(payload["turn_id"], "turn_test")
+        self.assertEqual(payload["answer"], "final answer")
+        self.assertEqual(payload["metrics"]["elapsed_ms"], 1000)
+        self.assertEqual(payload["events_seen"], 3)
+
+    def test_run_high_level_ask_non_ready_does_not_emit_answer(self):
+        args = ctc.parse_args(["ask", "--cwd", "/tmp/project", "hello"])
+        result = {
+            "exit_code": 3,
+            "session_id": "550e8400-e29b-41d4-a716-446655440000",
+            "turn_id": "turn_test",
+            "status": ctc.ScreenStatus("timeout", "not ready"),
+            "events": [{"event": "timeout"}],
+        }
+        stdout = io.StringIO()
+
+        with patch.object(ctc, "run_high_level_turn", return_value=result), redirect_stdout(stdout):
+            exit_code = ctc._run_high_level_ask(args, Mock())
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 3)
+        self.assertEqual(payload["event"], "ask_result")
+        self.assertEqual(payload["state"], "timeout")
+        self.assertEqual(payload["reason"], "not ready")
+        self.assertNotIn("answer", payload)
+        self.assertEqual(payload["events_seen"], 1)
 
 
 class ScreenStatusTest(unittest.TestCase):
