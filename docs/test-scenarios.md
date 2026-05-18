@@ -14,8 +14,50 @@
 | repeated prompt anchor | wrong turn selection | stream starts from pre-send offset, not earlier same prompt text |
 | stable event ids | replay dedupe failure | every progress event has `turn_id`, `event_id`, `source_offset`, `source_end_offset`, `block_index` |
 | done then metrics | missing final accounting | `done` is followed by `metrics` with same `turn_id` and deterministic synthetic ids |
+| client scenario log | backend/UI contract drift | `scripts/web_chat_client.py` writes `request`, `event`, and `summary` JSONL records |
 | tool_result not final | premature input enable | stream times out or keeps working until final assistant text appears |
 | low-level compatibility | breaking existing shell workflow | `stream SESSION` remains accepted and keeps old behavior |
+
+## Client-Style Scenario
+
+이 스크립트는 웹 서버가 `stream` subprocess를 실행하고 stdout JSONL을 SSE/WebSocket으로 중계하는 상황을 흉내 낸다.
+
+```bash
+mkdir -p logs/integration
+SESSION_ID="$(python3 - <<'PY'
+import uuid
+print(uuid.uuid4())
+PY
+)"
+LOG="logs/integration/$(date -u +%Y%m%dT%H%M%SZ)-client-smoke-${SESSION_ID}.jsonl"
+TERM=xterm-256color python3 scripts/web_chat_client.py \
+  --ctc ./claude_tmux_control.py \
+  --cwd "$PWD" \
+  --session-id "$SESSION_ID" \
+  --prompt "Reply with exactly: client-ok" \
+  --expect-answer "client-ok" \
+  --log "$LOG" \
+  --timeout 180
+tail -n 20 "$LOG"
+```
+
+Expected:
+
+- client exit code is `0`
+- log contains one `request` record
+- log contains streamed `event` records
+- log contains one `summary` record
+- `summary.ok` is `true`
+- `summary.answer` is `client-ok`
+- `summary.metrics.cost.turn_usd` exists when Claude transcript usage/model are available
+- `summary.metrics.cost.session_usd` exists when turn cost is available
+- stream order has `done` before `metrics`
+
+Cleanup:
+
+```bash
+TERM=xterm-256color ./claude_tmux_control.py kill "ctc-csess-${SESSION_ID}" || true
+```
 
 ## Optional Real Smoke
 
