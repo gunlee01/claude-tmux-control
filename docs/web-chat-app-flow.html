@@ -573,6 +573,7 @@
             <tr><td>inactive + state/transcript 있음</td><td>`claude --resume`</td><td>복구 후 이어가기</td></tr>
             <tr><td>cwd mismatch</td><td>`session_cwd_mismatch` error</td><td>잘못된 대화 연결 차단</td></tr>
             <tr><td>active turn working</td><td>`turn_in_progress` error</td><td>중복 전송 차단</td></tr>
+            <tr><td>timeout turn already done</td><td>state-only finalize 후 새 prompt 전송</td><td>수동 attach 없이 다음 입력 진행</td></tr>
           </tbody>
         </table>
       </div>
@@ -590,7 +591,7 @@
       <div class="grid-3">
         <div class="card">
           <h3>Implemented</h3>
-          <p class="small">UUID validation, cwd fail-closed, send_lock, active_turn, transcript sessionId filtering, offset tailing, done + metrics.</p>
+          <p class="small">UUID validation, cwd fail-closed, send_lock, active_turn, transcript sessionId filtering, timeout auto-finalize, offset tailing, done + metrics.</p>
         </div>
         <div class="card">
           <h3>CLI Metrics</h3>

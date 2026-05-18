@@ -195,7 +195,7 @@ CLI 예:
 | 상태 | 권장 처리 |
 | --- | --- |
 | 아직 working | 새 입력 거절 또는 현재 stream에 attach |
-| timeout | UI에 "아직 처리 중" 표시 |
+| timeout/interrupted | UI에 "아직 처리 중" 표시. 다음 prompt 요청 시 CLI가 이전 turn의 완료 여부를 먼저 검사 |
 | needs confirmation | session 재시작 또는 운영자 확인 |
 | inactive | `stream --session-id ...`가 내부에서 `--resume`으로 재생성 |
 
@@ -207,7 +207,13 @@ CLI 예:
 
 `timeout`이나 `failed`는 "입력 가능" 신호가 아닙니다.
 
-이 경우 `active_turn`을 유지하고, attach/inspect/kill로 이전 turn이 끝났는지 확인한 뒤 다음 입력을 허용합니다.
+이 경우 `active_turn`을 유지합니다.
+
+다음 `stream --cwd ... --session-id ... "$PROMPT"` 요청이 들어오면 CLI는 먼저 tmux 화면과 transcript를 검사합니다.
+
+이전 turn이 `tmux ready + transcript ready`로 확인되면 이전 turn을 state에 `done/metrics`로 finalize한 뒤 새 prompt를 전송합니다.
+
+확인되지 않으면 기존처럼 `turn_in_progress`로 중복 입력을 막습니다.
 
 `ensure`는 사용자가 주로 직접 호출할 명령이 아니라, `stream` 내부에서 수행하는 session 보장 단계입니다.
 
@@ -501,6 +507,8 @@ cron, systemd timer, app scheduler 중 하나에서 호출합니다.
 | `claude` 없음 | exit `127` | Claude Code 설치 안내 |
 | transcript 없음 | exit `2` | starting 상태로 재시도 |
 | stream timeout | exit `3`, `timeout` event | UI에 계속 처리 중 표시 |
+| stream interrupted | exit `130` | 연결 끊김으로 표시. 같은 session_id로 attach 또는 다음 prompt 시 자동 완료 검사 |
+| 이전 timeout turn 완료됨 | 새 요청 안에서 state-only finalize | 이전 answer/metrics는 `info`/state에서 확인. 새 요청 stdout에는 새 turn event만 출력 |
 | session 없음 | exit `2` | `start` 후 재시도 |
 
 앱 서버는 stderr를 운영 로그에 남기되, token 값은 절대 로그에 남기지 않습니다.

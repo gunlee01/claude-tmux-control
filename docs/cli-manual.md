@@ -410,6 +410,14 @@ high-level 웹 세션은 `--session-id`와 `--cwd`를 사용합니다.
 
 attach는 local state의 `active_turn`과 transcript offset을 사용하며, 새 입력을 보내지 않습니다.
 
+`timeout` 또는 Ctrl+C 이후에도 `active_turn`은 남습니다.
+
+다음 `stream --cwd ... --session-id ... "$USER_PROMPT"` 요청은 새 prompt를 보내기 전에 이전 turn을 검사합니다.
+
+이전 turn이 tmux 화면과 transcript 모두에서 완료로 확인되면 CLI는 이전 turn을 state에만 `done/metrics`로 finalize하고 새 prompt를 계속 보냅니다.
+
+확인되지 않으면 `turn_in_progress`로 실패합니다.
+
 ### `ask`
 
 한 turn을 실행하되 중간 JSONL을 출력하지 않고 최종 결과 한 줄만 JSON으로 출력합니다.
@@ -625,6 +633,7 @@ high-level stream은 다음 안전장치를 둡니다.
 - client-provided `session_id`는 UUID만 허용합니다.
 - 기존 state의 canonical `cwd`와 요청 `cwd`가 다르면 `session_cwd_mismatch`로 실패합니다.
 - 짧은 `send_lock`과 durable `active_turn`으로 동시 prompt 전송을 막습니다.
+- `timeout`/`interrupted` 상태라도 이전 turn이 완료된 것으로 확인되면 다음 prompt 전에 state-only finalize합니다.
 - stale/malformed lock은 오래된 경우에만 복구합니다.
 - transcript는 cwd project dir와 Claude `sessionId`가 맞는 파일만 사용합니다.
 - partial JSONL line은 offset을 전진시키지 않습니다.

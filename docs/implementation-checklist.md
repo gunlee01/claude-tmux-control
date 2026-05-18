@@ -91,6 +91,7 @@
 - [x] `done` event에는 answer/completion 정보만 담고 usage/context/cost를 넣지 않는다.
 - [x] `metrics` event는 `done` 직후 같은 `turn_id`로 별도 출력한다.
 - [x] `timeout`/`failed` 후 stale recovery 전까지 새 prompt를 막는다.
+- [x] `timeout`/`interrupted` 후 이전 turn이 tmux ready + transcript ready이면 다음 prompt 전에 state-only finalize한다.
 
 ## 6. Lifecycle And Idle Cleanup
 
@@ -174,6 +175,9 @@
 - [ ] metrics deduplication by turn_id/source offset test
 - [x] done and metrics event separation test
 - [x] timeout/failed keeps active_turn until stale recovery test
+- [x] recent timeout auto-finalize before next prompt test
+- [x] late streamer state-write guard test
+- [x] Ctrl+C interrupted state test
 - [x] `ask` command test
 - [x] `list/info` command test
 - [x] `kill/reap` command test

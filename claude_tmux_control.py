@@ -972,7 +972,17 @@ def run_high_level_turn(
     except RuntimeError as error:
         return {"exit_code": 5, "error": str(error)}
 
-    transcript = args.transcript or wait_for_high_level_transcript(args.root, runtime, args.timeout, args.interval)
+    try:
+        transcript = args.transcript or wait_for_high_level_transcript(args.root, runtime, args.timeout, args.interval)
+    except KeyboardInterrupt:
+        _mark_turn_interrupted(runtime)
+        return {
+            "exit_code": 130,
+            "session_id": runtime.session_id,
+            "turn_id": runtime.turn_id,
+            "status": ScreenStatus("interrupted", "stream interrupted by client"),
+            "events": [],
+        }
     if transcript is None:
         _write_high_level_state(
             runtime.state_path,
@@ -1009,17 +1019,27 @@ def _stream_prepared_high_level_turn(
                 captured.append(payload)
         return write(line)
 
-    status = stream_high_level_transcript_until_done(
-        transcript,
-        runtime,
-        controller,
-        root=args.root,
-        interval=args.interval,
-        timeout=args.timeout,
-        idle_seconds=args.idle,
-        tool_result_limit=args.tool_result_limit,
-        write=capture_and_write,
-    )
+    try:
+        status = stream_high_level_transcript_until_done(
+            transcript,
+            runtime,
+            controller,
+            root=args.root,
+            interval=args.interval,
+            timeout=args.timeout,
+            idle_seconds=args.idle,
+            tool_result_limit=args.tool_result_limit,
+            write=capture_and_write,
+        )
+    except KeyboardInterrupt:
+        _mark_turn_interrupted(runtime)
+        return {
+            "exit_code": 130,
+            "session_id": runtime.session_id,
+            "turn_id": runtime.turn_id,
+            "status": ScreenStatus("interrupted", "stream interrupted by client"),
+            "events": captured,
+        }
     done = next((payload for payload in reversed(captured) if payload.get("event") == "done"), None)
     metrics = next((payload for payload in reversed(captured) if payload.get("event") == "metrics"), None)
     return {
@@ -1058,7 +1078,16 @@ def prepare_high_level_stream(
 
         active_turn = state.get("active_turn")
         if isinstance(active_turn, dict) and active_turn.get("claude_state") not in {None, "ready"}:
-            if recover_stale_active_turn(state_path, state, controller, tmux_session):
+            if recover_stale_active_turn(
+                state_path,
+                state,
+                controller,
+                tmux_session,
+                root=root,
+                cwd=canonical_cwd,
+                state_dir=state_dir,
+                session_id=actual_session_id,
+            ):
                 state = read_bridge_state(state_path) or {}
             else:
                 raise RuntimeError("turn_in_progress")
@@ -1099,6 +1128,9 @@ def prepare_high_level_stream(
                 resume = bool(state or transcript)
                 command = build_initial_claude_command(claude_command, actual_session_id, prompt, resume=resume)
                 controller.start_session(tmux_session, command=command, cwd=canonical_cwd, env=env)
+        except KeyboardInterrupt:
+            _mark_turn_interrupted(runtime)
+            raise
         except Exception:
             _clear_active_turn_after_failed_send(state_path)
             raise
@@ -1116,7 +1148,7 @@ def prepare_high_level_attach(
     state_path = web_session_state_path(actual_session_id, state_dir)
     state = read_bridge_state(state_path) or {}
     active = state.get("active_turn")
-    if not isinstance(active, dict) or active.get("stream_state") not in {"active", "timeout"}:
+    if not isinstance(active, dict) or active.get("stream_state") not in {"active", "timeout", "interrupted"}:
         raise RuntimeError("no_active_turn")
 
     cwd_value = state.get("cwd")
@@ -2208,6 +2240,15 @@ def _is_anchor_user_record(record: TranscriptRecord, prompt: str) -> bool:
     return not prompt or prompt in user_text
 
 
+def _is_external_user_record(record: TranscriptRecord) -> bool:
+    event = record.event
+    event_type = str(event.get("type") or event.get("event") or event.get("role") or "")
+    if event_type != "user":
+        return False
+    content = _event_content(event)
+    return not _is_tool_result_content(content) and not _is_internal_user_content(content)
+
+
 def high_level_done_payload(
     runtime: StreamRuntime,
     turn_events: Sequence[dict],
@@ -2566,7 +2607,7 @@ def _nested_value(source: dict, *keys: str) -> object:
 def _update_active_turn_offsets(runtime: StreamRuntime, read_offset: int, flushed_offset: int) -> None:
     state = read_bridge_state(runtime.state_path) or {}
     active = state.get("active_turn")
-    if not isinstance(active, dict):
+    if not _active_turn_matches_runtime(active, runtime):
         return
     active["read_offset"] = read_offset
     active["last_stdout_flushed_offset"] = flushed_offset
@@ -2578,7 +2619,7 @@ def _update_active_turn_offsets(runtime: StreamRuntime, read_offset: int, flushe
 def _mark_turn_anchor(runtime: StreamRuntime, anchor_start: int, anchor_end: int) -> None:
     state = read_bridge_state(runtime.state_path) or {}
     active = state.get("active_turn")
-    if not isinstance(active, dict):
+    if not _active_turn_matches_runtime(active, runtime):
         return
     active["anchor_start_offset"] = anchor_start
     active["anchor_end_offset"] = anchor_end
@@ -2591,7 +2632,7 @@ def _mark_turn_anchor(runtime: StreamRuntime, anchor_start: int, anchor_end: int
 def _mark_turn_working(runtime: StreamRuntime, turn_events: Sequence[dict], read_offset: int) -> None:
     state = read_bridge_state(runtime.state_path) or {}
     active = state.get("active_turn")
-    if not isinstance(active, dict):
+    if not _active_turn_matches_runtime(active, runtime):
         return
     active["claude_state"] = "working"
     active["stream_state"] = "active"
@@ -2607,6 +2648,8 @@ def _mark_turn_done(
     metrics: Mapping[str, object],
 ) -> None:
     state = read_bridge_state(runtime.state_path) or {}
+    if not _active_turn_matches_runtime(state.get("active_turn"), runtime):
+        return
     completed_record = build_completed_turn_record(runtime, turn_events, completed_offset, elapsed_ms, metrics)
     state = _mark_active_turn_state(state, runtime, "ready", "done", completed_offset=completed_offset)
     last_turn = state.get("last_turn")
@@ -2624,8 +2667,25 @@ def _mark_turn_done(
 
 def _mark_turn_timeout(runtime: StreamRuntime) -> None:
     state = read_bridge_state(runtime.state_path) or {}
+    if not _active_turn_matches_runtime(state.get("active_turn"), runtime):
+        return
     state = _mark_active_turn_state(state, runtime, "working", "timeout")
     _write_high_level_state(runtime.state_path, state)
+
+
+def _mark_turn_interrupted(runtime: StreamRuntime) -> None:
+    state = read_bridge_state(runtime.state_path) or {}
+    if not _active_turn_matches_runtime(state.get("active_turn"), runtime):
+        return
+    state = _mark_active_turn_state(state, runtime, "working", "interrupted")
+    _write_high_level_state(runtime.state_path, state)
+
+
+def _active_turn_matches_runtime(active: object, runtime: StreamRuntime) -> bool:
+    if not isinstance(active, dict):
+        return False
+    turn_id = active.get("turn_id")
+    return turn_id in {None, runtime.turn_id}
 
 
 def recover_stale_active_turn(
@@ -2633,19 +2693,31 @@ def recover_stale_active_turn(
     state: dict,
     controller: TmuxController,
     tmux_session: str,
+    root: Path = DEFAULT_TRANSCRIPT_ROOT,
+    cwd: Path | None = None,
+    state_dir: Path = DEFAULT_STATE_DIR,
+    session_id: str | None = None,
     stale_seconds: float = 300.0,
 ) -> bool:
     active = state.get("active_turn")
     if not isinstance(active, dict):
         return False
-    if active.get("stream_state") not in {"active", "timeout", "failed"}:
+    stream_state = active.get("stream_state")
+    if stream_state not in {"active", "timeout", "failed", "interrupted"}:
         return False
 
     heartbeat = _parse_utc_timestamp(str(active.get("heartbeat_at") or ""))
-    if heartbeat is not None and time.time() - heartbeat < stale_seconds:
+    if stream_state == "active" and heartbeat is not None and time.time() - heartbeat < stale_seconds:
         return False
 
     if not controller.session_exists(tmux_session):
+        if stream_state in {"interrupted", "failed"}:
+            state["last_turn"] = active
+            state["active_turn"] = None
+            _write_high_level_state(state_path, state)
+            return True
+        if heartbeat is not None and time.time() - heartbeat < stale_seconds:
+            return False
         state["last_turn"] = active
         state["active_turn"] = None
         _write_high_level_state(state_path, state)
@@ -2656,12 +2728,124 @@ def recover_stale_active_turn(
     except subprocess.CalledProcessError:
         screen_status = ScreenStatus("unknown", "screen unavailable")
     if screen_status.state == "ready":
+        if finalize_recoverable_active_turn(
+            state_path=state_path,
+            state=state,
+            controller_status=screen_status,
+            root=root,
+            cwd=cwd,
+            state_dir=state_dir,
+            session_id=session_id,
+            tmux_session=tmux_session,
+        ):
+            return True
+
+    heartbeat = _parse_utc_timestamp(str(active.get("heartbeat_at") or ""))
+    if heartbeat is not None and time.time() - heartbeat < stale_seconds:
+        return False
+
+    if screen_status.state == "ready":
         state["last_turn"] = active
         state["active_turn"] = None
         _write_high_level_state(state_path, state)
         return True
 
     return False
+
+
+def finalize_recoverable_active_turn(
+    state_path: Path,
+    state: dict,
+    controller_status: ScreenStatus,
+    root: Path = DEFAULT_TRANSCRIPT_ROOT,
+    cwd: Path | None = None,
+    state_dir: Path = DEFAULT_STATE_DIR,
+    session_id: str | None = None,
+    tmux_session: str | None = None,
+) -> bool:
+    active = state.get("active_turn")
+    if not isinstance(active, dict):
+        return False
+    cwd_value = cwd or Path(str(state.get("cwd") or "."))
+    actual_session_id = session_id or str(state.get("session_id") or "")
+    if not actual_session_id:
+        return False
+
+    transcript = _attach_transcript_path(state, active, root, cwd_value, actual_session_id)
+    if transcript is None:
+        return False
+
+    prompt = str(active.get("prompt_preview") or "")
+    start_offset = recoverable_turn_start_offset(active)
+    records, read_offset = read_transcript_records(transcript, start_offset)
+    turn_events: list[dict] = []
+    completed_offset = start_offset
+    anchored = start_offset == _int_or_none(active.get("anchor_start_offset"))
+    for record in records:
+        if anchored and turn_events and _is_external_user_record(record):
+            break
+        if not anchored:
+            if not _is_anchor_user_record(record, prompt):
+                continue
+            anchored = True
+        turn_events.append(record.event)
+        completed_offset = record.end_offset
+
+    if not anchored:
+        return False
+    if analyze_turn_status(turn_events).state != "ready":
+        return False
+    if read_offset < transcript.stat().st_size:
+        return False
+
+    wall_started = _parse_utc_timestamp(str(active.get("before_send_wall_time_utc") or ""))
+    elapsed_ms = int(max(0.0, time.time() - wall_started) * 1000) if wall_started is not None else None
+    runtime = StreamRuntime(
+        session_id=actual_session_id,
+        tmux_session=tmux_session or str(state.get("tmux_session") or web_tmux_session_name(actual_session_id)),
+        state_path=state_path,
+        state_dir=state_dir,
+        cwd=cwd_value,
+        prompt=prompt,
+        turn_id=str(active.get("turn_id") or make_turn_id()),
+        before_send_offset=start_offset,
+        replay_start_offset=start_offset,
+        before_send_transcript=transcript,
+        started_at_monotonic=time.monotonic(),
+        started_at_utc=str(active.get("before_send_wall_time_utc") or "") or None,
+    )
+    metrics = high_level_metrics_payload(
+        runtime,
+        turn_events,
+        completed_offset,
+        elapsed_ms=elapsed_ms,
+        state=state,
+    )
+    _mark_turn_done(runtime, turn_events, completed_offset, elapsed_ms, metrics)
+    latest_state = read_bridge_state(state_path) or {}
+    last_turn = latest_state.get("last_turn")
+    return (
+        isinstance(last_turn, dict)
+        and last_turn.get("turn_id") == runtime.turn_id
+        and latest_state.get("active_turn") is None
+        and controller_status.state == "ready"
+    )
+
+
+def recoverable_turn_start_offset(active: Mapping[str, object]) -> int:
+    anchor = _int_or_none(active.get("anchor_start_offset"))
+    if anchor is not None:
+        return anchor
+    source = active.get("before_send_transcript")
+    if isinstance(source, Mapping):
+        value = _int_or_none(source.get("offset"))
+        if value is not None:
+            return value
+    for key in ("replay_start_offset", "read_offset"):
+        value = _int_or_none(active.get(key))
+        if value is not None:
+            return value
+    return 0
 
 
 def _parse_utc_timestamp(value: str) -> float | None:
