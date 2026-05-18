@@ -15,6 +15,7 @@
 | stable event ids | replay dedupe failure | every progress event has `turn_id`, `event_id`, `source_offset`, `source_end_offset`, `block_index` |
 | done then metrics | missing final accounting | `done` is followed by `metrics` with same `turn_id` and deterministic synthetic ids |
 | client scenario log | backend/UI contract drift | `scripts/web_chat_client.py` writes `request`, `event`, and `summary` JSONL records |
+| tool_result preview limit | oversized payload | `tool_result.text` is truncated by default and marks `text_truncated` |
 | tool_result not final | premature input enable | stream times out or keeps working until final assistant text appears |
 | low-level compatibility | breaking existing shell workflow | `stream SESSION` remains accepted and keeps old behavior |
 
@@ -36,6 +37,7 @@ TERM=xterm-256color python3 scripts/web_chat_client.py \
   --session-id "$SESSION_ID" \
   --prompt "Reply with exactly: client-ok" \
   --expect-answer "client-ok" \
+  --tool-result-limit 100 \
   --log "$LOG" \
   --timeout 180
 tail -n 20 "$LOG"

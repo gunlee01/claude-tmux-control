@@ -387,6 +387,7 @@ class CliTest(unittest.TestCase):
         self.assertEqual(args.session_id, session_id)
         self.assertEqual(args.cwd, Path("/tmp/project"))
         self.assertEqual(ctc._high_level_prompt_from_args(args), "hello Claude")
+        self.assertEqual(args.tool_result_limit, 100)
 
     def test_parse_stream_requires_session_name(self):
         args = ctc.parse_args(["stream", "work", "--timeout", "300", "--idle", "1.5"])
@@ -395,6 +396,12 @@ class CliTest(unittest.TestCase):
         self.assertEqual(args.session, "work")
         self.assertEqual(args.timeout, 300)
         self.assertEqual(args.idle, 1.5)
+        self.assertEqual(args.tool_result_limit, 100)
+
+    def test_parse_stream_accepts_tool_result_limit(self):
+        args = ctc.parse_args(["stream", "work", "--tool-result-limit", "240"])
+
+        self.assertEqual(args.tool_result_limit, 240)
 
     def test_parse_high_level_stream_accepts_session_id_cwd_and_prompt(self):
         session_id = "550e8400-e29b-41d4-a716-446655440000"
@@ -1703,7 +1710,13 @@ class StreamTest(unittest.TestCase):
             ctc.normalize_stream_events(events),
             [
                 {"event": "user", "timestamp": "t0", "text": "new"},
-                {"event": "thinking", "timestamp": "t1", "text": "plan"},
+                {
+                    "event": "thinking",
+                    "timestamp": "t1",
+                    "text": "plan",
+                    "text_available": True,
+                    "has_signature": False,
+                },
                 {
                     "event": "tool_use",
                     "timestamp": "t2",
@@ -1718,11 +1731,68 @@ class StreamTest(unittest.TestCase):
                     "tool_use_id": "toolu_1",
                     "is_error": False,
                     "text": "done",
-                    "result": "done summary",
+                    "result_preview": "done summary",
+                    "result_preview_truncated": False,
+                    "result_preview_full_length": 12,
                 },
                 {"event": "assistant_text", "timestamp": "t4", "text": "final"},
             ],
         )
+
+    def test_normalize_stream_events_reports_signature_only_thinking_metadata(self):
+        payloads = ctc.normalize_stream_events(
+            [
+                {
+                    "type": "assistant",
+                    "timestamp": "t1",
+                    "message": {
+                        "content": [{"type": "thinking", "thinking": "", "signature": "signed-thinking-block"}]
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(
+            payloads,
+            [
+                {
+                    "event": "thinking",
+                    "timestamp": "t1",
+                    "text": "",
+                    "text_available": False,
+                    "has_signature": True,
+                    "note": "thinking text unavailable; signature present",
+                }
+            ],
+        )
+
+    def test_normalize_stream_events_truncates_tool_result_text_and_result_preview(self):
+        payloads = ctc.normalize_stream_events(
+            [
+                {
+                    "type": "user",
+                    "timestamp": "t3",
+                    "toolUseResult": {"stdout": "abcdefghijklmnopqrstuvwxyz"},
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "toolu_1",
+                                "is_error": False,
+                                "content": "abcdefghijklmnopqrstuvwxyz",
+                            }
+                        ]
+                    },
+                }
+            ],
+            tool_result_limit=10,
+        )
+
+        self.assertEqual(payloads[0]["text"], "abcdefghij...")
+        self.assertTrue(payloads[0]["text_truncated"])
+        self.assertEqual(payloads[0]["text_full_length"], 26)
+        self.assertTrue(payloads[0]["result_preview_truncated"])
+        self.assertTrue(payloads[0]["result_preview"].endswith("..."))
 
     def test_stream_transcript_until_done_emits_jsonl_and_exits_after_final_ready(self):
         with tempfile.TemporaryDirectory() as tmp:

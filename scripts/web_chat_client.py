@@ -24,6 +24,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--log", type=Path, required=True, help="JSONL log path")
     parser.add_argument("--timeout", type=float, default=180.0, help="ctc stream timeout seconds")
     parser.add_argument("--interval", type=float, default=2.0, help="ctc stream polling interval seconds")
+    parser.add_argument("--tool-result-limit", type=int, default=100, help="ctc stream tool_result preview limit")
     parser.add_argument("--expect-answer", help="exact expected final answer after stripping whitespace")
     return parser.parse_args(argv)
 
@@ -38,6 +39,8 @@ def build_stream_command(args: argparse.Namespace) -> list[str]:
         str(args.timeout),
         "--interval",
         str(args.interval),
+        "--tool-result-limit",
+        str(args.tool_result_limit),
     ]
     if args.session_id:
         command.extend(["--session-id", args.session_id])

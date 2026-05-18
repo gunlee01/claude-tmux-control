@@ -360,13 +360,25 @@ tool call 진행 상황까지 UI에 보여주려면 `turn`이 `answer`보다 적
 ./claude_tmux_control.py stream SESSION --timeout 300 --idle 2 --interval 0.5
 ```
 
+`tool_result.text`는 기본 100자로 축약됩니다. 한도를 바꾸려면:
+
+```bash
+./claude_tmux_control.py stream SESSION --tool-result-limit 240
+```
+
+음수는 축약을 끕니다.
+
+```bash
+./claude_tmux_control.py stream SESSION --tool-result-limit -1
+```
+
 출력 예:
 
 ```jsonl
 {"event":"user","timestamp":"t0","text":"질문"}
-{"event":"thinking","timestamp":"t1","text":"계획"}
+{"event":"thinking","timestamp":"t1","text":"","text_available":false,"has_signature":true,"note":"thinking text unavailable; signature present"}
 {"event":"tool_use","timestamp":"t2","id":"toolu_1","caller":"assistant","name":"Task","input":{"prompt":"subagent work"}}
-{"event":"tool_result","timestamp":"t3","tool_use_id":"toolu_1","is_error":false,"text":"subagent done"}
+{"event":"tool_result","timestamp":"t3","tool_use_id":"toolu_1","is_error":false,"text":"long tool output...","text_truncated":true,"text_full_length":2048}
 {"event":"assistant_text","timestamp":"t4","text":"최종 답변"}
 {"event":"done","state":"ready","reason":"...; transcript ready","answer":"최종 답변"}
 {"event":"metrics","scope":"turn_final","elapsed_ms":2500,"usage":{"input_tokens":10,"output_tokens":5},"cost":{"estimated":true,"turn_usd":0.0001,"session_usd":0.0003}}
@@ -379,6 +391,8 @@ tool call 진행 상황까지 UI에 보여주려면 `turn`이 `answer`보다 적
 - `tool_use`, `tool_result`, `thinking` 상태면 계속 대기합니다.
 - `Task` 같은 subagent tool 결과가 돌아온 뒤에도 final assistant text가 없으면 완료로 보지 않습니다.
 - transcript ready 이후 tmux 화면도 ready 상태로 `--idle` 초 동안 안정되어야 `done`을 출력합니다.
+- Claude Code가 thinking text 대신 signature만 기록하는 경우 `thinking.text`는 빈 문자열이고, `text_available:false`, `has_signature:true`가 같이 나옵니다.
+- `tool_result`는 payload 크기를 줄이기 위해 text/result preview를 축약하고, 축약 시 `...`, `text_truncated`, `text_full_length`를 포함합니다.
 
 서비스에서 중간 진행을 실시간으로 보여줄 때는 `turn --follow`보다 `stream`을 우선 사용합니다.
 
@@ -716,6 +730,7 @@ TERM=xterm-256color python3 scripts/web_chat_client.py \
   --session-id "$SESSION_ID" \
   --prompt "Reply with exactly: client-ok" \
   --expect-answer "client-ok" \
+  --tool-result-limit 100 \
   --log "$LOG" \
   --timeout 180
 tail -n 20 "$LOG"

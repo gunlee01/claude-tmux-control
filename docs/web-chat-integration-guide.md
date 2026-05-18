@@ -230,7 +230,7 @@ CLI 예:
 | event | 의미 | UI 표시 |
 | --- | --- | --- |
 | `user` | 이번 turn의 user prompt | 보통 이미 표시했으므로 무시 가능 |
-| `thinking` | Claude thinking block | 접힌 reasoning/progress 영역 |
+| `thinking` | Claude thinking block | 접힌 reasoning/progress 영역. text가 없으면 metadata만 표시 |
 | `tool_use` | tool call 시작 | "도구 실행 중" 카드 |
 | `tool_result` | tool call 결과 | tool output 또는 error |
 | `assistant_text` | assistant 답변 text block | 답변 영역에 append |
@@ -241,12 +241,15 @@ CLI 예:
 예:
 
 ```json
+{"event":"thinking","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00001-00009:block0:thinking","source_offset":1,"source_end_offset":9,"block_index":0,"timestamp":"2026-05-16T12:00:00.000Z","text":"","text_available":false,"has_signature":true}
 {"event":"tool_use","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00010-00080:block0:tool_use","source_offset":10,"source_end_offset":80,"block_index":0,"timestamp":"2026-05-16T12:00:01.000Z","id":"toolu_...","name":"Bash","input":{"command":"ls"}}
-{"event":"tool_result","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00081-00130:block0:tool_result","source_offset":81,"source_end_offset":130,"block_index":0,"timestamp":"2026-05-16T12:00:02.000Z","tool_use_id":"toolu_...","text":"README.md\n"}
+{"event":"tool_result","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00081-00130:block0:tool_result","source_offset":81,"source_end_offset":130,"block_index":0,"timestamp":"2026-05-16T12:00:02.000Z","tool_use_id":"toolu_...","text":"README.md\nlong output...","text_truncated":true,"text_full_length":2048}
 {"event":"assistant_text","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00131-00220:block0:assistant_text","source_offset":131,"source_end_offset":220,"block_index":0,"timestamp":"2026-05-16T12:00:03.000Z","text":"현재 디렉터리는..."}
 {"event":"done","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:done:220","state":"ready","reason":"prompt visible; transcript ready","answer":"현재 디렉터리는..."}
 {"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:metrics:220","source_offset":220,"source_end_offset":220,"block_index":-1,"scope":"turn_final","usage":{"input_tokens":12000,"cache_read_tokens":8000,"cache_write_tokens":500,"output_tokens":1400}}
 ```
+
+`tool_result.text`는 기본 100자 preview입니다. 더 길게 보고 싶으면 `stream --tool-result-limit 240`처럼 조정합니다. 음수는 축약을 끕니다.
 
 고수준 `stream`의 stdout JSONL event에는 `session_id`가 포함됩니다.
 

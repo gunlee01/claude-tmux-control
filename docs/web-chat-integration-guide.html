@@ -962,8 +962,8 @@
         name: "thinking",
         meta: "reasoning/progress",
         badge: "purple",
-        sample: {"event":"thinking","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00010-00080:block0:thinking","source_offset":10,"source_end_offset":80,"block_index":0,"timestamp":"2026-05-16T12:00:00.000Z","text":"사용자의 요청을 구현 흐름으로 나누는 중..."},
-        notice: "접힌 reasoning 영역이나 진행 상태 영역에 표시한다. 모든 환경에서 항상 나오는 것은 아니다."
+        sample: {"event":"thinking","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00010-00080:block0:thinking","source_offset":10,"source_end_offset":80,"block_index":0,"timestamp":"2026-05-16T12:00:00.000Z","text":"","text_available":false,"has_signature":true,"note":"thinking text unavailable; signature present"},
+        notice: "접힌 reasoning 영역이나 진행 상태 영역에 표시한다. Claude Code가 signature만 기록하면 text는 비어 있고 metadata만 내려온다."
       },
       {
         name: "tool_use",
@@ -976,8 +976,8 @@
         name: "tool_result",
         meta: "tool call result",
         badge: "green",
-        sample: {"event":"tool_result","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00131-00210:block0:tool_result","source_offset":131,"source_end_offset":210,"block_index":0,"timestamp":"2026-05-16T12:00:02.000Z","tool_use_id":"toolu_01","text":"claude_tmux_control.py:612:def _print_stream","is_error":false},
-        notice: "tool output 또는 error를 표시한다. Task/subagent tool result 뒤에도 최종 assistant_text를 기다려야 한다."
+        sample: {"event":"tool_result","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00131-00210:block0:tool_result","source_offset":131,"source_end_offset":210,"block_index":0,"timestamp":"2026-05-16T12:00:02.000Z","tool_use_id":"toolu_01","text":"claude_tmux_control.py:612:def _print_stream...","text_truncated":true,"text_full_length":2048,"is_error":false},
+        notice: "tool output 또는 error를 표시한다. 기본 100자 preview이며 --tool-result-limit로 조정한다. Task/subagent tool result 뒤에도 최종 assistant_text를 기다려야 한다."
       },
       {
         name: "assistant_text",

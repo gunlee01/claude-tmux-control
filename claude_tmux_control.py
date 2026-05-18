@@ -31,6 +31,7 @@ DEFAULT_STATE_DIR = Path.home() / ".cache" / "claude-tmux-control"
 DEFAULT_PRICING_TABLE = Path(__file__).with_name("claude_pricing.json")
 DEFAULT_CONTROLLED_PREFIX = "ctc-"
 DEFAULT_WEB_SESSION_PREFIX = "ctc-csess-"
+DEFAULT_TOOL_RESULT_TEXT_LIMIT = 100
 STATE_SCHEMA_VERSION = 1
 _PRICING_TABLE_CACHE: dict | None = None
 WORKING_PATTERNS = (
@@ -302,6 +303,12 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     ask.add_argument("--interval", type=float, default=2.0, help="seconds between transcript checks")
     ask.add_argument("--timeout", type=float, default=300.0, help="maximum seconds to wait")
     ask.add_argument("--idle", type=float, default=2.0, help="ready state must remain stable this many seconds")
+    ask.add_argument(
+        "--tool-result-limit",
+        type=int,
+        default=DEFAULT_TOOL_RESULT_TEXT_LIMIT,
+        help="maximum tool_result text/result preview characters; negative disables truncation",
+    )
     ask.add_argument("--json", action="store_true", help="accepted for symmetry; ask always prints JSON")
 
     stream = subparsers.add_parser("stream", help="Stream one turn as JSONL until the answer is complete.")
@@ -326,6 +333,12 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     stream.add_argument("--timeout", type=float, default=300.0, help="maximum seconds to stream")
     stream.add_argument("--idle", type=float, default=2.0, help="ready state must remain stable this many seconds")
     stream.add_argument("--attach", action="store_true", help="attach to the active high-level turn without sending")
+    stream.add_argument(
+        "--tool-result-limit",
+        type=int,
+        default=DEFAULT_TOOL_RESULT_TEXT_LIMIT,
+        help="maximum tool_result text/result preview characters; negative disables truncation",
+    )
 
     kill = subparsers.add_parser("kill", help="Terminate one tmux session.")
     kill.add_argument("session", help="tmux session name")
@@ -858,6 +871,7 @@ def _print_stream(args: argparse.Namespace, controller: TmuxController) -> int:
         interval=args.interval,
         timeout=args.timeout,
         idle_seconds=args.idle,
+        tool_result_limit=args.tool_result_limit,
     )
     return 0 if status.state == "ready" else 3
 
@@ -1003,6 +1017,7 @@ def _stream_prepared_high_level_turn(
         interval=args.interval,
         timeout=args.timeout,
         idle_seconds=args.idle,
+        tool_result_limit=args.tool_result_limit,
         write=capture_and_write,
     )
     done = next((payload for payload in reversed(captured) if payload.get("event") == "done"), None)
@@ -1825,7 +1840,10 @@ def target_turn_events(events: Sequence[dict], state: SessionState | None = None
     return matched[-1] if matched else []
 
 
-def normalize_stream_events(events: Sequence[dict]) -> list[dict]:
+def normalize_stream_events(
+    events: Sequence[dict],
+    tool_result_limit: int | None = DEFAULT_TOOL_RESULT_TEXT_LIMIT,
+) -> list[dict]:
     normalized: list[dict] = []
     for event in events:
         event_type = str(event.get("type") or event.get("event") or event.get("role") or "")
@@ -1839,9 +1857,9 @@ def normalize_stream_events(events: Sequence[dict]) -> list[dict]:
                         "event": "tool_result",
                         "timestamp": timestamp,
                         "tool_use_id": _tool_result_use_id(content),
-                        "text": _format_tool_result_content(content),
+                        **_truncated_text_payload("text", _format_tool_result_content(content), tool_result_limit),
                         "is_error": _tool_result_is_error(content),
-                        "result": event.get("toolUseResult"),
+                        **_tool_use_result_preview(event.get("toolUseResult"), tool_result_limit),
                     }
                 )
                 normalized.append(tool_result)
@@ -1870,7 +1888,11 @@ def normalize_stream_events(events: Sequence[dict]) -> list[dict]:
                     {
                         "event": "tool_result",
                         "timestamp": timestamp,
-                        "text": event.get("tool_output") or event.get("content") or "",
+                        **_truncated_text_payload(
+                            "text",
+                            str(event.get("tool_output") or event.get("content") or ""),
+                            tool_result_limit,
+                        ),
                     }
                 )
             )
@@ -1883,10 +1905,8 @@ def normalize_stream_events(events: Sequence[dict]) -> list[dict]:
             if not isinstance(item, dict):
                 continue
             item_type = item.get("type")
-            if item_type == "thinking" and isinstance(item.get("thinking"), str):
-                normalized.append(
-                    _compact_payload({"event": "thinking", "timestamp": timestamp, "text": item["thinking"]})
-                )
+            if item_type == "thinking":
+                normalized.append(_compact_payload(_thinking_payload(item, timestamp)))
             elif item_type == "tool_use":
                 normalized.append(
                     _compact_payload(
@@ -1918,6 +1938,7 @@ def stream_transcript_until_done(
     write: Callable[[str], object] = sys.stdout.write,
     sleep: Callable[[float], object] = time.sleep,
     now: Callable[[], float] = time.monotonic,
+    tool_result_limit: int | None = DEFAULT_TOOL_RESULT_TEXT_LIMIT,
 ) -> ScreenStatus:
     deadline = now() + timeout
     emitted_event_count = 0
@@ -1933,7 +1954,7 @@ def stream_transcript_until_done(
             emitted_event_count = 0
 
         new_events = turn_events[emitted_event_count:]
-        for payload in normalize_stream_events(new_events):
+        for payload in normalize_stream_events(new_events, tool_result_limit=tool_result_limit):
             write(json.dumps(payload, ensure_ascii=False) + "\n")
             if hasattr(sys.stdout, "flush"):
                 sys.stdout.flush()
@@ -1975,6 +1996,7 @@ def stream_high_level_transcript_until_done(
     write: Callable[[str], object] = sys.stdout.write,
     sleep: Callable[[float], object] = time.sleep,
     now: Callable[[], float] = time.monotonic,
+    tool_result_limit: int | None = DEFAULT_TOOL_RESULT_TEXT_LIMIT,
 ) -> ScreenStatus:
     deadline = now() + timeout
     read_offset = runtime.before_send_offset
@@ -2017,7 +2039,12 @@ def stream_high_level_transcript_until_done(
                     _mark_turn_anchor(runtime, record.start_offset, record.end_offset)
                 current_turn_events.append(record.event)
                 completed_offset = record.end_offset
-                for payload in normalize_stream_record(record, runtime.turn_id, file_identity):
+                for payload in normalize_stream_record(
+                    record,
+                    runtime.turn_id,
+                    file_identity,
+                    tool_result_limit=tool_result_limit,
+                ):
                     payload["session_id"] = runtime.session_id
                     _write_jsonl(write, payload)
                     _update_active_turn_offsets(runtime, read_offset, record.end_offset)
@@ -2100,8 +2127,13 @@ def transcript_identity(path: Path) -> str:
     return f"dev{stat.st_dev}-ino{stat.st_ino}"
 
 
-def normalize_stream_record(record: TranscriptRecord, turn_id: str, file_identity: str) -> list[dict]:
-    payloads = normalize_stream_events([record.event])
+def normalize_stream_record(
+    record: TranscriptRecord,
+    turn_id: str,
+    file_identity: str,
+    tool_result_limit: int | None = DEFAULT_TOOL_RESULT_TEXT_LIMIT,
+) -> list[dict]:
+    payloads = normalize_stream_events([record.event], tool_result_limit=tool_result_limit)
     for index, payload in enumerate(payloads):
         payload["turn_id"] = turn_id
         payload["event_id"] = (
@@ -2112,6 +2144,56 @@ def normalize_stream_record(record: TranscriptRecord, turn_id: str, file_identit
         payload["source_end_offset"] = record.end_offset
         payload["block_index"] = index
     return payloads
+
+
+def _thinking_payload(item: Mapping[str, object], timestamp: str | None) -> dict:
+    text = _first_string(item, "thinking", "text", "summary")
+    has_signature = isinstance(item.get("signature"), str) and bool(item.get("signature"))
+    payload = {
+        "event": "thinking",
+        "timestamp": timestamp,
+        "text": text or "",
+        "text_available": bool(text),
+        "has_signature": has_signature,
+    }
+    if not text and has_signature:
+        payload["note"] = "thinking text unavailable; signature present"
+    return payload
+
+
+def _first_string(source: Mapping[str, object], *keys: str) -> str | None:
+    for key in keys:
+        value = source.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _truncated_text_payload(key: str, text: str, limit: int | None) -> dict:
+    if limit is None or limit < 0 or len(text) <= limit:
+        return {key: text}
+    return {
+        key: text[:limit] + "...",
+        f"{key}_truncated": True,
+        f"{key}_full_length": len(text),
+    }
+
+
+def _tool_use_result_preview(result: object, limit: int | None) -> dict:
+    if result is None:
+        return {}
+    if isinstance(result, str):
+        preview = result
+    else:
+        try:
+            preview = json.dumps(result, ensure_ascii=False, sort_keys=True)
+        except TypeError:
+            preview = str(result)
+    payload = _truncated_text_payload("result_preview", preview, limit)
+    if "result_preview_truncated" not in payload:
+        payload["result_preview_truncated"] = False
+    payload["result_preview_full_length"] = len(preview)
+    return payload
 
 
 def _is_anchor_user_record(record: TranscriptRecord, prompt: str) -> bool:
