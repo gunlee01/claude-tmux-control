@@ -145,7 +145,7 @@ High-level `stream [--session-id <id>] --cwd <path> <prompt...>` contract:
 - Combines transcript readiness with tmux screen readiness and a short idle window.
 - Emits final turn metrics after `done` as a separate `metrics` event.
 - Current final metrics include model, input tokens, cache read tokens, cache write tokens, output tokens, context fields when present, and pricing-table-based estimated turn cost when model/usage can be resolved.
-- Elapsed time and estimated session cumulative cost are app-server enrichment or future CLI work.
+- Elapsed time and estimated session cumulative cost are emitted by the CLI in the final `metrics` event when the turn reaches `done`.
 - Mid-stream metrics are optional best-effort events only when new transcript events already contain usage/context/model fields.
 
 Proposed additions and high-level commands:

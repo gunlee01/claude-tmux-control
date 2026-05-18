@@ -377,7 +377,8 @@ model              <- event/message/response model
     "model": "claude-sonnet-4.6",
     "model_match": "exact",
     "cache_write_ttl": "1h",
-    "turn_usd": 0.0624
+    "turn_usd": 0.0624,
+    "session_usd": 0.2516
   }
 }
 ```
@@ -398,7 +399,7 @@ final `metrics`는 replay될 수 있으므로 `turn_id`와 deterministic `event_
 
 turn cost는 CLI가 `claude_pricing.json`으로 계산합니다.
 
-session cumulative cost는 아직 CLI가 저장하지 않으므로 앱 서버가 completed turn의 `cost.turn_usd`를 누적하는 것이 안전합니다.
+session cumulative cost는 CLI가 completed turn records에서 재계산해 final `metrics.cost.session_usd`와 `info.cost_totals.session_usd`로 제공합니다.
 
 필요한 값:
 
@@ -436,11 +437,7 @@ bridge `session_id`, tmux session name, Claude transcript 내부 `sessionId`는 
 }
 ```
 
-검증용으로는 `events --json` raw event에서 Claude transcript의 `sessionId`가 같은지 확인할 수 있습니다.
-
-이 명령도 고수준 `info --session-id <session_id>`가 생기면 직접 tmux session name을 요구하지 않아야 합니다.
-
-향후 `info` 명령이 생기면 `session_id`, `tmux_session`, Claude `sessionId`, transcript path를 한 번에 반환하게 할 예정입니다.
+검증용으로는 `info <session_id> --json`에서 bridge `session_id`, tmux session name, Claude transcript `sessionId`, transcript path를 한 번에 확인할 수 있습니다.
 
 멀티서버는 현재 고려하지 않습니다.
 
@@ -467,8 +464,8 @@ def send_turn(session_id, project_dir, prompt, account_env):
     for event in stream_jsonl(command):
         session_id = event["session_id"]
         if event["event"] == "metrics":
-            event["elapsed_ms"] = event.get("elapsed_ms") or int((monotonic() - started_at) * 1000)
-            event["cost"] = event.get("cost") or estimate_or_mark_unavailable(event)
+            assert "elapsed_ms" in event
+            assert "cost" in event
         push_to_client(session_id, event)
         if event["event"] == "done":
             answer = event["answer"]
@@ -510,14 +507,10 @@ cron, systemd timer, app scheduler 중 하나에서 호출합니다.
 웹 채팅 제품 관점에서 아직 남은 CLI 개선점입니다.
 
 - `ensure`: 고수준 `stream` 내부에서 쓰는 session 보장 단계로 유지
-- `ask [--session-id] --cwd <path> "<prompt>"`: streaming 없이 전체 turn 완료 후 최종 answer와 metrics를 한 번에 반환
-- `info <session-id>`: tmux/Claude transcript/sessionId metadata 반환
 - 모든 answer JSON 응답에 `session_id` 포함
 - `status --json`, `answer --json`, `turn --json`
-- explicit `stream --attach --session-id <id>` reconnect mode
 - state-write lock과 generation compare/update retry 강화
-- completed-turn cumulative usage/session cost 저장
 - transcript rotation follow 고도화
-- cost 계산을 위한 model/usage extraction helper
+- machine-readable stats command
 
 이 gap이 구현되면 이 문서를 같이 갱신해야 합니다.

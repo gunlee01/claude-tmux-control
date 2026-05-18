@@ -158,7 +158,7 @@ The stream should terminate with `done` only when the answer is genuinely comple
 
 For service-facing chat flows, `done` is answer-completion only. Do not put usage/context/cost summary fields in `done`.
 
-Emit final turn metrics after `done` as a separate `metrics` event for the same `turn_id`. Current final metrics include model, input tokens, cache read tokens, cache write tokens, output tokens, context fields when available, and estimated turn USD from `claude_pricing.json` when model/usage can be resolved. Elapsed time and estimated session cumulative USD are app-server enrichment or future CLI work. Mid-stream metrics are optional best-effort only when the transcript already contains usage/context/model before the turn is done.
+Emit final turn metrics after `done` as a separate `metrics` event for the same `turn_id`. Current final metrics include elapsed_ms, model, input tokens, cache read tokens, cache write tokens, output tokens, context fields when available, estimated turn USD, and estimated session cumulative USD from completed turn records when model/usage can be resolved through `claude_pricing.json`. Mid-stream metrics are optional best-effort only when the transcript already contains usage/context/model before the turn is done.
 
 Treat stream delivery as at-least-once until an explicit client acknowledgement protocol exists. Reconnect/takeover should replay from conservative `replay_start_offset`, not from stdout flush state. `last_stdout_flushed_offset` is diagnostic only.
 
@@ -263,14 +263,10 @@ Tracked in `docs/implementation-checklist.md`.
 
 Important future areas:
 
-- high-level `stream [--session-id] --cwd <path> <prompt>`
 - internal `ensure [session-id]`
-- `ask [--session-id] --cwd <path> <prompt>`
-- `list`
-- `info`
 - JSON output contracts for service-facing commands
-- session-level send locks
-- transcript rotation handling
+- state-write lock generation conflict retry
+- machine-readable stats command
 - more explicit `starting`, `inactive`, and `unknown` states
 
 Do not quietly implement broad future work while doing a narrow fix. Mention it and keep the requested change focused.

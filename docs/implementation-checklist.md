@@ -22,7 +22,7 @@
 - [x] high-level `stream`에서 같은 `session_id`가 이미 active tmux session이면 재사용한다.
 - [x] high-level `stream`에서 같은 `session_id`가 inactive이고 기존 state/transcript가 있으면 새 tmux session을 만들고 `--resume <session_id>`로 Claude Code를 실행한다.
 - [x] `session_id -> tmux session` 매핑은 tmux session name에서 직접 복원한다.
-- [ ] Claude transcript 내부 `sessionId`를 추출해서 `info` 출력에 포함한다.
+- [x] Claude transcript 내부 `sessionId`를 추출해서 `info` 출력에 포함한다.
 - [x] high-level `stream` JSON 응답에 `session_id`를 포함한다.
 
 ## 3. CLI Contract
@@ -41,9 +41,9 @@
 - [x] low-level `stream <tmux-session>`: 최신 turn을 JSONL로 streaming하고 완료 시 `done` 후 종료
 - [x] high-level `stream [--session-id] --cwd <path> <prompt>`: UUID 생성/session 생성/재사용/resume/prompt 전송/turn stream
 - [ ] internal `ensure [session-id] --cwd <path>`: UUID 생성 또는 session 생성/재사용/resume 단계 구현
-- [ ] `ask [--session-id] --cwd <path> <prompt>`: streaming 없이 완료 후 answer/metrics 출력
-- [ ] `list`: active controlled session 목록 조회
-- [ ] `info <session-id>`: tmux/transcript/Claude session metadata 조회
+- [x] `ask [--session-id] --cwd <path> <prompt>`: streaming 없이 완료 후 answer/metrics 출력
+- [x] `list`: active controlled session 목록 조회
+- [x] `info <session-id>`: tmux/transcript/Claude session metadata 조회
 - [x] `kill <session-id>`: 특정 session 종료
 - [x] `reap --idle-seconds N`: 오래된 inactive session 정리
 
@@ -71,7 +71,7 @@
 - [x] durable `active_turn` state를 구현한다.
 - [x] `active_turn`에 owner_pid/owner_hostname/heartbeat_at/stream_epoch를 저장한다.
 - [x] stale owner heartbeat recovery 정책을 구현한다.
-- [ ] `stream --attach --session-id <id>` reconnect mode를 정의하고 구현한다.
+- [x] `stream --attach --session-id <id>` reconnect mode를 정의하고 구현한다.
 - [x] high-level stream 기본 polling interval을 2.0초로 둔다.
 - [x] transcript file identity(path/st_dev/st_ino/size/mtime_ns)를 state에 저장한다.
 - [x] transcript offset 기반 tail reader를 구현한다.
@@ -84,8 +84,8 @@
 - [ ] time fallback 실패 시 prompt hash/text matching을 사용하되 ambiguity면 fail closed한다.
 - [x] transcript rotation/truncation을 감지하고 재탐색한다.
 - [ ] missing sessionId rotation recovery matrix를 구현한다.
-- [ ] completed turn metrics를 turn_id/source offset 기준으로 저장한다.
-- [ ] session cumulative usage/cost totals는 completed turn records에서 재계산한다.
+- [x] completed turn metrics를 turn_id/source offset 기준으로 저장한다.
+- [x] session cumulative usage/cost totals는 completed turn records에서 재계산한다.
 - [x] streamed event에 stable `turn_id`, `event_id`, `source_offset`, `source_end_offset`, `block_index`를 포함한다.
 - [x] crash/reconnect replay는 at-least-once로 처리하고 client dedupe key를 문서화한다.
 - [x] `done` event에는 answer/completion 정보만 담고 usage/context/cost를 넣지 않는다.
@@ -135,9 +135,9 @@
 - [x] 웹 채팅 주력 high-level `stream [--session-id] --cwd <path> <prompt>` 계약을 구현한다.
 - [x] `stream` 완료 후 별도 `metrics` event로 model/usage/context와 estimated turn cost를 출력한다.
 - [x] final metrics usage에는 input/output/cache_read/cache_write tokens를 포함한다.
-- [ ] final metrics elapsed_ms를 CLI에서 직접 출력한다.
+- [x] final metrics elapsed_ms를 CLI에서 직접 출력한다.
 - [x] final metrics cost에는 pricing table 기반 estimated turn USD를 포함한다.
-- [ ] final metrics cost에는 estimated session cumulative USD를 포함한다.
+- [x] final metrics cost에는 estimated session cumulative USD를 포함한다.
 - [ ] raw transcript에서 model/usage/context를 추출하는 machine-readable stats 명령을 추가한다.
 - [ ] 중간 metrics는 transcript event에 usage/context/model이 있는 경우에만 best-effort 옵션으로 제공한다.
 - [ ] long-running command timeout 정책을 정의한다.
@@ -167,15 +167,15 @@
 - [x] active_turn blocks second prompt test
 - [ ] state generation conflict retry test
 - [x] stale owner heartbeat recovery test
-- [ ] attach/reconnect without sending prompt test
+- [x] attach/reconnect without sending prompt test
 - [ ] crash after parse before emit replay test
 - [ ] crash after emit before state write replay/dedup policy test
 - [x] stable event_id/source_offset/source_end_offset/block_index client dedupe test
 - [ ] metrics deduplication by turn_id/source offset test
 - [x] done and metrics event separation test
 - [x] timeout/failed keeps active_turn until stale recovery test
-- [ ] `ask` command test
-- [ ] `list/info` command test
+- [x] `ask` command test
+- [x] `list/info` command test
 - [x] `kill/reap` command test
 - [ ] JSON output contract test
 - [x] idle cleanup test
