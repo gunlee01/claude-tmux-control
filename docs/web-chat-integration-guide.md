@@ -16,7 +16,11 @@
 
 생략하면 CLI가 새 UUID를 만들고, Claude Code 첫 실행에 같은 UUID를 `--session-id`로 전달합니다. 클라이언트는 첫 stream event의 `session_id`를 저장해서 이후 요청에 다시 넘깁니다.
 
-클라이언트가 이후 요청에 `session_id`를 보내면 bridge는 같은 tmux session을 재사용하거나, tmux session이 없으면 Claude Code를 `--resume <session_id>`로 다시 실행합니다.
+클라이언트가 이후 요청에 `session_id`를 보내면 bridge는 같은 tmux session을 재사용합니다.
+
+tmux session이 없고 기존 state 또는 matching transcript가 있으면 Claude Code를 `--resume <session_id>`로 다시 실행합니다.
+
+기존 state/transcript가 없는 새 client-provided `session_id`라면 `--session-id <session_id>`로 새 Claude Code session을 시작합니다.
 
 권장 규칙:
 
@@ -37,7 +41,7 @@ tmux_session = ctc-csess-550e8400-e29b-41d4-a716-446655440000
 session id 형식:
 
 ```text
-canonical lowercase UUID
+canonical hyphenated UUID string
 ```
 
 클라이언트가 `session_id`를 보내도 bridge는 UUID 형식을 검증해야 합니다.
@@ -45,6 +49,8 @@ canonical lowercase UUID
 UUID가 아니면 state path나 tmux session name에 사용하지 않고 요청을 거절합니다.
 
 CLI가 `session_id`를 생성할 때는 UUID v4를 사용합니다.
+
+대문자 UUID 입력은 허용되며 bridge 내부에서는 lowercase canonical form으로 정규화합니다.
 
 클라이언트가 직접 생성할 때도 UUID v4를 권장하지만, bridge는 version 4 여부까지 강제하지 않습니다.
 
@@ -143,7 +149,10 @@ else if tmux ctc-csess-<session_id> exists:
 
 else:
   tmux_session = ctc-csess-<session_id>
-  start Claude Code with --resume <session_id> "<prompt>"
+  if known state or matching transcript exists:
+    start Claude Code with --resume <session_id> "<prompt>"
+  else:
+    start Claude Code with --session-id <session_id> "<prompt>"
 ```
 
 stream은 로컬 session state를 사용해서 transcript cursor를 관리합니다.

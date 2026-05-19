@@ -648,7 +648,7 @@
       <div class="role-list">
         <div class="role-row">
           <strong>권장 형식</strong>
-          <span>canonical lowercase UUID를 사용한다. CLI 생성값은 UUID v4이고, client 생성값도 v4를 권장하지만 강제하지 않는다. `:`는 tmux target separator라서 session name에 넣지 않는다.</span>
+          <span>canonical hyphenated UUID string을 사용한다. CLI 생성값은 UUID v4이고, 대문자 입력은 lowercase canonical form으로 정규화한다. client 생성값도 v4를 권장하지만 강제하지 않는다. `:`는 tmux target separator라서 session name에 넣지 않는다.</span>
         </div>
         <div class="role-row">
           <strong>재사용 기준</strong>
@@ -940,7 +940,7 @@
         key: "start",
         title: "Ensure Internally",
         desc: "UUID 생성/재사용/resume",
-        detail: "stream 내부에서 session_id가 없으면 UUID를 만들고, active tmux가 있으면 재사용하고, 없으면 --session-id 또는 --resume으로 Claude Code를 시작한다. 이 metadata는 로컬 state에 저장한다.",
+        detail: "stream 내부에서 session_id가 없으면 UUID를 만들고, active tmux가 있으면 재사용한다. active tmux가 없을 때 기존 state/transcript가 있으면 --resume, 없으면 --session-id로 Claude Code를 시작한다. 이 metadata는 로컬 state에 저장한다.",
         command: "~/.cache/claude-tmux-control/sessions/<session_id>.json"
       },
       {

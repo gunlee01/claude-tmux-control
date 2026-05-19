@@ -1,6 +1,6 @@
 # claude-tmux-control 문서/CLI 세션 계약 리뷰
 
-- Last Updated At: 2026-05-19 14:05 KST
+- Last Updated At: 2026-05-19 14:29 KST
 - Scope: `README.md`와 연결 문서가 현재 `claude_tmux_control.py` 구현과 맞는지 검토
 - Review Type: documentation contract review
 - Review Inputs: local code review + 3 subagent reviews
@@ -412,7 +412,7 @@ Status: accepted
 #### Recommended Direction
 
 ```text
-canonical lowercase UUID. UUID v4 권장.
+canonical hyphenated UUID string. UUID v4 권장. uppercase input은 lowercase canonical form으로 정규화.
 ```
 
 으로 조정합니다.
@@ -424,12 +424,39 @@ canonical lowercase UUID. UUID v4 권장.
 #### Decision
 
 - accept. 코드는 그대로 두고 문서를 완화한다.
-- CLI generated id는 UUID v4, client-provided id는 canonical lowercase UUID로 정의한다.
+- CLI generated id는 UUID v4, client-provided id는 canonical hyphenated UUID string으로 정의한다.
 - UUID v4는 client-provided id에도 권장하지만 version 4 여부는 강제하지 않는다.
+- uppercase UUID input은 허용하고 lowercase canonical form으로 정규화한다.
 
 #### Progress
 
 - 2026-05-19 14:05 KST: web integration guide, PRD, implementation checklist, HTML guide의 `UUID v4` 표현을 코드 계약에 맞게 완화했다.
+
+---
+
+### 11. [Major] `stream` start/resume 문서가 새 client-provided `session_id` 케이스를 잘못 설명한다
+
+Status: accepted
+
+#### Evidence
+
+- `web-chat-integration-guide.md`는 `session_id`가 있고 tmux session이 없으면 항상 `--resume <session_id>`로 시작한다고 설명했다.
+- 실제 구현은 기존 state 또는 matching transcript가 있을 때만 `--resume`을 사용한다.
+- 기존 state/transcript가 없는 client-provided UUID는 `--session-id <session_id>`로 새 Claude Code session을 시작한다.
+
+#### Risk
+
+웹 서버가 첫 요청부터 자체 UUID를 만들어 넘기는 정상 흐름을 `resume` 흐름으로 오해할 수 있다.
+
+#### Decision
+
+- accept. 문서를 구현 기준으로 수정한다.
+- `session_id`가 있어도 known state/transcript가 없으면 first-run `--session-id`를 사용한다고 명시한다.
+- 함께 발견된 low-level stream metrics 예시, 불완전한 README stream 예시, UUID uppercase normalization 표현도 같이 정리한다.
+
+#### Progress
+
+- 2026-05-19 14:29 KST: README, docs README, quickstart, CLI manual, PRD, web guide MD/HTML을 구현 계약에 맞게 보정했다.
 
 ## Proposed Review Order
 
@@ -439,8 +466,10 @@ canonical lowercase UUID. UUID v4 권장.
 4. Finding 4: 명령별 인자 타입 표 분리
 5. Finding 5: `kill` 의미 정리
 6. Finding 6-10: attach/reap/exit/prefix/UUID 세부 정리
+7. Finding 11: stream start/resume 문서 보정
 
 ## Decision Log
 
 - 2026-05-19 13:18 KST: pager 생성. 아직 accept/skip 결정 없음.
 - 2026-05-19 14:05 KST: Finding 1-10 모두 반영 완료. Critical 없음.
+- 2026-05-19 14:29 KST: 추가 subagent 재검토에서 Finding 11을 확인하고 문서 보정 완료. Critical 없음.

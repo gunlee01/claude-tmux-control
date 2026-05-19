@@ -25,7 +25,7 @@ CLI는 내부적으로 `ctc-csess-<SESSION_ID>` tmux session을 만들거나 재
 ## 2. 새 대화 시작
 
 1. 앱 서버가 UUID를 만듭니다. 또는 `--session-id`를 생략하고 첫 stream event의 `session_id`를 저장합니다.
-2. `stream --cwd ... --session-id ... "$PROMPT"`를 실행합니다.
+2. `stream --cwd ... [--session-id ...] "$PROMPT"`를 실행합니다.
 3. stdout JSONL을 한 줄씩 읽어 UI에 반영합니다.
 4. `done`을 받으면 최종 답변을 확정합니다.
 5. 바로 이어지는 `metrics`를 저장하고 UI에 표시합니다.

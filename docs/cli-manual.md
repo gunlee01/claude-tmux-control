@@ -458,8 +458,11 @@ ctc stream SESSION --tool-result-limit -1
 {"event":"tool_result","timestamp":"t3","tool_use_id":"toolu_1","is_error":false,"text":"long tool output...","text_truncated":true,"text_full_length":2048}
 {"event":"assistant_text","timestamp":"t4","text":"최종 답변"}
 {"event":"done","state":"ready","reason":"...; transcript ready","answer":"최종 답변"}
-{"event":"metrics","scope":"turn_final","elapsed_ms":2500,"usage":{"input_tokens":10,"output_tokens":5},"cost":{"estimated":true,"turn_usd":0.0001,"session_usd":0.0003}}
 ```
+
+low-level `ctc stream SESSION`은 usage/cost `metrics`를 보장하지 않습니다.
+
+turn final `metrics`가 필요하면 high-level `ctc stream --cwd ... [--session-id ...] PROMPT` 또는 `ctc ask`를 사용합니다.
 
 완료 조건:
 
@@ -699,7 +702,7 @@ ctc stream --session-id "$SESSION_ID" --cwd "$PROJECT_DIR" "$USER_PROMPT"
 
 새 session은 `claude --session-id <uuid> --dangerously-skip-permissions "<prompt>"`로 시작합니다.
 
-기존 state가 있고 tmux session이 없으면 `claude --resume <uuid> --dangerously-skip-permissions "<prompt>"`로 시작합니다.
+기존 state 또는 matching transcript가 있고 tmux session이 없으면 `claude --resume <uuid> --dangerously-skip-permissions "<prompt>"`로 시작합니다.
 
 tmux session이 이미 active이면 ready 화면인지 확인한 뒤 prompt를 전송합니다.
 
