@@ -10,16 +10,18 @@
 
 한 웹 대화창은 하나의 bridge `session_id`를 가집니다.
 
-`session_id`는 bridge가 UUID로 생성합니다.
+운영 웹앱에서는 앱 서버가 UUID를 먼저 생성해 `--session-id`로 넘기는 방식을 권장합니다.
 
-클라이언트가 첫 메시지에 `session_id`를 보내지 않으면 bridge가 새 UUID를 만들고, Claude Code 첫 실행에 같은 UUID를 `--session-id`로 전달합니다.
+첫 메시지에서 `--session-id`를 생략해도 됩니다.
+
+생략하면 CLI가 새 UUID를 만들고, Claude Code 첫 실행에 같은 UUID를 `--session-id`로 전달합니다. 클라이언트는 첫 stream event의 `session_id`를 저장해서 이후 요청에 다시 넘깁니다.
 
 클라이언트가 이후 요청에 `session_id`를 보내면 bridge는 같은 tmux session을 재사용하거나, tmux session이 없으면 Claude Code를 `--resume <session_id>`로 다시 실행합니다.
 
 권장 규칙:
 
 ```text
-session_id:   <bridge-generated-uuid>
+session_id:   <client-or-cli-generated-uuid>
 tmux_session: ctc-csess-<session_id>
 ```
 
@@ -32,31 +34,51 @@ tmux_session = ctc-csess-550e8400-e29b-41d4-a716-446655440000
 
 `:`는 tmux target 문법에서 `session:window.pane` 구분자로 쓰이므로 session name에 넣지 않습니다.
 
-권장 session id 형식:
+session id 형식:
 
 ```text
-UUID v4
+canonical lowercase UUID
 ```
 
 클라이언트가 `session_id`를 보내도 bridge는 UUID 형식을 검증해야 합니다.
 
 UUID가 아니면 state path나 tmux session name에 사용하지 않고 요청을 거절합니다.
 
+CLI가 `session_id`를 생성할 때는 UUID v4를 사용합니다.
+
+클라이언트가 직접 생성할 때도 UUID v4를 권장하지만, bridge는 version 4 여부까지 강제하지 않습니다.
+
 기존 state가 있는 `session_id`에 다른 `cwd`가 들어오면 canonical path 기준으로 비교한 뒤 `session_cwd_mismatch`로 fail closed합니다.
 
-### 실행 원본
+### Command Boundary
 
-| 목적 | CLI 명령 | 원본 |
+웹 서버가 직접 호출하는 high-level 계약은 아래 명령입니다.
+
+| 목적 | CLI 명령 | 인자 의미 |
 | --- | --- | --- |
-| 대화 한 턴 실행 | `stream [--session-id] --cwd <path> "<prompt>"` target | session 생성/재사용/resume + prompt 입력 + JSONL stream |
-| session 생성/재사용 | `ensure` internal step | `tmux new-session` + Claude `--session-id`/`--resume` |
-| prompt 입력 | `send` low-level fallback | `tmux load-buffer` + `paste-buffer` |
-| 진행 stream | `stream` | Claude Code transcript JSONL + tmux ready check |
-| raw event 조회 | `events --json` | Claude Code transcript JSONL |
-| 최종 답변만 조회 | `answer` | Claude Code transcript JSONL |
-| 전체 turn 조회 | `turn` | Claude Code transcript JSONL |
-| session 종료 | `kill` | `tmux kill-session` |
-| 오래된 session 정리 | `reap` | tmux session + local state |
+| 대화 한 턴 실행 | `stream --cwd <path> [--session-id <uuid>] "<prompt>"` | bridge `session_id` |
+| 진행 중 turn 재연결 | `stream --attach --session-id <uuid>` | bridge `session_id` |
+| 최종 결과만 실행 | `ask --cwd <path> [--session-id <uuid>] "<prompt>"` | bridge `session_id` |
+| session metadata 조회 | `info <uuid> --json` | bridge `session_id` |
+| session 목록 조회 | `list --json` | high-level controlled sessions |
+| 오래된 web process 정리 | `reap --idle-seconds <n> --prefix ctc-csess-` | high-level web tmux prefix |
+
+아래 명령은 사람이 직접 tmux session을 다루는 low-level debug/smoke 전용입니다.
+
+| 목적 | CLI 명령 | 인자 의미 |
+| --- | --- | --- |
+| 직접 tmux session 시작 | `start <tmux_session>` | tmux session name. 예: `work` |
+| 직접 prompt 입력 | `send <tmux_session> "<prompt>"` | tmux session name |
+| raw event 조회 | `events <tmux_session> --json` | tmux session name |
+| 최종 답변만 조회 | `answer <tmux_session>` | tmux session name |
+| 전체 turn 조회 | `turn <tmux_session>` | tmux session name |
+| 특정 process 종료 | `kill <tmux_session>` | tmux session name |
+
+웹 클라이언트는 `answer "$SESSION_ID"`나 `kill "$SESSION_ID"`를 호출하지 않습니다.
+
+웹 UI의 답변 본문은 `stream`의 `done.answer` 또는 `ask`의 `ask_result.answer`를 사용합니다.
+
+`kill <tmux_session>`은 process stop입니다. high-level bridge state나 Claude transcript를 지우는 대화 삭제 명령이 아닙니다.
 
 ## 2. Primary Stream Flow
 
@@ -204,6 +226,12 @@ ctc stream --session-id "$SESSION_ID" --cwd "$PROJECT_DIR" "$USER_PROMPT"
 긴 stream 동안 새 prompt를 막는 것은 `active_turn` state입니다.
 
 브라우저가 끊겼다가 다시 붙으면 새 prompt를 보내지 않고 `active_turn`에 attach합니다.
+
+attach는 완료된 과거 turn 조회가 아닙니다.
+
+성공하려면 `--session-id`가 필요하고, 해당 session에 `active_turn`이 남아 있어야 하며, `active_turn.stream_state`가 `active`, `timeout`, `interrupted` 중 하나여야 합니다. 내부 tmux session과 transcript도 찾을 수 있어야 합니다.
+
+이미 완료되어 `active_turn`이 정리된 turn에는 attach할 수 없습니다. 완료된 마지막 답변은 앱 서버가 저장한 `done.answer` 또는 `info`의 `last_turn`/state를 사용합니다.
 
 `timeout`이나 `failed`는 "입력 가능" 신호가 아닙니다.
 
@@ -431,7 +459,7 @@ bridge `session_id`, tmux session name, Claude transcript 내부 `sessionId`는 
 
 | 이름 | 의미 |
 | --- | --- |
-| `session_id` | bridge가 생성하고 클라이언트가 이후 요청에 돌려주는 UUID |
+| `session_id` | 앱 서버가 생성해 넘기거나 CLI가 생략 시 생성하는 UUID. 클라이언트는 이후 요청에 같은 값을 다시 보냄 |
 | `tmux_session` | `ctc-csess-<session_id>` 형식의 tmux session name |
 | Claude `sessionId` | Claude Code에 `--session-id <session_id>`로 지정한 내부 session id |
 
@@ -489,13 +517,19 @@ def send_turn(session_id, project_dir, prompt, account_env):
 예:
 
 ```bash
-ctc reap --idle-seconds 1800 --prefix ctc- --dry-run
-ctc reap --idle-seconds 1800 --prefix ctc-
+ctc reap --idle-seconds 1800 --prefix ctc-csess- --dry-run
+ctc reap --idle-seconds 1800 --prefix ctc-csess-
 ```
 
 현재 `reap`은 daemon이 아닙니다.
 
 한 번 scan하고 종료합니다.
+
+high-level `active_turn`이 남아 있고 `ready`가 아니면 `reap`은 보수적으로 skip합니다.
+
+`timeout`이나 `interrupted`는 입력 가능 또는 정리 가능 신호가 아닙니다. `attach`, 같은 `session_id` 재시도, 또는 운영자 판단에 따른 `kill`로 별도 처리합니다.
+
+web session만 정리하려면 `ctc-csess-` prefix를 권장합니다. `ctc-` prefix는 controlled 전체 정리용이라 low-level `ctc-*` session도 포함될 수 있습니다.
 
 cron, systemd timer, app scheduler 중 하나에서 호출합니다.
 
@@ -505,6 +539,8 @@ cron, systemd timer, app scheduler 중 하나에서 호출합니다.
 | --- | --- | --- |
 | `tmux` 없음 | exit `127` | 설치 안내, 서버 misconfig |
 | `claude` 없음 | exit `127` | Claude Code 설치 안내 |
+| invalid `session_id` 또는 cwd mismatch | exit `2` | 요청 오류로 표시. 같은 대화창에 다른 cwd를 연결하지 않음 |
+| `turn_in_progress` 등 high-level state error | exit `5`, stderr JSON | 새 입력을 큐에 넣거나 `stream --attach`로 기존 turn에 재연결 |
 | transcript 없음 | exit `2` | starting 상태로 재시도 |
 | stream timeout | exit `3`, `timeout` event | UI에 계속 처리 중 표시 |
 | stream interrupted | exit `130` | 연결 끊김으로 표시. 같은 session_id로 attach 또는 다음 prompt 시 자동 완료 검사 |
@@ -518,7 +554,7 @@ cron, systemd timer, app scheduler 중 하나에서 호출합니다.
 웹 채팅 제품 관점에서 아직 남은 CLI 개선점입니다.
 
 - `ensure`: 고수준 `stream` 내부에서 쓰는 session 보장 단계로 유지
-- 모든 answer JSON 응답에 `session_id` 포함
+- low-level `status`, `answer`, `turn`의 machine-readable JSON mode가 필요하면 별도 web-facing contract로 정의
 - `status --json`, `answer --json`, `turn --json`
 - state-write lock과 generation compare/update retry 강화
 - transcript rotation follow 고도화

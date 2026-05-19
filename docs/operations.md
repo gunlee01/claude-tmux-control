@@ -38,15 +38,15 @@ scheduler
 30분 idle 정리 예:
 
 ```bash
-TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc- --dry-run
-TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-
+TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-csess- --dry-run
+TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-csess-
 ```
 
 `--dry-run`으로 먼저 결과를 확인합니다.
 
-`--prefix ctc-`는 controlled session만 대상으로 제한합니다.
+web session만 정리하려면 `--prefix ctc-csess-`를 권장합니다.
 
-현재 high-level web session 이름은 `ctc-csess-<SESSION_ID>`이므로 `ctc-` prefix에 포함됩니다.
+`--prefix ctc-`는 controlled 전체 정리용입니다. high-level `ctc-csess-*`뿐 아니라 사용자가 low-level로 만든 `ctc-*` tmux session도 state file이 있으면 대상이 될 수 있습니다.
 
 ## 4. reap 안전 정책
 
@@ -54,13 +54,16 @@ TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-
 
 | 조건 | 설명 |
 | --- | --- |
-| prefix match | 기본 `ctc-` prefix 대상 |
+| prefix match | 지정한 prefix 대상. web-only 권장은 `ctc-csess-` |
 | idle 초과 | 마지막 입력/상태 기준 `--idle-seconds` 초과 |
+| no active work | high-level `active_turn`이 없거나 `ready` 상태 |
 | not working | transcript/screen 기준 working이 아님 |
 
 high-level `ctc-csess-<SESSION_ID>` session은 `~/.cache/claude-tmux-control/sessions/<SESSION_ID>.json` state file의 mtime을 idle 기준으로 사용합니다.
 
-오래됐어도 Claude가 아직 working이면 종료하지 않습니다.
+오래됐어도 high-level `active_turn`이 남아 있고 `ready`가 아니면 종료하지 않습니다.
+
+`timeout`이나 `interrupted`도 입력 가능 또는 정리 가능 신호가 아닙니다. 이런 session은 `stream --attach`, 같은 `session_id` 재시도, 또는 운영자 판단에 따른 `kill`로 별도 처리합니다.
 
 ## 5. 수동 종료
 
@@ -72,7 +75,11 @@ TERM=xterm-256color ctc kill "ctc-csess-$SESSION_ID"
 
 tmux session을 직접 종료해도 Claude process는 같이 종료됩니다.
 
-다만 bridge state 정합성까지 맞추려면 CLI `kill`을 우선 사용합니다.
+CLI `kill`도 high-level bridge state나 Claude transcript를 삭제하지는 않습니다.
+
+즉, 이것은 대화 기록 삭제가 아니라 process stop입니다. 같은 `SESSION_ID`로 다음 `stream`을 호출하면 남아 있는 state/transcript를 기준으로 다시 `--resume`될 수 있습니다.
+
+low-level `start work` 같은 직접 tmux session에서는 같은 이름의 local state file도 함께 제거됩니다.
 
 ## 6. 장애/복구 처리
 
@@ -85,10 +92,14 @@ tmux session을 직접 종료해도 Claude process는 같이 종료됩니다.
 | cwd mismatch | 잘못된 session 연결로 보고 거절 |
 | needs confirmation | 운영자 확인 또는 session 재시작 |
 
+`stream --attach`는 완료된 과거 turn 조회가 아닙니다.
+
+해당 session에 `active_turn`이 남아 있고, 내부 tmux session과 transcript를 찾을 수 있을 때만 사용합니다. 이미 완료된 답변은 앱 서버가 저장한 `done.answer` 또는 `ctc info "$SESSION_ID" --json`의 state를 확인합니다.
+
 ## 7. 권장 cron
 
 ```cron
-* * * * * cd /path/to/claude-tmux-control && TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc- >> logs/reap.log 2>&1
+* * * * * cd /path/to/claude-tmux-control && TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-csess- >> logs/reap.log 2>&1
 ```
 
 운영 로그에는 OAuth token이나 사용자 secret이 남지 않게 합니다.

@@ -12,7 +12,11 @@
 TERM=xterm-256color ctc stream --cwd "$PROJECT_DIR" --session-id "$SESSION_ID" "$USER_PROMPT"
 ```
 
-`SESSION_ID`가 없으면 클라이언트가 UUID를 생성해서 넘깁니다.
+운영 웹앱에서는 앱 서버가 UUID를 먼저 생성해 `--session-id`로 넘기는 방식을 권장합니다.
+
+`--session-id`를 생략해도 됩니다.
+
+생략하면 CLI가 UUID를 생성하고, 모든 stream event에 `session_id`를 포함합니다. 클라이언트는 첫 event의 `session_id`를 저장해서 이후 turn에 다시 넘기면 됩니다.
 
 같은 채팅방은 같은 `SESSION_ID`를 계속 사용합니다.
 
@@ -20,7 +24,7 @@ CLI는 내부적으로 `ctc-csess-<SESSION_ID>` tmux session을 만들거나 재
 
 ## 2. 새 대화 시작
 
-1. 앱 서버가 UUID를 만듭니다.
+1. 앱 서버가 UUID를 만듭니다. 또는 `--session-id`를 생략하고 첫 stream event의 `session_id`를 저장합니다.
 2. `stream --cwd ... --session-id ... "$PROMPT"`를 실행합니다.
 3. stdout JSONL을 한 줄씩 읽어 UI에 반영합니다.
 4. `done`을 받으면 최종 답변을 확정합니다.
@@ -89,6 +93,16 @@ CLI는 새 prompt를 보내기 전에 이전 `active_turn`을 확인합니다.
 | timeout/interrupted + tmux ready + transcript ready | 이전 turn finalize 후 새 prompt 전송 |
 | timeout/interrupted + 아직 미확인 | `turn_in_progress` 또는 attach 필요 |
 
+주요 exit code:
+
+| code | 처리 |
+| --- | --- |
+| `2` | 요청 오류 또는 session/transcript 없음. stderr 확인 |
+| `3` | timeout. UI는 처리 중/재연결 상태 유지 |
+| `5` | `turn_in_progress` 같은 high-level state error. 새 입력을 큐에 넣거나 attach |
+| `127` | `tmux` 또는 Claude Code 설치/경로 문제 |
+| `130` | client interrupt. 같은 session id로 attach 또는 다음 요청 시 완료 검사 |
+
 ## 5. 연결 끊김과 재연결
 
 브라우저나 앱 서버 연결이 끊겼다면 새 prompt를 보내지 말고 먼저 attach할 수 있습니다.
@@ -100,6 +114,17 @@ TERM=xterm-256color ctc stream --attach --session-id "$SESSION_ID" --timeout 300
 `attach`는 기존 `active_turn` transcript를 다시 읽습니다.
 
 새 입력은 보내지 않습니다.
+
+성공 조건:
+
+- `--session-id`가 필요합니다.
+- 해당 session에 `active_turn`이 남아 있어야 합니다.
+- `active_turn.stream_state`가 `active`, `timeout`, `interrupted` 중 하나여야 합니다.
+- 내부 tmux session과 transcript를 찾을 수 있어야 합니다.
+
+`attach`는 완료된 과거 turn 조회가 아닙니다.
+
+이미 완료된 마지막 답변은 앱 서버가 저장한 `done.answer` 또는 `info`의 `last_turn`/state를 사용합니다.
 
 ## 6. 세션 상태 확인
 
@@ -129,19 +154,25 @@ tmux session은 별도 정리하지 않으면 계속 살아있습니다.
 먼저 dry-run으로 확인합니다.
 
 ```bash
-TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc- --dry-run
+TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-csess- --dry-run
 ```
 
 확인 후 실제 정리합니다.
 
 ```bash
-TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-
+TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-csess-
 ```
+
+`reap`은 high-level `active_turn`이 남아 있고 `ready`가 아니면 보수적으로 skip합니다.
+
+`timeout`이나 `interrupted` session도 자동 정리 대상으로 가정하지 말고, 먼저 `attach`/retry로 상태를 확인하거나 운영자 판단에 따라 `kill`합니다.
+
+web session만 정리하려면 `ctc-csess-` prefix를 권장합니다. `ctc-` prefix는 controlled 전체 정리용이라 low-level `ctc-*` session도 포함될 수 있습니다.
 
 cron 예:
 
 ```cron
-* * * * * cd /path/to/claude-tmux-control && TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc- >> logs/reap.log 2>&1
+* * * * * cd /path/to/claude-tmux-control && TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-csess- >> logs/reap.log 2>&1
 ```
 
 자세한 운영 정책은 [Operations Guide](./operations.md)를 봅니다.

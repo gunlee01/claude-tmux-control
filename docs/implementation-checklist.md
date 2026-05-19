@@ -14,7 +14,8 @@
 ## 2. Session Identity
 
 - [x] canonical `session_id` 소유자는 bridge로 정의한다.
-- [x] 새 대화의 `session_id`는 UUID v4로 정의한다.
+- [x] CLI가 새 대화의 `session_id`를 생성할 때는 UUID v4를 사용한다.
+- [x] client-provided `session_id`는 canonical lowercase UUID로 검증한다. UUID v4는 권장하지만 강제하지 않는다.
 - [x] tmux session naming 규칙을 `ctc-csess-<session_id>`로 정의한다.
 - [x] `:`는 tmux target separator라서 session name에서 제외한다.
 - [x] high-level `stream`에서 `session_id`가 없으면 UUID를 생성한다.

@@ -33,7 +33,7 @@ OAuth token이 필요한 경우 호출 프로세스가 token을 환경변수로 
 - `tmux capture-pane`: 사람이 보는 화면과 prompt 상태 확인
 - Claude Code transcript JSONL: assistant text, thinking, tool_use, tool_result, usage, timestamp 확인
 
-bridge가 UUID 기반 `session_id`를 생성하고 Claude Code 첫 실행에 `--session-id <session_id>`를 전달한다. tmux session name은 `ctc-csess-<session_id>` 규칙을 사용한다.
+운영 웹앱은 UUID 기반 `session_id`를 먼저 생성해 bridge에 넘기는 방식을 권장한다. 클라이언트가 생략하면 CLI가 UUID를 생성하고 Claude Code 첫 실행에 같은 값을 `--session-id <session_id>`로 전달한다. tmux session name은 `ctc-csess-<session_id>` 규칙을 사용한다.
 
 클라이언트가 이후 요청에 같은 `session_id`를 보내면 bridge는 같은 tmux session을 재사용한다. tmux session이 이미 종료되어 있으면 같은 서버의 로컬 Claude transcript를 기준으로 `claude --resume <session_id>`를 실행해 복구한다.
 
@@ -69,9 +69,10 @@ bridge가 UUID 기반 `session_id`를 생성하고 Claude Code 첫 실행에 `--
 - Use `tmux` as the terminal execution layer.
 - Use bridge `session_id` as the primary external session key.
 - Derive tmux session names from bridge `session_id`.
-- The bridge owns the canonical `session_id`.
+- The app server should usually create and persist the canonical `session_id` for each web conversation.
 - Generate `session_id` as UUID v4 when the client does not provide one.
-- Validate client-provided `session_id` as UUID before using it in a path, state filename, or tmux session name.
+- Validate client-provided `session_id` as a canonical lowercase UUID before using it in a path, state filename, or tmux session name.
+- Recommend UUID v4 for client-provided ids, but do not require version 4.
 - If existing state has a different canonical `cwd` from the request, fail closed with `session_cwd_mismatch`.
 - Pass the generated id to first-run Claude Code as `--session-id <session_id>`.
 - Reuse tmux session name `ctc-csess-<session_id>`.
@@ -155,6 +156,7 @@ Proposed additions and high-level commands:
   - Ensures/reuses/resumes the session, sends the prompt, streams one full turn, then emits final metrics.
 - internal `ensure <session-id> --cwd <path>`
   - If `session-id` is omitted, generate a UUID v4.
+  - If `session-id` is provided, validate it as a canonical lowercase UUID. UUID v4 is recommended but not required.
   - Use tmux session name `ctc-csess-<session-id>`.
   - If the tmux session exists, reuse it.
   - If this is a new session, create tmux session and launch Claude Code with `--session-id <session-id>`.
@@ -374,7 +376,7 @@ The long-term integration should treat this CLI as a process boundary. A web ser
 
 The main reliability risk is transcript selection. The safest path is to combine:
 
-- bridge-generated UUID session id
+- app-server-provided canonical UUID or CLI-generated UUID v4 session id
 - tmux session name `ctc-csess-<session_id>`
 - cwd-specific Claude project transcript directory
 - transcript file identity and offset/time baseline captured before send/start/resume

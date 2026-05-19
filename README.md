@@ -14,7 +14,7 @@
 | 진행 중 turn 재연결 | `ctc stream --attach --session-id UUID` | bridge session UUID |
 | 세션 상태 조회 | `ctc info UUID --json` | bridge session UUID |
 | 세션 목록 조회 | `ctc list --json` | high-level bridge sessions |
-| 오래된 process 정리 | `ctc reap --idle-seconds N --prefix ctc-` | controlled tmux prefix |
+| 오래된 web process 정리 | `ctc reap --idle-seconds N --prefix ctc-csess-` | high-level web tmux prefix |
 
 Low-level tmux 명령도 있지만, 웹 클라이언트 계약이 아니라 디버깅/수동 smoke test용입니다.
 
@@ -87,6 +87,10 @@ TERM=xterm-256color ctc stream \
   "현재 프로젝트 구조를 설명해줘"
 ```
 
+운영 웹앱에서는 앱 서버가 UUID를 먼저 생성해 `--session-id`로 넘기는 방식을 권장합니다.
+
+`--session-id`를 생략해도 됩니다. 이 경우 CLI가 UUID를 생성하고, 모든 stream event에 `session_id`를 포함합니다. 클라이언트는 첫 event의 `session_id`를 저장해서 이후 turn에 다시 넘기면 됩니다.
+
 출력은 JSONL입니다. 웹 서버나 클라이언트는 stdout을 line-by-line으로 읽으면 됩니다.
 
 일반적인 이벤트 순서:
@@ -150,6 +154,18 @@ TERM=xterm-256color ctc stream \
 {"event":"error","error":"turn_in_progress"}
 ```
 
+이 상황의 exit code는 `5`입니다.
+
+자주 보는 exit code:
+
+| code | 의미 |
+| --- | --- |
+| `2` | 요청 오류 또는 session/transcript 없음 |
+| `3` | timeout 또는 ready 대기 실패 |
+| `5` | high-level runtime state error. 예: `turn_in_progress` |
+| `127` | `tmux` 또는 Claude Code executable 없음 |
+| `130` | client interrupt |
+
 클라이언트는 이 응답을 받으면 새 메시지를 큐에 넣거나, 입력창을 잠시 비활성화하고 기존 turn에 attach해야 합니다.
 
 ```bash
@@ -157,6 +173,10 @@ TERM=xterm-256color ctc stream --attach --session-id "$SESSION_ID" --timeout 300
 ```
 
 브라우저 연결이 끊긴 뒤 같은 turn을 이어서 볼 때도 동일하게 `stream --attach`를 사용합니다.
+
+`attach`는 완료된 과거 turn을 다시 조회하는 명령이 아닙니다.
+
+`active_turn`이 남아 있는 진행 중, timeout, interrupted turn에 다시 붙을 때만 사용합니다. 이미 완료되어 `active_turn`이 정리된 turn의 최종 답변은 `info`의 `last_turn`/state나 저장해 둔 `done.answer`를 봅니다.
 
 세션 상태 확인:
 
@@ -173,13 +193,13 @@ tmux session은 자동으로 사라지지 않습니다. 운영 서버에서는 `
 먼저 dry-run으로 정리 대상을 확인합니다.
 
 ```bash
-TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc- --dry-run
+TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-csess- --dry-run
 ```
 
 문제가 없으면 실제 정리를 실행합니다.
 
 ```bash
-TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-
+TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-csess-
 ```
 
 `reap`은 daemon이 아닙니다. 한 번 scan하고 종료합니다.
@@ -189,14 +209,18 @@ cron, systemd timer, app scheduler 중 하나로 반복 실행합니다.
 cron 예:
 
 ```cron
-* * * * * TERM=xterm-256color /path/to/ctc reap --idle-seconds 1800 --prefix ctc- >> /var/log/ctc-reap.log 2>&1
+* * * * * TERM=xterm-256color /path/to/ctc reap --idle-seconds 1800 --prefix ctc-csess- >> /var/log/ctc-reap.log 2>&1
 ```
 
 정리 기준:
 
-- 기본적으로 `ctc-` prefix session만 정리합니다.
+- web session만 정리하려면 `ctc-csess-` prefix를 권장합니다.
+- `ctc-` prefix는 controlled 전체 정리용이며, 사용자가 low-level로 만든 `ctc-*` tmux session도 포함할 수 있습니다.
 - 마지막 입력/상태 기준으로 `--idle-seconds`를 넘은 session만 정리합니다.
-- Claude가 아직 working 상태로 보이면 정리하지 않습니다.
+- high-level `active_turn`이 남아 있고 `ready`가 아니면 보수적으로 정리하지 않습니다.
+- 화면/transcript 기준으로 Claude가 아직 working 상태로 보여도 정리하지 않습니다.
+
+`timeout`이나 `interrupted`는 입력 가능 또는 정리 가능 신호가 아닙니다. 이런 session은 `stream --attach`, 같은 `session_id` 재시도, 또는 운영자 판단에 따른 `kill`로 별도 처리합니다.
 
 `reap`으로 tmux session이 종료되면 그 안에서 실행 중이던 Claude Code process도 같이 종료됩니다.
 
@@ -247,8 +271,8 @@ Claude Code 실행 command에는 기본적으로 `--dangerously-skip-permissions
 ```bash
 ctc list --json
 ctc info "$SESSION_ID" --json
-ctc reap --idle-seconds 1800 --prefix ctc- --dry-run
-ctc reap --idle-seconds 1800 --prefix ctc-
+ctc reap --idle-seconds 1800 --prefix ctc-csess- --dry-run
+ctc reap --idle-seconds 1800 --prefix ctc-csess-
 ```
 
 ## Operational Process Stop
@@ -260,6 +284,10 @@ ctc reap --idle-seconds 1800 --prefix ctc-
 ```bash
 ctc kill "ctc-csess-$SESSION_ID"
 ```
+
+이 명령은 tmux session과 그 안의 Claude Code process를 종료합니다.
+
+high-level bridge state와 Claude transcript를 삭제하지는 않습니다. 같은 `SESSION_ID`로 다음 `stream`을 호출하면 남아 있는 state/transcript를 기준으로 다시 `--resume`될 수 있습니다.
 
 웹 클라이언트의 일반 흐름에서는 `kill`보다 주기적인 `reap`으로 오래 idle 상태인 session을 정리하는 편이 낫습니다.
 
