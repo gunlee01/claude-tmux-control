@@ -103,6 +103,19 @@ app server
   -> metrics 저장 및 표시
 ```
 
+사용자가 같은 대화창에서 다음 메시지를 보내면, 같은 `SESSION_ID`로 `stream`을 한 번 더 실행합니다.
+
+```bash
+TERM=xterm-256color ctc stream \
+  --cwd "$PROJECT_DIR" \
+  --session-id "$SESSION_ID" \
+  "$NEXT_PROMPT"
+```
+
+이 호출은 새 prompt를 Claude Code에 전송합니다.
+
+기존 tmux session이 살아 있으면 그대로 재사용하고, `reap` 등으로 tmux session이 없어졌지만 state/transcript가 남아 있으면 새 tmux session을 만들고 Claude Code를 `--resume <SESSION_ID>`로 실행합니다.
+
 연결이 끊겼는데 같은 turn을 이어서 보고 싶으면 새 prompt를 보내지 말고 attach합니다.
 
 ```bash
