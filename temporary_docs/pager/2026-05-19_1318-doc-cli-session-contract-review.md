@@ -1,6 +1,6 @@
 # claude-tmux-control 문서/CLI 세션 계약 리뷰
 
-- Last Updated At: 2026-05-19 14:29 KST
+- Last Updated At: 2026-05-19 15:59 KST
 - Scope: `README.md`와 연결 문서가 현재 `claude_tmux_control.py` 구현과 맞는지 검토
 - Review Type: documentation contract review
 - Review Inputs: local code review + 3 subagent reviews
@@ -458,6 +458,28 @@ Status: accepted
 
 - 2026-05-19 14:29 KST: README, docs README, quickstart, CLI manual, PRD, web guide MD/HTML을 구현 계약에 맞게 보정했다.
 
+---
+
+### 12. [Minor] context metrics 예시가 실측보다 강하게 보인다
+
+Status: accepted
+
+#### Evidence
+
+- 실측한 Claude Code 2.1.144 transcript에는 `usage`는 있으나 `context`, `context_window`, `context_usage`가 없었다.
+- 로컬 project transcript 4,907개 파일, 809,753 JSONL line을 스캔했을 때 context 계열 top-level field count는 0이었다.
+- 기존 guide 예시는 `metrics.context.current_size`가 항상 나오는 것처럼 보였다.
+
+#### Decision
+
+- accept. context는 transcript에 실제 context 계열 field가 있을 때만 `metrics.context`에 포함한다.
+- 정보가 없으면 usage 기반 추정치를 `context`에 넣지 않는다.
+- UI 예시에서도 `input + cache_read + cache_write`를 context size로 표시하지 않는다.
+
+#### Progress
+
+- 2026-05-19 15:59 KST: README, quickstart, CLI manual, PRD, web guide MD/HTML, test를 context optional 계약으로 보정했다.
+
 ## Proposed Review Order
 
 1. Finding 1: high-level/low-level API 경계
@@ -467,9 +489,11 @@ Status: accepted
 5. Finding 5: `kill` 의미 정리
 6. Finding 6-10: attach/reap/exit/prefix/UUID 세부 정리
 7. Finding 11: stream start/resume 문서 보정
+8. Finding 12: context metrics optional 계약 보정
 
 ## Decision Log
 
 - 2026-05-19 13:18 KST: pager 생성. 아직 accept/skip 결정 없음.
 - 2026-05-19 14:05 KST: Finding 1-10 모두 반영 완료. Critical 없음.
 - 2026-05-19 14:29 KST: 추가 subagent 재검토에서 Finding 11을 확인하고 문서 보정 완료. Critical 없음.
+- 2026-05-19 15:59 KST: context metrics 실측 결과를 반영해 추정 context를 넣지 않는 계약으로 문서와 테스트를 보정했다.

@@ -107,7 +107,9 @@ metrics
 
 최종 답변은 `done.answer`에 들어 있습니다.
 
-토큰, elapsed time, context, 비용 추정치는 `done` 직후의 `metrics` 이벤트로 전달됩니다.
+토큰, elapsed time, 비용 추정치는 `done` 직후의 `metrics` 이벤트로 전달됩니다.
+
+`context`는 Claude Code transcript가 context 계열 필드를 제공할 때만 `metrics.context`로 전달됩니다. 정보가 없으면 추정값을 넣지 않고 필드 자체를 생략합니다.
 
 같은 대화창에서 다음 턴을 이어가려면 같은 `SESSION_ID`를 다시 넘깁니다.
 

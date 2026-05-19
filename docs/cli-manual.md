@@ -722,7 +722,7 @@ final `metrics`에는 transcript에서 확인 가능한 경우 다음 정보가 
 - `usage.cache_read_tokens`
 - `usage.cache_write_tokens`
 - `usage.output_tokens`
-- `context`
+- `context`: transcript에 `context`, `context_window`, `context_usage`가 있을 때만 포함. 없으면 추정하지 않고 생략
 - `cost.turn_usd`
 - `cost.session_usd`
 

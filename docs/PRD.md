@@ -146,7 +146,8 @@ High-level `stream [--session-id <id>] --cwd <path> <prompt...>` contract:
 - Does not complete a subagent flow until the `Task` tool result is followed by final assistant text.
 - Combines transcript readiness with tmux screen readiness and a short idle window.
 - Emits final turn metrics after `done` as a separate `metrics` event.
-- Current final metrics include model, input tokens, cache read tokens, cache write tokens, output tokens, context fields when present, and pricing-table-based estimated turn cost when model/usage can be resolved.
+- Current final metrics include model, input tokens, cache read tokens, cache write tokens, output tokens, context fields only when present in the transcript, and pricing-table-based estimated turn cost when model/usage can be resolved.
+- Do not estimate or synthesize `metrics.context` from token usage when transcript context fields are absent.
 - Elapsed time and estimated session cumulative cost are emitted by the CLI in the final `metrics` event when the turn reaches `done`.
 - Mid-stream metrics are optional best-effort events only when new transcript events already contain usage/context/model fields.
 
@@ -212,9 +213,6 @@ Current final metrics event:
     "cache_read_tokens": 8000,
     "cache_write_tokens": 500,
     "output_tokens": 1400
-  },
-  "context": {
-    "current_size": 64000
   },
   "cost": {
     "estimated": true,

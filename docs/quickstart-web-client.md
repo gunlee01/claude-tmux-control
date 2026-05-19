@@ -66,7 +66,7 @@ metrics
 | `tool_result` | 도구 결과 preview 표시 |
 | `assistant_text` | 답변 본문 append |
 | `done` | 최종 answer 확정, 입력창 활성화 |
-| `metrics` | elapsed/token/context/cost 표시 |
+| `metrics` | elapsed/token/cost 표시. transcript에 context 정보가 있으면 context도 표시 |
 | `timeout` | 처리 중/재연결 상태 표시 |
 
 `done.answer`가 최종 답변입니다.

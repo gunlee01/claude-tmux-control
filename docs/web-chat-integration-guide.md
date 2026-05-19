@@ -278,7 +278,7 @@ ctc stream --session-id "$SESSION_ID" --cwd "$PROJECT_DIR" "$USER_PROMPT"
 | `tool_result` | tool call 결과 | tool output 또는 error |
 | `assistant_text` | assistant 답변 text block | 답변 영역에 append |
 | `done` | turn 완료 | 입력창 재활성화 |
-| `metrics` | turn final metrics | token/context/cost 패널 갱신 |
+| `metrics` | turn final metrics | token/cost 패널 갱신. transcript에 context 정보가 있으면 context도 갱신 |
 | `timeout` | 완료 전 timeout | 처리 중/재시도 UI |
 
 예:
@@ -327,7 +327,7 @@ Claude Code는 tool result 이후에 최종 assistant text를 이어서 쓸 수 
 | cache write tokens | final `metrics.usage.cache_write_tokens` | 지원 |
 | cache read tokens | final `metrics.usage.cache_read_tokens` | 지원 |
 | output tokens | final `metrics.usage.output_tokens` | 지원 |
-| context size | final `metrics.context` | transcript에 있으면 지원 |
+| context size | final `metrics.context` | transcript에 있으면 지원. 없으면 추정하지 않고 생략 |
 | turn cost | final `metrics.cost.turn_usd` | pricing table 기준 추정 |
 | session cumulative cost | final `metrics.cost.session_usd` 또는 `info.cost_totals.session_usd` | completed turn records 기준 |
 
@@ -345,6 +345,10 @@ metrics.elapsed_ms
 `stream`은 UI용 normalized event이며, final `metrics`는 통계용 필드를 함께 제공합니다.
 
 usage/context 필드는 Claude Code transcript schema에 따라 위치와 이름이 달라질 수 있으므로, CLI가 최신 turn의 raw event를 읽어 normalized `usage`/`context`로 변환합니다.
+
+현재 실측한 Claude Code transcript에서는 `usage`는 나오지만 `context`, `context_window`, `context_usage`는 나오지 않는 경우가 일반적입니다.
+
+context 정보가 없으면 CLI는 `metrics.context`를 생략합니다. `usage` 값을 더해서 context 추정치를 넣지는 않습니다.
 
 별도 raw 분석이 필요하면 `events --json` 또는 향후 `stats` 명령을 추가합니다.
 
@@ -413,9 +417,6 @@ model              <- event/message/response model
     "cache_write_tokens": 500,
     "output_tokens": 1400
   },
-  "context": {
-    "current_size": 64000
-  },
   "cost": {
     "estimated": true,
     "currency": "USD",
@@ -437,7 +438,7 @@ final `metrics`는 replay될 수 있으므로 `turn_id`와 deterministic `event_
 
 구조상 `stream` loop는 transcript에 새 event가 생길 때마다 읽으므로, 새 raw event에 `usage`/`context`/`model`이 포함되어 있으면 향후 `scope: "turn_partial"` event를 best-effort로 추가할 수 있습니다.
 
-다만 Claude Code가 usage를 언제 기록하는지는 버전과 event 종류에 따라 달라질 수 있습니다.
+다만 Claude Code가 usage/context를 언제 기록하는지는 버전과 event 종류에 따라 달라질 수 있습니다.
 
 그래서 중간 metrics는 기본 UI 계약으로 삼지 않고, 필요하면 best-effort 옵션으로 둡니다.
 
