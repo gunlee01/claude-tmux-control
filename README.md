@@ -115,12 +115,54 @@ TERM=xterm-256color ctc stream --attach --session-id "$SESSION_ID" --timeout 300
 TERM=xterm-256color ctc info "$SESSION_ID" --json
 ```
 
-오래된 session 정리:
+## Session Cleanup
+
+`ctc stream`은 내부적으로 `ctc-csess-<SESSION_ID>` tmux session을 만듭니다.
+
+tmux session은 자동으로 사라지지 않습니다. 운영 서버에서는 `reap`을 주기적으로 실행해서 오래된 session을 정리해야 합니다.
+
+먼저 dry-run으로 정리 대상을 확인합니다.
 
 ```bash
 TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc- --dry-run
+```
+
+문제가 없으면 실제 정리를 실행합니다.
+
+```bash
 TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-
 ```
+
+`reap`은 daemon이 아닙니다. 한 번 scan하고 종료합니다.
+
+cron, systemd timer, app scheduler 중 하나로 반복 실행합니다.
+
+cron 예:
+
+```cron
+* * * * * TERM=xterm-256color /path/to/ctc reap --idle-seconds 1800 --prefix ctc- >> /var/log/ctc-reap.log 2>&1
+```
+
+정리 기준:
+
+- 기본적으로 `ctc-` prefix session만 정리합니다.
+- 마지막 입력/상태 기준으로 `--idle-seconds`를 넘은 session만 정리합니다.
+- Claude가 아직 working 상태로 보이면 정리하지 않습니다.
+
+`reap`으로 tmux session이 종료되면 그 안에서 실행 중이던 Claude Code process도 같이 종료됩니다.
+
+하지만 Claude Code 대화 session 자체를 못 쓰게 되는 것은 아닙니다.
+
+같은 `SESSION_ID`로 다음 `stream` 요청을 보내면, 기존 tmux session이 없더라도 state/transcript가 남아 있는 경우 새 tmux session을 만들고 Claude Code를 `--resume <SESSION_ID>`로 실행합니다.
+
+```bash
+TERM=xterm-256color ctc stream \
+  --cwd "$PWD" \
+  --session-id "$SESSION_ID" \
+  "이전 대화 이어서 설명해줘"
+```
+
+즉, `reap`은 누적된 tmux/Claude Code process를 정리하는 운영 절차이고, 저장된 Claude Code session을 의도적으로 삭제하는 기능은 아닙니다.
 
 ## Authentication
 
@@ -156,6 +198,7 @@ ctc list --json
 ctc info "$SESSION_ID" --json
 ctc kill "ctc-csess-$SESSION_ID"
 ctc reap --idle-seconds 1800 --prefix ctc- --dry-run
+ctc reap --idle-seconds 1800 --prefix ctc-
 ```
 
 저수준 tmux session을 직접 다룰 수도 있습니다.
