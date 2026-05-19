@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 import uuid
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -373,6 +373,44 @@ class CliTest(unittest.TestCase):
         self.assertEqual(args.command_name, "turn")
         self.assertEqual(args.session, "work")
         self.assertEqual(args.count, 2)
+
+    def test_answer_does_not_fallback_to_latest_transcript_for_unknown_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "latest.jsonl").write_text(
+                json_line({"type": "user", "message": {"content": "real prompt"}})
+                + json_line({"type": "assistant", "message": {"content": [{"type": "text", "text": "real answer"}]}}),
+                encoding="utf-8",
+            )
+            args = ctc.parse_args(["answer", "any", "--root", str(root)])
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                exit_code = ctc._print_latest_answer(args, ctc.TmuxController(run=FakeRunner()))
+
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertIn("no transcript found", stderr.getvalue())
+
+    def test_turn_does_not_fallback_to_latest_transcript_for_unknown_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "latest.jsonl").write_text(
+                json_line({"type": "user", "message": {"content": "real prompt"}})
+                + json_line({"type": "assistant", "message": {"content": [{"type": "text", "text": "real answer"}]}}),
+                encoding="utf-8",
+            )
+            args = ctc.parse_args(["turn", "any", "--root", str(root)])
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                exit_code = ctc._print_latest_turn(args, ctc.TmuxController(run=FakeRunner()))
+
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertIn("no transcript found", stderr.getvalue())
 
     def test_parse_info_accepts_session_id_and_json(self):
         session_id = "550e8400-e29b-41d4-a716-446655440000"

@@ -335,6 +335,7 @@ ctc answer SESSION --tail 3
 
 - assistant `text` block만 출력합니다.
 - `thinking`, `tool_use`, `tool_result`는 제외합니다.
+- `SESSION`에 맞는 state/cwd transcript를 찾지 못하면 실패합니다. 최신 transcript 전체로 fallback하지 않습니다.
 - 웹 UI의 최종 채팅 본문에는 보통 이 명령이 적합합니다.
 
 ### `turn`
@@ -377,6 +378,8 @@ ctc turn SESSION --tail 3
 ```
 
 tool call 진행 상황까지 UI에 보여주려면 `turn`이 `answer`보다 적합합니다.
+
+`turn`도 `SESSION`에 맞는 state/cwd transcript를 찾지 못하면 실패합니다. 최신 transcript 전체로 fallback하지 않습니다.
 
 ### `stream`
 

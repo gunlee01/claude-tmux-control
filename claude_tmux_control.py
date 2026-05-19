@@ -670,7 +670,7 @@ def _print_latest_answer(args: argparse.Namespace, controller: TmuxController) -
         cwd=str(controller.pane_current_path(args.session) or ""),
     )
 
-    transcript = args.transcript or resolve_transcript_path(args.root, state)
+    transcript = args.transcript or resolve_session_transcript_path(args.root, state)
     if transcript is None:
         print(f"no transcript found under {args.root}", file=sys.stderr)
         return 2
@@ -703,7 +703,7 @@ def _print_latest_turn(args: argparse.Namespace, controller: TmuxController) -> 
         cwd=str(controller.pane_current_path(args.session) or ""),
     )
 
-    transcript = args.transcript or resolve_transcript_path(args.root, state)
+    transcript = args.transcript or resolve_session_transcript_path(args.root, state)
     if transcript is None:
         print(f"no transcript found under {args.root}", file=sys.stderr)
         return 2
@@ -3120,6 +3120,18 @@ def resolve_transcript_path(root: Path = DEFAULT_TRANSCRIPT_ROOT, state: Session
     return find_latest_transcript(root)
 
 
+def resolve_session_transcript_path(root: Path, state: SessionState) -> Path | None:
+    candidates = _iter_state_transcript_paths(root, state, allow_global_fallback=False)
+    if not candidates:
+        return None
+    if not state.last_prompt:
+        return max(candidates, key=lambda path: (path.stat().st_mtime_ns, path.name))
+    matched = [path for path in candidates if _file_has_user_prompt(path, state.last_prompt)]
+    if matched:
+        return max(matched, key=lambda path: (path.stat().st_mtime_ns, path.name))
+    return max(candidates, key=lambda path: (path.stat().st_mtime_ns, path.name))
+
+
 def resolve_status_transcript_path(
     root: Path,
     state: SessionState | None,
@@ -3144,11 +3156,17 @@ def project_transcript_dir(root: Path, cwd: Path) -> Path:
     return root / "projects" / encoded
 
 
-def _iter_state_transcript_paths(root: Path, state: SessionState) -> list[Path]:
+def _iter_state_transcript_paths(
+    root: Path,
+    state: SessionState,
+    allow_global_fallback: bool = True,
+) -> list[Path]:
     if state.cwd:
         project_dir = project_transcript_dir(root, Path(state.cwd))
         if project_dir.is_dir():
             return list(project_dir.rglob("*.jsonl"))
+    if not allow_global_fallback:
+        return []
     return _iter_transcript_paths(root)
 
 
