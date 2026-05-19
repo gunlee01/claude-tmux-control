@@ -116,11 +116,21 @@ TERM=xterm-256color ctc stream \
 
 기존 tmux session이 살아 있으면 그대로 재사용하고, `reap` 등으로 tmux session이 없어졌지만 state/transcript가 남아 있으면 새 tmux session을 만들고 Claude Code를 `--resume <SESSION_ID>`로 실행합니다.
 
-연결이 끊겼는데 같은 turn을 이어서 보고 싶으면 새 prompt를 보내지 말고 attach합니다.
+단, 이전 turn이 아직 끝나지 않았거나 완료 여부를 확인할 수 없으면 새 메시지는 거절됩니다.
+
+이때 `ctc stream`은 stderr에 JSON error를 쓰고 exit code `5`로 종료합니다.
+
+```json
+{"event":"error","error":"turn_in_progress"}
+```
+
+클라이언트는 이 응답을 받으면 새 메시지를 큐에 넣거나, 입력창을 잠시 비활성화하고 기존 turn에 attach해야 합니다.
 
 ```bash
 TERM=xterm-256color ctc stream --attach --session-id "$SESSION_ID" --timeout 300
 ```
+
+브라우저 연결이 끊긴 뒤 같은 turn을 이어서 볼 때도 동일하게 `stream --attach`를 사용합니다.
 
 세션 상태 확인:
 
