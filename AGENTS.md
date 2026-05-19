@@ -34,7 +34,9 @@ web/client process
 - `tmux` as the terminal execution layer.
 - Claude Code CLI (`claude`) as the controlled interactive process.
 - `unittest` for tests.
-- No package manager is currently required.
+- Packaging is defined in `pyproject.toml`.
+- The installed CLI entrypoints are `ctc` and `claude-tmux-control`.
+- Keep developer-only setup notes in `AGENTS.md` or docs under `docs/`; keep `README.md` focused on installation and user-facing usage.
 
 ## Important Files
 
