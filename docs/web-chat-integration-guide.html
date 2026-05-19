@@ -911,7 +911,7 @@
         title: "Call Stream",
         desc: "한 turn 시작",
         detail: "웹 서버는 session_id가 있으면 넘기고, 없으면 생략한다. bridge가 UUID 검증, cwd mismatch 거절, 짧은 send_lock, start/resume, prompt 전송을 처리한다.",
-        command: "./claude_tmux_control.py stream --session-id \"$SESSION_ID\" --cwd \"$PROJECT_DIR\" \"$USER_PROMPT\""
+        command: "ctc stream --session-id \"$SESSION_ID\" --cwd \"$PROJECT_DIR\" \"$USER_PROMPT\""
       },
       {
         key: "start",
@@ -1013,7 +1013,7 @@
       stream: {
         title: "high-level stream",
         render: s => `TERM=xterm-256color \\
-./claude_tmux_control.py stream${s.mode === "existing" ? ` \\
+ctc stream${s.mode === "existing" ? ` \\
   --session-id "${escapeHtml(s.sessionId)}"` : ""} \\
   --cwd "${escapeHtml(s.projectDir)}" \\
   --oauth-token-env ${escapeHtml(s.oauthEnv)} \\
@@ -1023,7 +1023,7 @@
       ask: {
         title: "non-streaming ask",
         render: s => `TERM=xterm-256color \\
-./claude_tmux_control.py ask${s.mode === "existing" ? ` \\
+ctc ask${s.mode === "existing" ? ` \\
   --session-id "${escapeHtml(s.sessionId)}"` : ""} \\
   --cwd "${escapeHtml(s.projectDir)}" \\
   --oauth-token-env ${escapeHtml(s.oauthEnv)} \\
@@ -1061,8 +1061,8 @@ tmux load-buffer + paste-buffer + send-keys Enter`
       },
       cleanup: {
         title: "cleanup",
-        render: () => `./claude_tmux_control.py reap --idle-seconds 1800 --prefix ctc- --dry-run
-./claude_tmux_control.py reap --idle-seconds 1800 --prefix ctc-`
+        render: () => `ctc reap --idle-seconds 1800 --prefix ctc- --dry-run
+ctc reap --idle-seconds 1800 --prefix ctc-`
       }
     };
 

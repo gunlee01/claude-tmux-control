@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-tmux-control"
+version = "0.1.0"
+description = "A tmux-based Claude Code bridge for streaming interactive sessions."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Gun Lee" }
+]
+license = { text = "Proprietary" }
+keywords = ["claude-code", "tmux", "cli", "streaming"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: User Interfaces",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://oss.navercorp.com/gunh-lee/claude-tmux-control"
+Repository = "https://oss.navercorp.com/gunh-lee/claude-tmux-control"
+
+[project.scripts]
+ctc = "claude_tmux_control:main"
+claude-tmux-control = "claude_tmux_control:main"
+
+[tool.setuptools]
+py-modules = ["claude_tmux_control"]
+
+[tool.setuptools.data-files]
+"share/claude-tmux-control" = ["claude_pricing.json"]

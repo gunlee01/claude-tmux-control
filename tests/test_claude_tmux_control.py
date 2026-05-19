@@ -2529,6 +2529,18 @@ class StreamTest(unittest.TestCase):
         self.assertEqual(cost["model_match"], "family_latest")
         self.assertEqual(cost["turn_usd"], 6.0)
 
+    def test_load_pricing_table_uses_installed_data_file_when_source_file_is_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            installed_table = Path(tmp) / "share" / "claude-tmux-control" / "claude_pricing.json"
+            installed_table.parent.mkdir(parents=True)
+            installed_table.write_text('{"version": "installed-test", "models": {}}', encoding="utf-8")
+
+            with patch.object(ctc, "DEFAULT_INSTALLED_PRICING_TABLE", installed_table):
+                with patch.object(ctc, "DEFAULT_PRICING_TABLE", Path(tmp) / "missing.json"):
+                    ctc._PRICING_TABLE_CACHE = None
+                    self.assertEqual(ctc.load_pricing_table()["version"], "installed-test")
+                    ctc._PRICING_TABLE_CACHE = None
+
     def test_high_level_stream_starts_from_before_send_offset_for_repeated_prompt(self):
         with tempfile.TemporaryDirectory() as tmp:
             transcript = Path(tmp) / "session.jsonl"

@@ -38,8 +38,8 @@ scheduler
 30분 idle 정리 예:
 
 ```bash
-TERM=xterm-256color ./claude_tmux_control.py reap --idle-seconds 1800 --prefix ctc- --dry-run
-TERM=xterm-256color ./claude_tmux_control.py reap --idle-seconds 1800 --prefix ctc-
+TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc- --dry-run
+TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-
 ```
 
 `--dry-run`으로 먼저 결과를 확인합니다.
@@ -65,7 +65,7 @@ TERM=xterm-256color ./claude_tmux_control.py reap --idle-seconds 1800 --prefix c
 특정 tmux session을 종료할 때:
 
 ```bash
-TERM=xterm-256color ./claude_tmux_control.py kill "ctc-csess-$SESSION_ID"
+TERM=xterm-256color ctc kill "ctc-csess-$SESSION_ID"
 ```
 
 tmux session을 직접 종료해도 Claude process는 같이 종료됩니다.
@@ -86,7 +86,7 @@ tmux session을 직접 종료해도 Claude process는 같이 종료됩니다.
 ## 7. 권장 cron
 
 ```cron
-* * * * * cd /path/to/claude-tmux-control && TERM=xterm-256color ./claude_tmux_control.py reap --idle-seconds 1800 --prefix ctc- >> logs/reap.log 2>&1
+* * * * * cd /path/to/claude-tmux-control && TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc- >> logs/reap.log 2>&1
 ```
 
 운영 로그에는 OAuth token이나 사용자 secret이 남지 않게 합니다.
@@ -96,13 +96,13 @@ tmux session을 직접 종료해도 Claude process는 같이 종료됩니다.
 관리 중인 세션 목록:
 
 ```bash
-TERM=xterm-256color ./claude_tmux_control.py list --json
+TERM=xterm-256color ctc list --json
 ```
 
 특정 세션 확인:
 
 ```bash
-TERM=xterm-256color ./claude_tmux_control.py info "$SESSION_ID" --json
+TERM=xterm-256color ctc info "$SESSION_ID" --json
 ```
 
 tmux 전체 확인:

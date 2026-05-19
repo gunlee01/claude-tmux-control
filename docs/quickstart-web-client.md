@@ -9,7 +9,7 @@
 외부 클라이언트는 high-level `stream`을 기본 API로 사용합니다.
 
 ```bash
-TERM=xterm-256color ./claude_tmux_control.py stream --cwd "$PROJECT_DIR" --session-id "$SESSION_ID" "$USER_PROMPT"
+TERM=xterm-256color ctc stream --cwd "$PROJECT_DIR" --session-id "$SESSION_ID" "$USER_PROMPT"
 ```
 
 `SESSION_ID`가 없으면 클라이언트가 UUID를 생성해서 넘깁니다.
@@ -29,7 +29,7 @@ CLI는 내부적으로 `ctc-csess-<SESSION_ID>` tmux session을 만들거나 재
 ```bash
 SESSION_ID="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 
-TERM=xterm-256color ./claude_tmux_control.py stream \
+TERM=xterm-256color ctc stream \
   --cwd "$PROJECT_DIR" \
   --session-id "$SESSION_ID" \
   --timeout 300 \
@@ -74,7 +74,7 @@ metrics
 같은 채팅방의 다음 입력은 같은 `SESSION_ID`로 보냅니다.
 
 ```bash
-TERM=xterm-256color ./claude_tmux_control.py stream \
+TERM=xterm-256color ctc stream \
   --cwd "$PROJECT_DIR" \
   --session-id "$SESSION_ID" \
   "$NEXT_PROMPT"
@@ -94,7 +94,7 @@ CLI는 새 prompt를 보내기 전에 이전 `active_turn`을 확인합니다.
 브라우저나 앱 서버 연결이 끊겼다면 새 prompt를 보내지 말고 먼저 attach할 수 있습니다.
 
 ```bash
-TERM=xterm-256color ./claude_tmux_control.py stream --attach --session-id "$SESSION_ID" --timeout 300
+TERM=xterm-256color ctc stream --attach --session-id "$SESSION_ID" --timeout 300
 ```
 
 `attach`는 기존 `active_turn` transcript를 다시 읽습니다.
@@ -106,7 +106,7 @@ TERM=xterm-256color ./claude_tmux_control.py stream --attach --session-id "$SESS
 앱 서버가 세션 상태를 확인할 때는 `info`를 사용합니다.
 
 ```bash
-TERM=xterm-256color ./claude_tmux_control.py info "$SESSION_ID" --json
+TERM=xterm-256color ctc info "$SESSION_ID" --json
 ```
 
 주로 확인할 필드:
@@ -129,19 +129,19 @@ tmux session은 별도 정리하지 않으면 계속 살아있습니다.
 먼저 dry-run으로 확인합니다.
 
 ```bash
-TERM=xterm-256color ./claude_tmux_control.py reap --idle-seconds 1800 --prefix ctc- --dry-run
+TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc- --dry-run
 ```
 
 확인 후 실제 정리합니다.
 
 ```bash
-TERM=xterm-256color ./claude_tmux_control.py reap --idle-seconds 1800 --prefix ctc-
+TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-
 ```
 
 cron 예:
 
 ```cron
-* * * * * cd /path/to/claude-tmux-control && TERM=xterm-256color ./claude_tmux_control.py reap --idle-seconds 1800 --prefix ctc- >> logs/reap.log 2>&1
+* * * * * cd /path/to/claude-tmux-control && TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc- >> logs/reap.log 2>&1
 ```
 
 자세한 운영 정책은 [Operations Guide](./operations.md)를 봅니다.

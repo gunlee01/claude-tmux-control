@@ -10,6 +10,45 @@
 
 실행 시 `tmux`가 없으면 먼저 설치하라는 안내와 함께 종료합니다. `start`, `launch`, `chat`처럼 Claude Code를 띄우는 명령은 `claude` 또는 `--command`에 지정한 executable도 미리 확인합니다.
 
+## Installation
+
+권장 설치 방식은 `pipx`입니다.
+
+```bash
+pipx install git+ssh://git@oss.navercorp.com/gunh-lee/claude-tmux-control.git
+ctc --help
+```
+
+`pipx`가 없다면 Python venv 안에 설치할 수 있습니다.
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+pip install git+ssh://git@oss.navercorp.com/gunh-lee/claude-tmux-control.git
+ctc --help
+```
+
+개발 중인 checkout에서는 editable install을 사용합니다.
+
+```bash
+pip install -e .
+ctc --help
+```
+
+설치하면 두 entrypoint를 사용할 수 있습니다.
+
+```bash
+ctc --help
+claude-tmux-control --help
+```
+
+소스 파일을 직접 실행하는 방식도 계속 지원합니다.
+
+```bash
+chmod +x ./claude_tmux_control.py
+./claude_tmux_control.py --help
+```
+
 ## Commands
 
 자세한 CLI 매뉴얼은 [docs/cli-manual.md](./docs/cli-manual.md)에 있습니다.
@@ -19,19 +58,19 @@ Product direction and future work are tracked under [docs](./docs/README.md).
 새 tmux 세션을 만들고 Claude Code 실행:
 
 ```bash
-./claude_tmux_control.py start work --cwd "$PWD"
+ctc start work --cwd "$PWD"
 ```
 
 Claude Code 옵션을 그대로 넘기기:
 
 ```bash
-./claude_tmux_control.py start work --cwd "$PWD" --model opus --add-dir ../shared
+ctc start work --cwd "$PWD" --model opus --add-dir ../shared
 ```
 
 옵션 경계가 헷갈리면 `--` 뒤에 Claude Code 옵션을 둡니다.
 
 ```bash
-./claude_tmux_control.py start work --cwd "$PWD" -- --model opus --add-dir ../shared
+ctc start work --cwd "$PWD" -- --model opus --add-dir ../shared
 ```
 
 기본 실행 command에는 `--dangerously-skip-permissions`가 자동으로 붙습니다.
@@ -39,90 +78,90 @@ Claude Code 옵션을 그대로 넘기기:
 OAuth token을 받은 경우에는 호출 프로세스의 환경변수로 넘기면 새 tmux session 안의 Claude Code 프로세스에 `CLAUDE_CODE_OAUTH_TOKEN`으로 주입됩니다.
 
 ```bash
-CLAUDE_CODE_OAUTH_TOKEN="$TOKEN" ./claude_tmux_control.py start work --cwd "$PWD"
+CLAUDE_CODE_OAUTH_TOKEN="$TOKEN" ctc start work --cwd "$PWD"
 ```
 
 계정별 token을 다른 변수명으로 관리한다면 source env 이름만 지정할 수 있습니다.
 
 ```bash
-ACCOUNT_A_TOKEN="$TOKEN" ./claude_tmux_control.py start work --cwd "$PWD" --oauth-token-env ACCOUNT_A_TOKEN
+ACCOUNT_A_TOKEN="$TOKEN" ctc start work --cwd "$PWD" --oauth-token-env ACCOUNT_A_TOKEN
 ```
 
 이미 있는 tmux 세션 안에서 Claude Code 실행:
 
 ```bash
-./claude_tmux_control.py launch work
+ctc launch work
 ```
 
 Claude Code에 입력 보내기:
 
 ```bash
-./claude_tmux_control.py send work "현재 디렉터리 구조를 요약해줘"
+ctc send work "현재 디렉터리 구조를 요약해줘"
 ```
 
 현재 화면 읽기:
 
 ```bash
-./claude_tmux_control.py capture work
+ctc capture work
 ```
 
 화면 변화 계속 보기:
 
 ```bash
-./claude_tmux_control.py watch work
+ctc watch work
 ```
 
 화면 변화분을 계속 출력하고 파일에도 append:
 
 ```bash
-./claude_tmux_control.py follow work --append claude-screen.log
+ctc follow work --append claude-screen.log
 ```
 
 현재 화면 기준 상태 추정:
 
 ```bash
-./claude_tmux_control.py status work
-./claude_tmux_control.py wait-ready work --timeout 120
+ctc status work
+ctc wait-ready work --timeout 120
 ```
 
 Claude Code transcript 이벤트 확인:
 
 ```bash
-./claude_tmux_control.py events work
-./claude_tmux_control.py events work --follow
-./claude_tmux_control.py events --transcript ~/.claude/transcripts/ses_xxx.jsonl --json
-./claude_tmux_control.py events --root ~/.claude/projects --tail 50
+ctc events work
+ctc events work --follow
+ctc events --transcript ~/.claude/transcripts/ses_xxx.jsonl --json
+ctc events --root ~/.claude/projects --tail 50
 ```
 
 특정 세션의 마지막 응답 본문만 출력:
 
 ```bash
-./claude_tmux_control.py answer work
-./claude_tmux_control.py answer work --wait --timeout 120
-./claude_tmux_control.py answer work --tail 3
+ctc answer work
+ctc answer work --wait --timeout 120
+ctc answer work --tail 3
 ```
 
 특정 세션의 최신 turn을 thinking/tool/text 포함해서 출력:
 
 ```bash
-./claude_tmux_control.py turn work
-./claude_tmux_control.py turn work --follow
-./claude_tmux_control.py turn work --tail 3
+ctc turn work
+ctc turn work --follow
+ctc turn work --tail 3
 ```
 
 특정 세션의 최신 turn을 JSONL로 stream하고 완료 시 종료:
 
 ```bash
-./claude_tmux_control.py stream work
-./claude_tmux_control.py stream work --timeout 300 --idle 2
+ctc stream work
+ctc stream work --timeout 300 --idle 2
 ```
 
 특정 세션 종료와 오래된 controlled session 정리:
 
 ```bash
-./claude_tmux_control.py kill work
-./claude_tmux_control.py reap --idle-seconds 1800 --prefix ctc- --dry-run
-./claude_tmux_control.py reap --idle-seconds 1800 --prefix ctc-
+ctc kill work
+ctc reap --idle-seconds 1800 --prefix ctc- --dry-run
+ctc reap --idle-seconds 1800 --prefix ctc-
 ```
 
 질문 전송부터 stream 출력까지 한 번에 테스트:
@@ -134,7 +173,7 @@ Claude Code transcript 이벤트 확인:
 같은 프로그램 안에서 입력하고 답변 화면을 확인:
 
 ```bash
-./claude_tmux_control.py chat work --cwd "$PWD"
+ctc chat work --cwd "$PWD"
 ```
 
 `chat`에서는 `/quit` 또는 `/exit`로 종료합니다. Claude 답변이 멈춘 상태가 `--idle` 초 동안 유지되면 다음 입력 프롬프트로 돌아옵니다.

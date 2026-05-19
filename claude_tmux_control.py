@@ -29,6 +29,7 @@ DEFAULT_BUFFER_NAME = "claude-tmux-control"
 DEFAULT_TRANSCRIPT_ROOT = Path.home() / ".claude"
 DEFAULT_STATE_DIR = Path.home() / ".cache" / "claude-tmux-control"
 DEFAULT_PRICING_TABLE = Path(__file__).with_name("claude_pricing.json")
+DEFAULT_INSTALLED_PRICING_TABLE = Path(sys.prefix) / "share" / "claude-tmux-control" / "claude_pricing.json"
 DEFAULT_CONTROLLED_PREFIX = "ctc-"
 DEFAULT_WEB_SESSION_PREFIX = "ctc-csess-"
 DEFAULT_TOOL_RESULT_TEXT_LIMIT = 100
@@ -195,14 +196,14 @@ class TmuxController:
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="claude-tmux-control",
+        prog="ctc",
         description="Start, feed, and read an interactive Claude Code session through tmux.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Common web client flow:
-  claude-tmux-control stream --cwd PATH [--session-id UUID] PROMPT
-  claude-tmux-control stream --attach --session-id UUID
-  claude-tmux-control info UUID --json
-  claude-tmux-control reap --idle-seconds 1800 --prefix ctc-
+  ctc stream --cwd PATH [--session-id UUID] PROMPT
+  ctc stream --attach --session-id UUID
+  ctc info UUID --json
+  ctc reap --idle-seconds 1800 --prefix ctc-
 
 Docs:
   docs/quickstart-web-client.md
@@ -2518,15 +2519,26 @@ def _active_turn_value(state_path: Path, key: str) -> object:
     return None
 
 
-def load_pricing_table(path: Path = DEFAULT_PRICING_TABLE) -> dict | None:
+def resolve_pricing_table_path(path: Path = DEFAULT_PRICING_TABLE) -> Path:
+    if path != DEFAULT_PRICING_TABLE:
+        return path
+    if path.exists():
+        return path
+    return DEFAULT_INSTALLED_PRICING_TABLE
+
+
+def load_pricing_table(path: Path | None = None) -> dict | None:
     global _PRICING_TABLE_CACHE
-    if path == DEFAULT_PRICING_TABLE and _PRICING_TABLE_CACHE is not None:
+    requested_path = path or DEFAULT_PRICING_TABLE
+    uses_default_path = requested_path == DEFAULT_PRICING_TABLE
+    if uses_default_path and _PRICING_TABLE_CACHE is not None:
         return _PRICING_TABLE_CACHE
+    resolved_path = resolve_pricing_table_path(requested_path)
     try:
-        table = json.loads(path.read_text(encoding="utf-8"))
+        table = json.loads(resolved_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if path == DEFAULT_PRICING_TABLE:
+    if uses_default_path:
         _PRICING_TABLE_CACHE = table
     return table
 

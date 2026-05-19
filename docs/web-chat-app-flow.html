@@ -687,7 +687,7 @@
 
     function shellCommand(s) {
       return `TERM=xterm-256color \\
-./claude_tmux_control.py stream${s.mode === "existing" ? ` \\
+ctc stream${s.mode === "existing" ? ` \\
   --session-id "${esc(s.sessionId)}"` : ""} \\
   --cwd "${esc(s.projectDir)}" \\
   --oauth-token-env ${esc(s.oauthEnv)} \\
@@ -709,7 +709,7 @@ ${s.mode === "existing" ? `  "--session-id", "${esc(s.sessionId)}",` : ""}
   "${esc(s.prompt)}"
 ];
 
-const child = spawn("./claude_tmux_control.py", args, {
+const child = spawn("ctc", args, {
   env: { ...process.env, TERM: "xterm-256color" }
 });
 
@@ -728,7 +728,7 @@ import os
 import subprocess
 
 cmd = [
-    "./claude_tmux_control.py",
+    "ctc",
     "stream",
     "--cwd", "${esc(s.projectDir)}",
     "--oauth-token-env", "${esc(s.oauthEnv)}",
