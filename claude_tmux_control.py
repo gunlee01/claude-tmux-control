@@ -1597,13 +1597,15 @@ def reap_idle_sessions(
         if prefix and not session.startswith(prefix):
             continue
 
-        state_path = session_state_path(session, state_dir)
-        state = read_session_state(state_path)
-        if state is None:
+        reap_state = resolve_reap_session_state(session, state_dir)
+        if reap_state is None:
             continue
+        state_path, state, active_working = reap_state
 
         idle = current_time - state_path.stat().st_mtime
         if idle < idle_seconds:
+            continue
+        if active_working:
             continue
         if session_is_working(controller, session, state, root):
             continue
@@ -1613,6 +1615,54 @@ def reap_idle_sessions(
             controller.kill_session(session)
         results.append({"session": session, "idle_seconds": idle, "action": action})
     return results
+
+
+def resolve_reap_session_state(session: str, state_dir: Path) -> tuple[Path, SessionState, bool] | None:
+    high_level_state = resolve_high_level_reap_session_state(session, state_dir)
+    if high_level_state is not None:
+        return high_level_state
+
+    state_path = session_state_path(session, state_dir)
+    state = read_session_state(state_path)
+    if state is None:
+        return None
+    return state_path, state, False
+
+
+def resolve_high_level_reap_session_state(session: str, state_dir: Path) -> tuple[Path, SessionState, bool] | None:
+    if not session.startswith(DEFAULT_WEB_SESSION_PREFIX):
+        return None
+
+    session_id = session[len(DEFAULT_WEB_SESSION_PREFIX) :]
+    try:
+        validate_or_create_session_id(session_id)
+    except ValueError:
+        return None
+
+    state_path = web_session_state_path(session_id, state_dir)
+    state = read_bridge_state(state_path)
+    if state is None:
+        return None
+
+    cwd = state.get("cwd")
+    prompt = _bridge_state_reap_prompt(state)
+    active = state.get("active_turn")
+    active_working = isinstance(active, dict) and active.get("claude_state") not in {None, "ready"}
+    return (
+        state_path,
+        SessionState(session=session, last_prompt=prompt, cwd=cwd if isinstance(cwd, str) else None),
+        active_working,
+    )
+
+
+def _bridge_state_reap_prompt(state: Mapping[str, object]) -> str:
+    active = state.get("active_turn")
+    if isinstance(active, Mapping) and isinstance(active.get("prompt_preview"), str):
+        return str(active["prompt_preview"])
+    last_turn = state.get("last_turn")
+    if isinstance(last_turn, Mapping) and isinstance(last_turn.get("prompt_preview"), str):
+        return str(last_turn["prompt_preview"])
+    return ""
 
 
 def session_is_working(controller: TmuxController, session: str, state: SessionState, root: Path) -> bool:

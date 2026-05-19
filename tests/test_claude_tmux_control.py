@@ -567,6 +567,43 @@ class ReapTest(unittest.TestCase):
             self.assertEqual(results[0]["action"], "would-kill")
             self.assertNotIn((["tmux", "kill-session", "-t", "ctc-old"], {"check": True}), runner.calls)
 
+    def test_reap_idle_sessions_uses_high_level_session_state_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            tmux_session = ctc.web_tmux_session_name(session_id)
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": tmux_session,
+                        "cwd": "/tmp/project",
+                        "last_turn": {"claude_state": "ready"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            os.utime(state_path, (1000.0, 1000.0))
+            controller = Mock()
+            controller.list_sessions.return_value = [tmux_session]
+            controller.capture_screen.return_value = "Done\nclaude> "
+
+            results = ctc.reap_idle_sessions(
+                controller,
+                idle_seconds=600,
+                prefix="ctc-",
+                dry_run=True,
+                state_dir=state_dir,
+                root=root,
+                now=lambda: 2000.0,
+            )
+
+            self.assertEqual(results, [{"session": tmux_session, "idle_seconds": 1000.0, "action": "would-kill"}])
+
     def test_reap_idle_sessions_skips_working_transcript_even_when_input_is_old(self):
         with tempfile.TemporaryDirectory() as tmp:
             state_dir = Path(tmp) / "state"

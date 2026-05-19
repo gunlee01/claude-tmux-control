@@ -58,6 +58,8 @@ TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-
 | idle 초과 | 마지막 입력/상태 기준 `--idle-seconds` 초과 |
 | not working | transcript/screen 기준 working이 아님 |
 
+high-level `ctc-csess-<SESSION_ID>` session은 `~/.cache/claude-tmux-control/sessions/<SESSION_ID>.json` state file의 mtime을 idle 기준으로 사용합니다.
+
 오래됐어도 Claude가 아직 working이면 종료하지 않습니다.
 
 ## 5. 수동 종료

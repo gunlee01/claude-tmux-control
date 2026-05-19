@@ -616,6 +616,7 @@ ctc reap --idle-seconds 1800 --prefix ctc- --dry-run
 - 기본 prefix는 `ctc-`입니다.
 - prefix가 맞는 tmux session만 대상으로 봅니다.
 - 마지막 입력 시각은 session state file의 mtime으로 판단합니다.
+- high-level `ctc-csess-<uuid>` session은 `sessions/<uuid>.json` state file을 기준으로 판단합니다.
 - transcript가 아직 `working`이면 오래됐어도 종료하지 않습니다.
 - state file이 없는 session은 안전하게 skip합니다.
 
