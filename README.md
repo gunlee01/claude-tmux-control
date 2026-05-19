@@ -4,6 +4,32 @@
 
 `claude -p`처럼 매번 one-shot process를 새로 호출하는 대신, 같은 Claude Code session을 유지하면서 웹 채팅앱이나 다른 서버 프로그램에서 사용할 수 있게 만드는 것이 목적입니다.
 
+## Command Model
+
+웹 클라이언트와 외부 프로그램은 high-level API를 기본으로 사용합니다.
+
+| 용도 | 명령 | 인자 의미 |
+| --- | --- | --- |
+| 한 turn 실행/stream | `ctc stream --cwd PATH [--session-id UUID] PROMPT` | bridge session UUID |
+| 진행 중 turn 재연결 | `ctc stream --attach --session-id UUID` | bridge session UUID |
+| 세션 상태 조회 | `ctc info UUID --json` | bridge session UUID |
+| 세션 목록 조회 | `ctc list --json` | high-level bridge sessions |
+| 오래된 process 정리 | `ctc reap --idle-seconds N --prefix ctc-` | controlled tmux prefix |
+
+Low-level tmux 명령도 있지만, 웹 클라이언트 계약이 아니라 디버깅/수동 smoke test용입니다.
+
+| 용도 | 명령 | 인자 의미 |
+| --- | --- | --- |
+| 직접 tmux 세션 시작 | `ctc start TMUX_SESSION` | 임의의 tmux session name. 예: `work` |
+| 직접 prompt 전송 | `ctc send TMUX_SESSION PROMPT` | tmux session name |
+| 직접 답변/turn 조회 | `ctc answer/turn/events TMUX_SESSION` | tmux session name |
+
+`ctc start work`는 유효한 명령입니다.
+
+다만 `work`는 bridge `session_id`가 아니라 사용자가 직접 정한 tmux session name입니다.
+
+웹 채팅앱에서는 보통 `ctc start work`를 호출하지 않고, `ctc stream --cwd ... [--session-id ...] ...`만 호출합니다.
+
 ## Requirements
 
 - Python 3.10+
@@ -216,15 +242,36 @@ Claude Code 실행 command에는 기본적으로 `--dangerously-skip-permissions
 
 ## Useful Commands
 
+웹/외부 프로그램에서 주로 쓰는 high-level 명령입니다.
+
 ```bash
 ctc list --json
 ctc info "$SESSION_ID" --json
-ctc kill "ctc-csess-$SESSION_ID"
 ctc reap --idle-seconds 1800 --prefix ctc- --dry-run
 ctc reap --idle-seconds 1800 --prefix ctc-
 ```
 
-저수준 tmux session을 직접 다룰 수도 있습니다.
+## Operational Process Stop
+
+특정 tmux process를 강제로 멈출 때만 `kill`을 씁니다.
+
+`kill`의 인자는 bridge `session_id`가 아니라 tmux session name입니다.
+
+```bash
+ctc kill "ctc-csess-$SESSION_ID"
+```
+
+웹 클라이언트의 일반 흐름에서는 `kill`보다 주기적인 `reap`으로 오래 idle 상태인 session을 정리하는 편이 낫습니다.
+
+## Low-level Debug Commands
+
+아래 명령은 웹 클라이언트의 기본 계약이 아니라, 사람이 tmux session을 직접 만들고 확인하는 디버깅용입니다.
+
+`work`는 예시 tmux session name입니다. bridge `session_id` UUID가 아닙니다.
+
+여기에 `ctc-csess-$SESSION_ID`를 넣지 마세요.
+
+high-level session을 만들거나 이어가려면 `ctc stream --session-id "$SESSION_ID"`를 사용하세요.
 
 ```bash
 ctc start work --cwd "$PWD"

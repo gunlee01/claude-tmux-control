@@ -208,15 +208,21 @@ class TmuxControllerTest(unittest.TestCase):
 
 
 class CliTest(unittest.TestCase):
-    def test_top_level_help_includes_common_web_flow(self):
+    def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
 
         with self.assertRaises(SystemExit), redirect_stdout(stdout):
             ctc.parse_args(["--help"])
 
         output = stdout.getvalue()
-        self.assertIn("Common web client flow:", output)
+        self.assertIn("High-level web/client commands:", output)
         self.assertIn("stream --cwd PATH [--session-id UUID] PROMPT", output)
+        self.assertIn("Low-level tmux/debug commands:", output)
+        self.assertIn("start TMUX_SESSION --cwd PATH", output)
+        self.assertIn("Do not pass ctc-csess-$SESSION_ID to low-level start.", output)
+        self.assertIn("WEB: list high-level controlled web sessions.", output)
+        self.assertIn("LOW: create/reuse a named tmux session", output)
+        self.assertIn("debugging.", output)
         self.assertIn("docs/quickstart-web-client.md", output)
 
     def test_parse_start_defaults_to_claude_command(self):
