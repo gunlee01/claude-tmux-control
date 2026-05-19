@@ -166,6 +166,9 @@ class TmuxController:
         if submit:
             self._run(["tmux", "send-keys", "-t", session, "Enter"], check=True)
 
+    def send_escape(self, session: str) -> None:
+        self._run(["tmux", "send-keys", "-t", session, "Escape"], check=True)
+
     def launch_in_existing_session(self, session: str, command: str = "claude") -> None:
         if not self.session_exists(session):
             raise SessionNotFoundError(f"tmux session not found: {session}")
@@ -203,6 +206,9 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
   ctc stream --cwd PATH [--session-id UUID] PROMPT
   ctc stream --attach --session-id UUID
   ctc ask --cwd PATH [--session-id UUID] PROMPT
+  ctc cancel UUID
+  ctc last UUID --last 1
+  ctc replay UUID --last 1
   ctc info UUID --json
   ctc list --json
   ctc reap --idle-seconds 1800 --prefix ctc-
@@ -334,6 +340,43 @@ Docs:
         help="maximum tool_result text/result preview characters; negative disables truncation",
     )
     ask.add_argument("--json", action="store_true", help="accepted for symmetry; ask always prints JSON")
+
+    cancel = subparsers.add_parser(
+        "cancel",
+        help="WEB: send Escape to cancel the active Claude Code turn for a high-level session.",
+    )
+    cancel.add_argument("session_id", nargs="?", help="web-facing Claude session id UUID")
+    cancel.add_argument("--session-id", dest="session_id_option", help="web-facing Claude session id UUID")
+    cancel.add_argument("--state-dir", type=Path, default=DEFAULT_STATE_DIR, help="bridge state directory")
+    cancel.add_argument("--json", action="store_true", help="accepted for symmetry; cancel always prints JSON")
+
+    def add_replay_args(command_parser: argparse.ArgumentParser) -> None:
+        command_parser.add_argument("session_id", nargs="?", help="web-facing Claude session id UUID")
+        command_parser.add_argument("--session-id", dest="session_id_option", help="web-facing Claude session id UUID")
+        command_parser.add_argument("--state-dir", type=Path, default=DEFAULT_STATE_DIR, help="bridge state directory")
+        command_parser.add_argument("--root", type=Path, default=DEFAULT_TRANSCRIPT_ROOT, help="Claude config/transcript directory")
+        command_parser.add_argument("--last", "--count", "--tail", dest="count", type=int, default=1, help="number of recent turns to replay")
+        command_parser.add_argument("--interval", type=float, default=2.0, help="seconds between transcript checks for active turn attach")
+        command_parser.add_argument("--timeout", type=float, default=300.0, help="maximum seconds to stream active last turn")
+        command_parser.add_argument("--idle", type=float, default=2.0, help="ready state must remain stable this many seconds")
+        command_parser.add_argument(
+            "--tool-result-limit",
+            type=int,
+            default=DEFAULT_TOOL_RESULT_TEXT_LIMIT,
+            help="maximum tool_result text/result preview characters; negative disables truncation",
+        )
+
+    last = subparsers.add_parser(
+        "last",
+        help="WEB: alias for replaying the last high-level turn events.",
+    )
+    add_replay_args(last)
+
+    replay = subparsers.add_parser(
+        "replay",
+        help="WEB: replay recent high-level turn events, attaching to the active last turn when present.",
+    )
+    add_replay_args(replay)
 
     stream = subparsers.add_parser("stream", help="WEB/LOW: stream high-level turn, or low-level tmux turn without --cwd.")
     stream.add_argument(
@@ -511,6 +554,12 @@ def _run_command(args: argparse.Namespace, controller: TmuxController) -> int:
 
     if args.command_name == "ask":
         return _run_high_level_ask(args, controller)
+
+    if args.command_name == "cancel":
+        return _run_high_level_cancel(args, controller)
+
+    if args.command_name in {"last", "replay"}:
+        return _run_high_level_replay(args, controller)
 
     if args.command_name == "stream":
         if _is_high_level_stream_args(args):
@@ -952,6 +1001,177 @@ def _run_high_level_ask(args: argparse.Namespace, controller: TmuxController) ->
     return int(result.get("exit_code") or 0)
 
 
+def _run_high_level_cancel(args: argparse.Namespace, controller: TmuxController) -> int:
+    result = run_high_level_cancel(args, controller)
+    stream = sys.stderr if result.get("error") else sys.stdout
+    print(json.dumps(_compact_payload(result), ensure_ascii=False), file=stream)
+    return int(result.get("exit_code") or 0)
+
+
+def run_high_level_cancel(args: argparse.Namespace, controller: TmuxController) -> dict:
+    session_id = getattr(args, "session_id_option", None) or getattr(args, "session_id", None)
+    if not session_id:
+        return {"event": "error", "exit_code": 2, "error": "cancel requires SESSION_ID or --session-id"}
+    try:
+        actual_session_id = validate_or_create_session_id(session_id)
+    except ValueError as error:
+        return {"event": "error", "exit_code": 2, "error": str(error)}
+
+    state_path = web_session_state_path(actual_session_id, args.state_dir)
+    state = read_bridge_state(state_path) or {}
+    state_exists = bool(state)
+    tmux_session = str(state.get("tmux_session") or web_tmux_session_name(actual_session_id))
+    initial_active = state.get("active_turn")
+    initial_active_turn_id = initial_active.get("turn_id") if isinstance(initial_active, dict) else None
+    if not controller.session_exists(tmux_session):
+        return {
+            "event": "error",
+            "exit_code": 2,
+            "error": "tmux_session_missing",
+            "session_id": actual_session_id,
+            "tmux_session": tmux_session,
+            "state_exists": state_exists,
+        }
+
+    try:
+        controller.send_escape(tmux_session)
+    except subprocess.CalledProcessError as error:
+        return {
+            "event": "error",
+            "exit_code": 5,
+            "error": "cancel_failed",
+            "detail": str(error),
+            "session_id": actual_session_id,
+            "tmux_session": tmux_session,
+            "state_exists": state_exists,
+        }
+
+    return {
+        "event": "cancel",
+        "exit_code": 0,
+        "session_id": actual_session_id,
+        "tmux_session": tmux_session,
+        "state_exists": state_exists,
+        "active_turn_present": initial_active_turn_id is not None,
+        "active_turn_id": initial_active_turn_id,
+        "sent_key": "Escape",
+    }
+
+
+def _run_high_level_replay(args: argparse.Namespace, controller: TmuxController) -> int:
+    result = run_high_level_replay(args, controller, sys.stdout.write)
+    if result.get("error"):
+        print(json.dumps({"event": "error", "error": result["error"]}, ensure_ascii=False), file=sys.stderr)
+    elif result.get("stderr"):
+        print(str(result["stderr"]), file=sys.stderr)
+    return int(result.get("exit_code") or 0)
+
+
+def run_high_level_replay(
+    args: argparse.Namespace,
+    controller: TmuxController,
+    write: Callable[[str], object],
+) -> dict:
+    command_label = "last" if getattr(args, "command_name", "") == "last" else "replay"
+    session_id = getattr(args, "session_id_option", None) or getattr(args, "session_id", None)
+    if not session_id:
+        return {"exit_code": 2, "error": f"{command_label} requires SESSION_ID or --session-id"}
+    if args.count < 1:
+        return {"exit_code": 2, "error": f"{command_label} --last must be >= 1"}
+    try:
+        actual_session_id = validate_or_create_session_id(session_id)
+    except ValueError as error:
+        return {"exit_code": 2, "error": str(error)}
+
+    state_path = web_session_state_path(actual_session_id, args.state_dir)
+    state = read_bridge_state(state_path) or {}
+    if not state:
+        return {"exit_code": 2, "error": "session_state_missing"}
+
+    active = state.get("active_turn")
+    include_active = isinstance(active, dict) and active.get("stream_state") in {"active", "timeout", "interrupted"}
+    active_turn_id = active.get("turn_id") if include_active else None
+    completed = state.get("completed_turns") if isinstance(state.get("completed_turns"), list) else []
+    completed_turns = [turn for turn in completed if isinstance(turn, dict)]
+    completed_count = max(0, args.count - (1 if include_active else 0))
+    selected_completed = completed_turns[-completed_count:] if completed_count else []
+
+    emitted: list[dict] = []
+
+    def emit_completed_turns(turns: Sequence[Mapping[str, object]]) -> None:
+        for turn in turns:
+            for payload in replay_completed_turn_payloads(
+                state=state,
+                turn=turn,
+                root=args.root,
+                session_id=actual_session_id,
+                tool_result_limit=args.tool_result_limit,
+            ):
+                emitted.append(payload)
+                _write_jsonl(write, payload)
+
+    def capture_and_write(line: str) -> object:
+        for raw in line.splitlines():
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                emitted.append(payload)
+        return write(line)
+
+    if include_active:
+        attach_args = argparse.Namespace(
+            session_id=actual_session_id,
+            state_dir=args.state_dir,
+            root=args.root,
+            interval=args.interval,
+            timeout=args.timeout,
+            idle=args.idle,
+            tool_result_limit=args.tool_result_limit,
+            transcript=None,
+        )
+        try:
+            runtime, transcript = prepare_high_level_attach(
+                controller=controller,
+                session_id=actual_session_id,
+                state_dir=args.state_dir,
+                root=args.root,
+            )
+        except ValueError as error:
+            return {"exit_code": 2, "error": str(error), "events": emitted}
+        except RuntimeError as error:
+            if str(error) != "no_active_turn" or not active_turn_id:
+                return {"exit_code": 5, "error": str(error), "events": emitted}
+            latest_state = read_bridge_state(state_path) or {}
+            latest_completed = latest_state.get("completed_turns") if isinstance(latest_state.get("completed_turns"), list) else []
+            latest_completed_turns = [turn for turn in latest_completed if isinstance(turn, dict)]
+            replay_window = latest_completed_turns[-args.count :]
+            if any(turn.get("turn_id") == active_turn_id for turn in replay_window):
+                state = latest_state
+                selected_completed = replay_window
+                emit_completed_turns(selected_completed)
+                return {
+                    "exit_code": 0,
+                    "session_id": actual_session_id,
+                    "events": emitted,
+                    "replayed_completed": len(selected_completed),
+                }
+            return {"exit_code": 5, "error": str(error), "events": emitted}
+
+        emit_completed_turns(selected_completed)
+        result = _stream_prepared_high_level_turn(attach_args, controller, runtime, transcript, capture_and_write)
+        result["replayed_completed"] = len(selected_completed)
+        result["events"] = emitted
+        return result
+
+    emit_completed_turns(selected_completed)
+
+    if not selected_completed:
+        return {"exit_code": 4, "error": "no_replayable_turns", "events": emitted}
+    return {"exit_code": 0, "session_id": actual_session_id, "events": emitted, "replayed_completed": len(selected_completed)}
+
+
 def run_high_level_turn(
     args: argparse.Namespace,
     controller: TmuxController,
@@ -1223,6 +1443,145 @@ def prepare_high_level_attach(
             started_at_utc=str(active.get("before_send_wall_time_utc") or "") or None,
         ),
         transcript,
+    )
+
+
+def replay_completed_turn_payloads(
+    state: Mapping[str, object],
+    turn: Mapping[str, object],
+    root: Path,
+    session_id: str,
+    tool_result_limit: int | None = DEFAULT_TOOL_RESULT_TEXT_LIMIT,
+) -> list[dict]:
+    turn_id = str(turn.get("turn_id") or "")
+    if not turn_id:
+        return []
+    cwd_value = state.get("cwd")
+    cwd = Path(str(cwd_value)) if isinstance(cwd_value, str) and cwd_value else Path(".")
+    transcript = completed_turn_transcript_path(turn, state, root, cwd, session_id)
+    completed_offset = _int_or_none(turn.get("completed_offset"))
+    anchor_start = _int_or_none(turn.get("anchor_start_offset"))
+    payloads: list[dict] = []
+    if transcript is not None and completed_offset is not None and anchor_start is not None:
+        try:
+            records, _read_offset = read_transcript_records(transcript, anchor_start)
+            file_identity = transcript_identity(transcript)
+            for record in records:
+                if record.start_offset >= completed_offset:
+                    break
+                if record.end_offset > completed_offset:
+                    break
+                for payload in normalize_stream_record(record, turn_id, file_identity, tool_result_limit=tool_result_limit):
+                    payload["session_id"] = session_id
+                    payloads.append(payload)
+        except OSError:
+            payloads = []
+
+    synthetic_offset = completed_offset if completed_offset is not None else 0
+    payloads.append(
+        _compact_payload(
+            {
+                "event": "done",
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "event_id": f"{turn_id}:done:{synthetic_offset}",
+                "source_offset": synthetic_offset,
+                "source_end_offset": synthetic_offset,
+                "block_index": -1,
+                "state": "ready",
+                "reason": "replayed completed turn",
+                "answer": turn.get("answer"),
+            }
+        )
+    )
+    payloads.append(replay_metrics_payload(turn, state, session_id, synthetic_offset))
+    return payloads
+
+
+def completed_turn_transcript_path(
+    turn: Mapping[str, object],
+    state: Mapping[str, object],
+    root: Path,
+    cwd: Path,
+    session_id: str,
+) -> Path | None:
+    saw_stored_path = False
+    for source in (turn.get("transcript"), turn.get("before_send_transcript"), state.get("transcript")):
+        if not isinstance(source, Mapping) or not isinstance(source.get("path"), str):
+            continue
+        saw_stored_path = True
+        path = validated_stored_transcript_path(source)
+        if path is not None:
+            return path
+    if saw_stored_path:
+        return None
+    return resolve_high_level_transcript(root, cwd, dict(state), session_id=session_id)
+
+
+def validated_stored_transcript_path(source: Mapping[str, object]) -> Path | None:
+    path_value = source.get("path")
+    if not isinstance(path_value, str):
+        return None
+    path = Path(path_value)
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+
+    stored_dev = _int_or_none(source.get("st_dev"))
+    stored_ino = _int_or_none(source.get("st_ino"))
+    if stored_dev is not None and stat.st_dev != stored_dev:
+        return None
+    if stored_ino is not None and stat.st_ino != stored_ino:
+        return None
+
+    stored_offset = _int_or_none(source.get("offset"))
+    if stored_offset is not None and stat.st_size < stored_offset:
+        return None
+    stored_size = _int_or_none(source.get("size"))
+    if stored_size is not None and stat.st_size < stored_size:
+        return None
+    return path
+
+
+def replay_metrics_payload(
+    turn: Mapping[str, object],
+    state: Mapping[str, object],
+    session_id: str,
+    completed_offset: int,
+) -> dict:
+    cost = turn.get("cost")
+    if isinstance(cost, Mapping):
+        cost = dict(cost)
+        turn_id = turn.get("turn_id")
+        turns = state.get("completed_turns")
+        if isinstance(turns, list):
+            prefix: list[Mapping[str, object]] = []
+            for item in turns:
+                if not isinstance(item, Mapping):
+                    continue
+                prefix.append(item)
+                if item.get("turn_id") == turn_id:
+                    break
+            totals = cost_totals_from_completed_turns(prefix)
+            if totals.get("currency") == "USD" and totals.get("session_usd") is not None:
+                cost["session_usd"] = totals["session_usd"]
+    return _compact_payload(
+        {
+            "event": "metrics",
+            "session_id": session_id,
+            "turn_id": turn.get("turn_id"),
+            "event_id": f"{turn.get('turn_id')}:metrics:{completed_offset}",
+            "source_offset": completed_offset,
+            "source_end_offset": completed_offset,
+            "block_index": -1,
+            "scope": "turn_final",
+            "elapsed_ms": turn.get("elapsed_ms"),
+            "model": turn.get("model"),
+            "usage": turn.get("usage"),
+            "context": turn.get("context"),
+            "cost": cost,
+        }
     )
 
 
@@ -1828,7 +2187,10 @@ def analyze_turn_status(turn_events: Sequence[dict]) -> ScreenStatus:
         return ScreenStatus("unknown", "no meaningful transcript event after user")
 
     if latest_type == "user":
-        if _is_tool_result_content(_event_content(latest_event)):
+        content = _event_content(latest_event)
+        if _is_interruption_user_content(content):
+            return ScreenStatus("ready", "target turn was interrupted by user")
+        if _is_tool_result_content(content):
             return ScreenStatus("working", "latest transcript event after user is tool_result")
         return ScreenStatus("working", "latest transcript event after user is user")
 
@@ -2176,7 +2538,7 @@ def stream_high_level_transcript_until_done(
                 )
                 _write_jsonl(write, done)
                 _write_jsonl(write, metrics)
-                _mark_turn_done(runtime, current_turn_events, completed_offset, elapsed_ms, metrics)
+                _mark_turn_done(runtime, current_turn_events, completed_offset, elapsed_ms, metrics, transcript)
                 return last_status
         else:
             ready_since = None
@@ -2308,7 +2670,7 @@ def _is_anchor_user_record(record: TranscriptRecord, prompt: str) -> bool:
     if event_type != "user":
         return False
     content = _event_content(event)
-    if _is_tool_result_content(content) or _is_internal_user_content(content):
+    if _is_tool_result_content(content) or _is_internal_user_content(content) or _is_interruption_user_content(content):
         return False
     user_text = _format_user_content(content)
     return not prompt or prompt in user_text
@@ -2320,7 +2682,7 @@ def _is_external_user_record(record: TranscriptRecord) -> bool:
     if event_type != "user":
         return False
     content = _event_content(event)
-    return not _is_tool_result_content(content) and not _is_internal_user_content(content)
+    return not _is_tool_result_content(content) and not _is_internal_user_content(content) and not _is_interruption_user_content(content)
 
 
 def high_level_done_payload(
@@ -2499,6 +2861,7 @@ def build_completed_turn_record(
     completed_offset: int,
     elapsed_ms: int | None,
     metrics: Mapping[str, object],
+    transcript: Path | None = None,
 ) -> dict:
     return _compact_payload(
         {
@@ -2510,6 +2873,7 @@ def build_completed_turn_record(
             "anchor_start_offset": _active_turn_value(runtime.state_path, "anchor_start_offset"),
             "anchor_end_offset": _active_turn_value(runtime.state_path, "anchor_end_offset"),
             "completed_offset": completed_offset,
+            "transcript": transcript_file_state(transcript, completed_offset),
             "elapsed_ms": elapsed_ms,
             "model": metrics.get("model"),
             "usage": metrics.get("usage"),
@@ -2731,12 +3095,16 @@ def _mark_turn_done(
     completed_offset: int,
     elapsed_ms: int | None,
     metrics: Mapping[str, object],
+    transcript: Path | None = None,
 ) -> None:
     state = read_bridge_state(runtime.state_path) or {}
     if not _active_turn_matches_runtime(state.get("active_turn"), runtime):
         return
-    completed_record = build_completed_turn_record(runtime, turn_events, completed_offset, elapsed_ms, metrics)
+    completed_record = build_completed_turn_record(runtime, turn_events, completed_offset, elapsed_ms, metrics, transcript)
     state = _mark_active_turn_state(state, runtime, "ready", "done", completed_offset=completed_offset)
+    transcript_state = transcript_file_state(transcript, completed_offset)
+    if transcript_state:
+        state["transcript"] = transcript_state
     last_turn = state.get("last_turn")
     if isinstance(last_turn, dict):
         last_turn["answer"] = completed_record.get("answer")
@@ -2906,7 +3274,7 @@ def finalize_recoverable_active_turn(
         elapsed_ms=elapsed_ms,
         state=state,
     )
-    _mark_turn_done(runtime, turn_events, completed_offset, elapsed_ms, metrics)
+    _mark_turn_done(runtime, turn_events, completed_offset, elapsed_ms, metrics, transcript)
     latest_state = read_bridge_state(state_path) or {}
     last_turn = latest_state.get("last_turn")
     return (
@@ -2987,6 +3355,9 @@ def _turn_events(events: Sequence[dict]) -> list[list[dict]]:
                     latest = []
                 skipping_internal = True
                 continue
+            if _is_interruption_user_content(_event_content(event)) and latest:
+                latest.append(event)
+                continue
             if latest:
                 turns.append(latest)
             latest = [event]
@@ -3030,6 +3401,11 @@ def _format_user_content(content: object) -> str:
 def _is_internal_user_content(content: object) -> bool:
     text = _format_user_content(content)
     return text.startswith("당신은 Claude Code 세션 활동 요약 작성자입니다.")
+
+
+def _is_interruption_user_content(content: object) -> bool:
+    text = _format_user_content(content).strip()
+    return text.startswith("[Request interrupted by user") and text.endswith("]")
 
 
 def _is_tool_result_content(content: object) -> bool:

@@ -688,11 +688,19 @@
       <div class="role-list">
         <div class="role-row">
           <strong>웹/외부 프로그램</strong>
-          <span>`stream --cwd ... [--session-id ...]`, `stream --attach --session-id ...`, `ask`, `info`, `list`, `reap`을 사용한다.</span>
+          <span>`stream --cwd ... [--session-id ...]`, `stream --attach --session-id ...`, `cancel`, `last`/`replay`, `ask`, `info`, `list`, `reap`을 사용한다.</span>
+        </div>
+        <div class="role-row">
+          <strong>Cancel 조건</strong>
+          <span>`cancel`은 내부 tmux pane에 `Escape`를 보내고 JSON을 반환한다. tool 취소는 final answer 없이 `done`/`metrics`로 닫힐 수 있다.</span>
         </div>
         <div class="role-row">
           <strong>Attach 조건</strong>
           <span>`attach`는 완료된 과거 turn 조회가 아니다. `active_turn`이 남은 active/timeout/interrupted turn에만 다시 붙는다.</span>
+        </div>
+        <div class="role-row">
+          <strong>Replay 조건</strong>
+          <span>`last`/`replay`는 완료된 최근 turn을 JSONL로 다시 출력한다. 마지막 turn이 진행 중이면 완료 turn replay 후 현재 `active_turn`에 attach한다.</span>
         </div>
         <div class="role-row">
           <strong>저수준 디버깅</strong>
@@ -704,7 +712,7 @@
         </div>
         <div class="role-row">
           <strong>웹 UI 답변</strong>
-          <span>`answer "$SESSION_ID"`를 호출하지 않는다. `stream`의 `done.answer` 또는 `ask_result.answer`를 사용한다.</span>
+          <span>`answer "$SESSION_ID"`를 호출하지 않는다. 일반 완료는 `stream`의 `done.answer` 또는 `ask_result.answer`를 사용한다. 취소된 turn은 answer 없이 `done`/`metrics`만 올 수 있다.</span>
         </div>
       </div>
 
@@ -742,6 +750,8 @@
 
       <div class="tabs">
         <button class="tab-button active" data-command-tab="stream">stream</button>
+        <button class="tab-button" data-command-tab="cancel">cancel</button>
+        <button class="tab-button" data-command-tab="replay">replay</button>
         <button class="tab-button" data-command-tab="ask">ask</button>
         <button class="tab-button" data-command-tab="internal">internal</button>
         <button class="tab-button" data-command-tab="metrics">metrics</button>
@@ -1052,7 +1062,27 @@ ctc ask${s.mode === "existing" ? ` \\
   --oauth-token-env ${escapeHtml(s.oauthEnv)} \\
   "${escapeHtml(s.userPrompt)}"
 
-# waits until the turn is complete, then returns final answer + metrics`
+# waits until the turn is complete, then returns optional answer + metrics`
+      },
+      cancel: {
+        title: "cancel active turn",
+        render: s => `TERM=xterm-256color \\
+ctc cancel "${escapeHtml(s.sessionId)}"
+
+# then receive the cancelled turn's final state:
+ctc last "${escapeHtml(s.sessionId)}" --last 1
+
+# cancelled tool turns may emit done + metrics without answer`
+      },
+      replay: {
+        title: "replay recent turns",
+        render: s => `TERM=xterm-256color \\
+ctc last "${escapeHtml(s.sessionId)}" --last 1
+
+# replay more completed turns:
+ctc replay "${escapeHtml(s.sessionId)}" --last 5
+
+# if the newest turn is still active, last/replay attaches and streams until done`
       },
       internal: {
         title: "internal tmux detail",

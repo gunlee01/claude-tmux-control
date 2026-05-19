@@ -21,7 +21,7 @@ tmux session은 명시적으로 정리하지 않으면 계속 살아있습니다
 ```text
 app server
   -> stream one turn
-  -> persist session_id, done.answer, metrics
+  -> persist session_id, optional done.answer, metrics
   -> return UI control to user
 
 scheduler
@@ -85,7 +85,8 @@ low-level `start work` 같은 직접 tmux session에서는 같은 이름의 loca
 
 | 상황 | 권장 처리 |
 | --- | --- |
-| `turn_in_progress` | 같은 session_id로 `stream --attach` 또는 잠시 후 재시도 |
+| `turn_in_progress` | 같은 session_id로 `stream --attach`, `replay --last 1`, 또는 잠시 후 재시도 |
+| 사용자 취소 요청 | `cancel "$SESSION_ID"` 후 `last --last 1` 또는 `stream --attach`로 완료까지 수신 |
 | timeout | UI에 처리 중 표시, attach/retry 허용 |
 | Ctrl+C/interrupted | attach 가능. tmux가 없으면 다음 stream에서 즉시 복구 |
 | tmux session missing | 같은 session_id로 stream 호출 시 resume/start 경로 사용 |
@@ -94,7 +95,30 @@ low-level `start work` 같은 직접 tmux session에서는 같은 이름의 loca
 
 `stream --attach`는 완료된 과거 turn 조회가 아닙니다.
 
-해당 session에 `active_turn`이 남아 있고, 내부 tmux session과 transcript를 찾을 수 있을 때만 사용합니다. 이미 완료된 답변은 앱 서버가 저장한 `done.answer` 또는 `ctc info "$SESSION_ID" --json`의 state를 확인합니다.
+해당 session에 `active_turn`이 남아 있고, 내부 tmux session과 transcript를 찾을 수 있을 때만 사용합니다.
+
+진행 중 응답을 취소하려면 `cancel`로 내부 tmux pane에 `Escape`를 보냅니다.
+
+```bash
+ctc cancel "$SESSION_ID"
+ctc last "$SESSION_ID" --last 1
+```
+
+`cancel`은 완료 판정을 하지 않습니다. 취소 뒤에는 `last` 또는 `stream --attach`로 `done`/`metrics`까지 이어서 받습니다.
+
+tool 실행 중 ESC로 취소된 경우 Claude Code transcript에는 tool rejection과 user interrupt marker가 남을 수 있습니다. 이 패턴은 CLI가 취소 완료로 처리하므로, `done.answer`가 없어도 `done`/`metrics`가 출력되면 다음 입력을 받을 수 있습니다.
+
+이미 완료된 답변의 최종값만 필요하면 앱 서버가 저장한 `done.answer` 또는 `ctc info "$SESSION_ID" --json`의 state를 확인합니다.
+
+완료된 최근 turn의 JSONL event를 다시 받아야 하면 `replay`를 사용합니다.
+
+```bash
+ctc replay "$SESSION_ID" --last 1
+ctc replay "$SESSION_ID" --last 5
+ctc last "$SESSION_ID" --last 1
+```
+
+마지막 turn이 아직 진행 중이면 `last`/`replay`는 새 prompt를 보내지 않고 현재 `active_turn`에 attach해서 `done`/`metrics`까지 이어서 출력합니다. `--last N`에서는 완료 turn replay와 active turn attach가 같은 stdout stream에 이어서 나올 수 있습니다.
 
 ## 7. 권장 cron
 
@@ -133,4 +157,4 @@ TERM=xterm-256color tmux list-sessions
 - [ ] `reap` scheduler를 등록한다.
 - [ ] `reap --dry-run`을 먼저 검증한다.
 - [ ] 로그에서 OAuth token/env 값을 redaction한다.
-- [ ] 장애 대응에 `info`, `list`, `stream --attach`, `kill`, `reap` 절차를 둔다.
+- [ ] 장애 대응에 `info`, `list`, `stream --attach`, `cancel`, `kill`, `reap` 절차를 둔다.

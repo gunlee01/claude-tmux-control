@@ -43,6 +43,8 @@
 - [x] high-level `stream [--session-id] --cwd <path> <prompt>`: UUID 생성/session 생성/재사용/resume/prompt 전송/turn stream
 - [ ] internal `ensure [session-id] --cwd <path>`: UUID 생성 또는 session 생성/재사용/resume 단계 구현
 - [x] `ask [--session-id] --cwd <path> <prompt>`: streaming 없이 완료 후 answer/metrics 출력
+- [x] `cancel <session-id>`: 내부 tmux pane에 `Escape`를 보내 진행 중 응답 취소 요청
+- [x] `last`/`replay <session-id> --last <n>`: 완료된 최근 turn JSONL replay, 마지막 turn 진행 중이면 attach로 완료까지 stream
 - [x] `list`: active controlled session 목록 조회
 - [x] `info <session-id>`: tmux/transcript/Claude session metadata 조회
 - [x] `kill <session-id>`: 특정 session 종료

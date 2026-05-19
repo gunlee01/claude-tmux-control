@@ -12,6 +12,8 @@
 | --- | --- | --- |
 | 한 turn 실행/stream | `ctc stream --cwd PATH [--session-id UUID] PROMPT` | bridge session UUID |
 | 진행 중 turn 재연결 | `ctc stream --attach --session-id UUID` | bridge session UUID |
+| 진행 중 turn 취소 | `ctc cancel UUID` | bridge session UUID |
+| 완료된 turn replay | `ctc last UUID --last N` 또는 `ctc replay UUID --last N` | bridge session UUID |
 | 세션 상태 조회 | `ctc info UUID --json` | bridge session UUID |
 | 세션 목록 조회 | `ctc list --json` | high-level bridge sessions |
 | 오래된 web process 정리 | `ctc reap --idle-seconds N --prefix ctc-csess-` | high-level web tmux prefix |
@@ -105,7 +107,9 @@ done
 metrics
 ```
 
-최종 답변은 `done.answer`에 들어 있습니다.
+일반 완료 turn의 최종 답변은 `done.answer`에 들어 있습니다.
+
+취소되었거나 tool 실행 중 interrupt된 turn은 final assistant text 없이 닫힐 수 있습니다. 이 경우 `done.answer`가 없을 수 있지만, `done`과 `metrics`가 오면 해당 turn은 완료된 것으로 봅니다.
 
 토큰, elapsed time, 비용 추정치는 `done` 직후의 `metrics` 이벤트로 전달됩니다.
 
@@ -174,11 +178,32 @@ TERM=xterm-256color ctc stream \
 TERM=xterm-256color ctc stream --attach --session-id "$SESSION_ID" --timeout 300
 ```
 
+사용자가 진행 중인 응답을 취소하면 `cancel`로 Claude Code pane에 `Escape`를 보냅니다.
+
+```bash
+TERM=xterm-256color ctc cancel "$SESSION_ID"
+TERM=xterm-256color ctc last "$SESSION_ID" --last 1
+```
+
+`cancel`은 취소 key만 전송합니다. 취소 후 transcript/화면이 완료 상태가 되면 `last` 또는 `stream --attach`가 이어서 `done`/`metrics`까지 받습니다.
+
+Claude Code는 tool 실행 중 ESC를 받으면 transcript에 `User rejected tool use`와 `[Request interrupted by user for tool use]`를 남길 수 있습니다. CLI는 이 패턴을 취소 완료로 보고 해당 turn을 `done`/`metrics`로 닫습니다.
+
 브라우저 연결이 끊긴 뒤 같은 turn을 이어서 볼 때도 동일하게 `stream --attach`를 사용합니다.
 
 `attach`는 완료된 과거 turn을 다시 조회하는 명령이 아닙니다.
 
-`active_turn`이 남아 있는 진행 중, timeout, interrupted turn에 다시 붙을 때만 사용합니다. 이미 완료되어 `active_turn`이 정리된 turn의 최종 답변은 `info`의 `last_turn`/state나 저장해 둔 `done.answer`를 봅니다.
+`active_turn`이 남아 있는 진행 중, timeout, interrupted turn에 다시 붙을 때만 사용합니다. 이미 완료되어 `active_turn`이 정리된 turn의 최종 답변은 `info`의 `last_turn`/state나 앱 서버가 저장해 둔 `done.answer`를 봅니다. 취소된 turn처럼 final answer가 없는 경우도 있으므로, completion 판단은 `done`/`metrics` 도착 여부를 기준으로 둡니다.
+
+이미 완료된 turn의 JSONL event를 다시 받아야 하면 `replay`를 사용합니다.
+
+```bash
+TERM=xterm-256color ctc replay "$SESSION_ID" --last 1
+TERM=xterm-256color ctc replay "$SESSION_ID" --last 5
+TERM=xterm-256color ctc last "$SESSION_ID" --last 1
+```
+
+마지막 turn이 아직 진행 중이면 `last`/`replay`는 새 prompt를 보내지 않고 현재 `active_turn`에 attach해서 `done`/`metrics`까지 이어서 출력합니다. `--last N`에서 마지막 turn이 진행 중이면, 이전 완료 turn들을 먼저 replay한 뒤 진행 중 turn을 attach합니다.
 
 세션 상태 확인:
 

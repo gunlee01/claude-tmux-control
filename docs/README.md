@@ -26,13 +26,15 @@ client/web
     -> tmux session
       -> Claude Code
     <- Claude transcript JSONL
-  <- stream JSONL events / done / metrics
+  <- stream/replay JSONL events / done / metrics
 ```
 
 핵심 원칙:
 
 - 입력 전달은 `tmux`를 사용합니다.
 - 웹/외부 client는 `ctc stream --cwd ... [--session-id ...] PROMPT`의 JSONL stdout을 주 계약으로 사용합니다.
+- 진행 중 응답 취소는 `ctc cancel SESSION_ID`로 `Escape`를 보내고, 이후 `last` 또는 `stream --attach`로 완료까지 수신합니다. tool 실행 취소는 final answer 없이 `done`/`metrics`로 닫힐 수 있습니다.
+- 완료된 최근 turn 복구는 `ctc last SESSION_ID --last N` 또는 `ctc replay SESSION_ID --last N`의 JSONL stdout을 사용합니다.
 - 응답, tool call, completion status, metrics는 Claude Code transcript JSONL을 주 원본으로 사용합니다.
 - `tmux capture-pane`은 화면 디버깅과 confirmation fallback 용도로만 둡니다.
 - 외부 session id는 tmux session name에 포함해서 매핑 저장소 의존성을 줄입니다.

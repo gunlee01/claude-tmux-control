@@ -378,7 +378,7 @@ ctc answer SESSION --tail 3
 - assistant `text` block만 출력합니다.
 - `thinking`, `tool_use`, `tool_result`는 제외합니다.
 - `SESSION`에 맞는 state/cwd transcript를 찾지 못하면 실패합니다. 최신 transcript 전체로 fallback하지 않습니다.
-- low-level tmux session 디버깅용입니다. 웹 UI의 최종 채팅 본문은 high-level `stream`의 `done.answer` 또는 `ask`의 `ask_result.answer`를 사용합니다.
+- low-level tmux session 디버깅용입니다. 웹 UI의 최종 채팅 본문은 high-level `stream`의 `done.answer` 또는 `ask`의 `ask_result.answer`를 사용합니다. 취소된 turn처럼 final answer가 없는 경우에는 `done`/`metrics` 도착을 완료 기준으로 둡니다.
 
 ### `turn`
 
@@ -488,6 +488,19 @@ ctc stream --session-id "$SESSION_ID" --cwd "$PROJECT_DIR" "$USER_PROMPT"
 ctc stream --attach --session-id "$SESSION_ID"
 ```
 
+진행 중인 응답을 취소하려면:
+
+```bash
+ctc cancel "$SESSION_ID"
+ctc last "$SESSION_ID" --last 1
+```
+
+`cancel`은 내부 tmux session에 `Escape` key를 보내고 JSON 결과를 출력합니다.
+
+완료 판정은 하지 않습니다. 취소 후에도 `active_turn`이 남아 있으면 `last` 또는 `stream --attach`로 이어서 `done`/`metrics`까지 받습니다.
+
+Claude Code가 tool 실행 중 ESC를 받으면 transcript에 `User rejected tool use`와 `[Request interrupted by user for tool use]`를 남길 수 있습니다. CLI는 이 조합을 취소 완료로 해석하고, 후속 `last`/`attach`에서 해당 turn을 `done`/`metrics`로 닫습니다.
+
 attach는 local state의 `active_turn`과 transcript offset을 사용하며, 새 입력을 보내지 않습니다.
 
 성공하려면 해당 session에 `active_turn`이 남아 있어야 하고, `active_turn.stream_state`가 `active`, `timeout`, `interrupted` 중 하나여야 합니다.
@@ -496,7 +509,7 @@ attach는 local state의 `active_turn`과 transcript offset을 사용하며, 새
 
 `timeout` 또는 Ctrl+C 이후에도 `active_turn`은 남을 수 있으므로 이 경우 attach할 수 있습니다.
 
-이미 완료되어 `active_turn`이 정리된 turn에는 attach할 수 없습니다. 완료된 마지막 답변은 앱 서버가 저장한 `done.answer`, `ask_result.answer`, 또는 `info`의 `last_turn`/state를 사용합니다.
+이미 완료되어 `active_turn`이 정리된 turn에는 attach할 수 없습니다. 완료된 마지막 답변은 앱 서버가 저장한 `done.answer`, `ask_result.answer`, 또는 `info`의 `last_turn`/state를 사용합니다. final answer가 없는 취소 turn도 있으므로 완료 여부는 `done`/`metrics` 도착으로 판단합니다.
 
 다음 `stream --cwd ... --session-id ... "$USER_PROMPT"` 요청은 새 prompt를 보내기 전에 이전 turn을 검사합니다.
 
@@ -761,6 +774,46 @@ attach는 완료된 과거 turn 조회가 아니라, `active_turn`이 남은 진
 
 `stream`은 JSONL을 stdout으로 계속 출력하고, 완료 시 `done` event를 출력한 뒤 exit code `0`으로 종료합니다.
 
+### `cancel`
+
+진행 중인 Claude Code 응답을 중단하기 위해 내부 tmux pane에 `Escape`를 보냅니다.
+
+```bash
+ctc cancel "$SESSION_ID"
+```
+
+성공 시 stdout:
+
+```json
+{"event":"cancel","exit_code":0,"session_id":"...","sent_key":"Escape"}
+```
+
+`cancel`은 prompt를 새로 보내지 않고, transcript도 읽지 않습니다. 취소 후 응답 마무리를 클라이언트에 보여주려면 `ctc last "$SESSION_ID" --last 1` 또는 `ctc stream --attach --session-id "$SESSION_ID"`를 호출합니다.
+
+tool 실행 취소처럼 final assistant text 없이 끝난 turn도 있을 수 있습니다. 이 경우 `done.answer`는 없을 수 있지만 `done`과 `metrics`는 출력되어 turn이 닫힙니다.
+
+### `replay`
+
+완료된 high-level turn을 기존 stream과 같은 JSONL event 형식으로 다시 출력합니다.
+
+`last`는 같은 기능을 더 사람이 읽기 쉬운 이름으로 제공하는 alias입니다.
+
+```bash
+ctc last "$SESSION_ID" --last 1
+ctc replay "$SESSION_ID" --last 1
+ctc replay "$SESSION_ID" --last 5
+```
+
+`--last N`은 최근 N개 turn을 대상으로 합니다.
+
+마지막 turn이 아직 진행 중이면 `last`/`replay`는 새 prompt를 보내지 않고 현재 `active_turn`에 attach해서 `done`/`metrics`까지 이어서 출력합니다.
+
+`--last N`에서 마지막 turn이 진행 중이면, 최근 완료 turn `N-1`개를 먼저 replay하고 마지막 active turn에 attach합니다.
+
+완료된 turn replay는 state의 `completed_turns`와 transcript offset을 사용합니다. 최신 완료 turn record에 transcript path가 있으면 그 파일을 우선 사용하고, 없으면 session `cwd`와 Claude `sessionId`로 transcript를 다시 찾습니다.
+
+transcript를 찾지 못해도 completed turn record에 저장된 `answer`, `usage`, `cost`가 있으면 최소 `done`/`metrics`는 replay합니다.
+
 ### Low-level 수동 조합
 
 디버깅이나 수동 조작에서는 low-level 명령을 조합할 수 있습니다.
@@ -909,10 +962,10 @@ session-scoped 명령은 다음 단서로 transcript를 찾습니다.
 | --- | --- |
 | `0` | 성공 |
 | `1` | tmux command 실패 등 일반 실패 |
-| `2` | session 또는 transcript를 찾지 못함 |
+| `2` | request/session/transcript를 찾지 못함. 예: `cancel`의 `tmux_session_missing` |
 | `3` | ready 대기 실패 |
 | `4` | 완료된 answer/turn을 찾지 못함 |
-| `5` | high-level runtime state error. 예: `turn_in_progress`, `tmux_session_missing` |
+| `5` | high-level runtime state error. 예: `turn_in_progress`, `stream --attach`의 `tmux_session_missing` |
 | `127` | `tmux` 또는 Claude Code executable이 PATH에 없음 |
 | `130` | client interrupt. 예: Ctrl+C |
 
@@ -923,6 +976,8 @@ high-level `stream`/`ask` 오류는 stderr에 JSON을 출력할 수 있습니다
 ```
 
 클라이언트는 exit code와 stderr JSON의 `error` 값을 함께 봐야 합니다.
+
+같은 `error` 문자열이라도 명령에 따라 exit code가 다를 수 있습니다. 예를 들어 `cancel`은 대상 tmux session이 없으면 요청 대상이 없다는 의미로 exit `2`를 반환하고, `stream --attach`는 진행 중 turn에 붙을 수 없다는 runtime 상태로 exit `5`를 반환합니다.
 
 ## 10. Troubleshooting
 

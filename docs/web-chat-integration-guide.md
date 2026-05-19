@@ -64,6 +64,8 @@ CLI가 `session_id`를 생성할 때는 UUID v4를 사용합니다.
 | --- | --- | --- |
 | 대화 한 턴 실행 | `stream --cwd <path> [--session-id <uuid>] "<prompt>"` | bridge `session_id` |
 | 진행 중 turn 재연결 | `stream --attach --session-id <uuid>` | bridge `session_id` |
+| 진행 중 turn 취소 | `cancel <uuid>` | bridge `session_id` |
+| 완료된 turn replay | `last <uuid> --last <n>` 또는 `replay <uuid> --last <n>` | bridge `session_id` |
 | 최종 결과만 실행 | `ask --cwd <path> [--session-id <uuid>] "<prompt>"` | bridge `session_id` |
 | session metadata 조회 | `info <uuid> --json` | bridge `session_id` |
 | session 목록 조회 | `list --json` | high-level controlled sessions |
@@ -82,7 +84,7 @@ CLI가 `session_id`를 생성할 때는 UUID v4를 사용합니다.
 
 웹 클라이언트는 `answer "$SESSION_ID"`나 `kill "$SESSION_ID"`를 호출하지 않습니다.
 
-웹 UI의 답변 본문은 `stream`의 `done.answer` 또는 `ask`의 `ask_result.answer`를 사용합니다.
+웹 UI의 답변 본문은 `stream`의 `done.answer` 또는 `ask`의 `ask_result.answer`를 사용합니다. 취소되었거나 tool 실행 중 interrupt된 turn은 final answer 없이 `done`/`metrics`만 올 수 있습니다.
 
 `kill <tmux_session>`은 process stop입니다. high-level bridge state나 Claude transcript를 지우는 대화 삭제 명령이 아닙니다.
 
@@ -226,6 +228,7 @@ ctc stream --session-id "$SESSION_ID" --cwd "$PROJECT_DIR" "$USER_PROMPT"
 | 상태 | 권장 처리 |
 | --- | --- |
 | 아직 working | 새 입력 거절 또는 현재 stream에 attach |
+| 사용자가 취소 요청 | `cancel <session_id>` 호출 후 `last --last 1` 또는 `stream --attach`로 완료까지 수신 |
 | timeout/interrupted | UI에 "아직 처리 중" 표시. 다음 prompt 요청 시 CLI가 이전 turn의 완료 여부를 먼저 검사 |
 | needs confirmation | session 재시작 또는 운영자 확인 |
 | inactive | `stream --session-id ...`가 내부에서 `--resume`으로 재생성 |
@@ -236,11 +239,38 @@ ctc stream --session-id "$SESSION_ID" --cwd "$PROJECT_DIR" "$USER_PROMPT"
 
 브라우저가 끊겼다가 다시 붙으면 새 prompt를 보내지 않고 `active_turn`에 attach합니다.
 
+사용자가 진행 중인 응답을 취소하면 `cancel`을 호출합니다.
+
+```bash
+ctc cancel "$SESSION_ID"
+ctc last "$SESSION_ID" --last 1
+```
+
+`cancel`은 내부 tmux session에 `Escape` key를 보낸 뒤 JSON을 반환합니다. 이 명령은 완료 판정을 하지 않습니다.
+
+취소 뒤에도 `active_turn`은 남아 있을 수 있습니다. 클라이언트는 `last --last 1` 또는 `stream --attach --session-id "$SESSION_ID"`로 이어서 `done`/`metrics`까지 받아야 합니다.
+
+Claude Code가 tool 실행 중 취소되면 transcript에 `User rejected tool use`와 `[Request interrupted by user for tool use]`가 남을 수 있습니다. CLI는 이 패턴을 취소 완료로 처리합니다. 이때 final assistant text가 없을 수 있으므로 `done.answer`는 비어 있을 수 있지만, `done`/`metrics`가 오면 입력창을 다시 열 수 있습니다.
+
 attach는 완료된 과거 turn 조회가 아닙니다.
 
 성공하려면 `--session-id`가 필요하고, 해당 session에 `active_turn`이 남아 있어야 하며, `active_turn.stream_state`가 `active`, `timeout`, `interrupted` 중 하나여야 합니다. 내부 tmux session과 transcript도 찾을 수 있어야 합니다.
 
-이미 완료되어 `active_turn`이 정리된 turn에는 attach할 수 없습니다. 완료된 마지막 답변은 앱 서버가 저장한 `done.answer` 또는 `info`의 `last_turn`/state를 사용합니다.
+이미 완료되어 `active_turn`이 정리된 turn에는 attach할 수 없습니다. 완료된 마지막 답변은 앱 서버가 저장한 `done.answer` 또는 `info`의 `last_turn`/state를 사용합니다. 취소된 turn처럼 final answer가 없을 수 있으므로, 완료 판단은 `done`/`metrics` 도착 여부로 분리합니다.
+
+완료된 turn의 JSONL event를 CLI에서 다시 받아야 하면 `replay`를 사용합니다.
+
+```bash
+ctc replay "$SESSION_ID" --last 1
+ctc replay "$SESSION_ID" --last 5
+ctc last "$SESSION_ID" --last 1
+```
+
+`replay`는 완료된 turn의 `user`/`tool_use`/`tool_result`/`assistant_text`/`done`/`metrics`를 같은 JSONL 형식으로 다시 출력합니다.
+
+마지막 turn이 아직 진행 중이면 `last`/`replay`는 완료된 이전 turn을 먼저 replay한 뒤, 현재 `active_turn`에는 attach해서 완료될 때까지 stream합니다.
+
+예를 들어 `ctc last "$SESSION_ID" --last 2`에서 마지막 turn이 진행 중이면, 최근 완료 turn 1개를 먼저 JSONL로 replay하고 마지막 active turn을 이어서 `done`/`metrics`까지 출력합니다.
 
 `timeout`이나 `failed`는 "입력 가능" 신호가 아닙니다.
 
@@ -551,10 +581,13 @@ cron, systemd timer, app scheduler 중 하나에서 호출합니다.
 | `claude` 없음 | exit `127` | Claude Code 설치 안내 |
 | invalid `session_id` 또는 cwd mismatch | exit `2` | 요청 오류로 표시. 같은 대화창에 다른 cwd를 연결하지 않음 |
 | `turn_in_progress` 등 high-level state error | exit `5`, stderr JSON | 새 입력을 큐에 넣거나 `stream --attach`로 기존 turn에 재연결 |
+| cancel 성공 | exit `0`, stdout JSON `event:cancel` | UI를 cancelling 상태로 전환하고 `last`/`attach`로 완료 대기 |
+| cancel 대상 tmux 없음 | exit `2`, stderr JSON `tmux_session_missing` | 이미 종료된 session으로 표시하거나 같은 session_id로 다음 stream 시 resume |
 | transcript 없음 | exit `2` | starting 상태로 재시도 |
 | stream timeout | exit `3`, `timeout` event | UI에 계속 처리 중 표시 |
 | stream interrupted | exit `130` | 연결 끊김으로 표시. 같은 session_id로 attach 또는 다음 prompt 시 자동 완료 검사 |
 | 이전 timeout turn 완료됨 | 새 요청 안에서 state-only finalize | 이전 answer/metrics는 `info`/state에서 확인. 새 요청 stdout에는 새 turn event만 출력 |
+| replay 대상 turn 없음 | exit `4` | 저장된 이벤트가 없음을 표시 |
 | session 없음 | exit `2` | `start` 후 재시도 |
 
 앱 서버는 stderr를 운영 로그에 남기되, token 값은 절대 로그에 남기지 않습니다.

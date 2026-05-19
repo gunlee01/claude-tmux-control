@@ -69,7 +69,9 @@ metrics
 | `metrics` | elapsed/token/cost 표시. transcript에 context 정보가 있으면 context도 표시 |
 | `timeout` | 처리 중/재연결 상태 표시 |
 
-`done.answer`가 최종 답변입니다.
+일반 완료 turn에서는 `done.answer`가 최종 답변입니다.
+
+취소되었거나 tool 실행 중 interrupt된 turn은 final assistant text 없이 끝날 수 있습니다. 이 경우 `done.answer`가 없을 수 있지만, `done`과 `metrics`가 오면 입력창을 다시 열 수 있습니다.
 
 `metrics`는 `done` 직후 별도로 옵니다.
 
@@ -90,6 +92,7 @@ CLI는 새 prompt를 보내기 전에 이전 `active_turn`을 확인합니다.
 | --- | --- |
 | 완료 확인됨 | 이전 turn을 state-only finalize 후 새 prompt 전송 |
 | 아직 working | `turn_in_progress` |
+| 사용자 취소 | `cancel` 호출 후 `last` 또는 `attach`로 완료 대기 |
 | timeout/interrupted + tmux ready + transcript ready | 이전 turn finalize 후 새 prompt 전송 |
 | timeout/interrupted + 아직 미확인 | `turn_in_progress` 또는 attach 필요 |
 
@@ -124,7 +127,18 @@ TERM=xterm-256color ctc stream --attach --session-id "$SESSION_ID" --timeout 300
 
 `attach`는 완료된 과거 turn 조회가 아닙니다.
 
-이미 완료된 마지막 답변은 앱 서버가 저장한 `done.answer` 또는 `info`의 `last_turn`/state를 사용합니다.
+이미 완료된 마지막 답변은 앱 서버가 저장한 `done.answer` 또는 `info`의 `last_turn`/state를 사용합니다. final answer가 없는 취소 turn도 있으므로, turn 완료 여부는 `done`/`metrics`를 기준으로 판단합니다.
+
+사용자가 진행 중 응답을 취소하면 `cancel`을 호출합니다.
+
+```bash
+TERM=xterm-256color ctc cancel "$SESSION_ID"
+TERM=xterm-256color ctc last "$SESSION_ID" --last 1
+```
+
+`cancel`은 `Escape` key만 보내고 JSON 결과를 반환합니다. 취소 후에는 `last` 또는 `stream --attach`로 `done`/`metrics`까지 받습니다.
+
+tool 실행 중 취소된 turn은 final answer 없이 닫힐 수 있습니다. 이 경우에도 `done`과 `metrics`가 오면 해당 turn은 완료된 것으로 보고 다음 입력을 허용합니다.
 
 ## 6. 세션 상태 확인
 
@@ -144,6 +158,16 @@ TERM=xterm-256color ctc info "$SESSION_ID" --json
 | `completed_turn_count` | 저장된 완료 turn 수 |
 | `usage_totals` | 세션 누적 token |
 | `cost_totals` | 세션 누적 비용 |
+
+완료된 최근 turn event를 다시 받아야 하면 `replay`를 사용합니다.
+
+```bash
+TERM=xterm-256color ctc replay "$SESSION_ID" --last 1
+TERM=xterm-256color ctc replay "$SESSION_ID" --last 5
+TERM=xterm-256color ctc last "$SESSION_ID" --last 1
+```
+
+마지막 turn이 진행 중이면 `last`/`replay`는 현재 `active_turn`에 attach해서 완료될 때까지 JSONL을 출력합니다. `--last N`은 완료 turn replay와 active turn attach를 한 stdout stream 안에서 이어서 보낼 수 있습니다.
 
 ## 7. 오래된 세션 정리
 

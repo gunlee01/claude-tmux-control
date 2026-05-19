@@ -2,6 +2,7 @@ import json
 import io
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 import uuid
@@ -123,6 +124,14 @@ class TmuxControllerTest(unittest.TestCase):
         controller.send_prompt("cc-test", "draft only", submit=False)
 
         self.assertNotIn((["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}), runner.calls)
+
+    def test_send_escape_sends_escape_key(self):
+        runner = FakeRunner()
+        controller = ctc.TmuxController(run=runner)
+
+        controller.send_escape("cc-test")
+
+        self.assertEqual(runner.calls, [(["tmux", "send-keys", "-t", "cc-test", "Escape"], {"check": True})])
 
     def test_launch_in_existing_session_requires_existing_tmux_session(self):
         runner = FakeRunner()
@@ -1626,6 +1635,124 @@ class HighLevelAskTest(unittest.TestCase):
         self.assertEqual(payload["events_seen"], 1)
 
 
+class HighLevelCancelTest(unittest.TestCase):
+    def test_cancel_active_turn_sends_escape_without_mutating_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "active_turn": {"turn_id": "turn_active", "cancel_count": 1},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = True
+            args = ctc.parse_args(["cancel", session_id, "--state-dir", str(state_dir)])
+
+            result = ctc.run_high_level_cancel(args, controller)
+
+            self.assertEqual(result["exit_code"], 0)
+            self.assertEqual(result["event"], "cancel")
+            self.assertEqual(result["active_turn_id"], "turn_active")
+            controller.send_escape.assert_called_once_with(ctc.web_tmux_session_name(session_id))
+            state = ctc.read_bridge_state(state_path)
+            self.assertEqual(state["active_turn"]["cancel_count"], 1)
+            self.assertNotIn("cancel_requested_at", state["active_turn"])
+
+    def test_cancel_without_state_still_uses_default_web_tmux_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            controller = Mock()
+            controller.session_exists.return_value = True
+            args = ctc.parse_args(["cancel", "--session-id", session_id, "--state-dir", str(state_dir)])
+
+            result = ctc.run_high_level_cancel(args, controller)
+
+            self.assertEqual(result["exit_code"], 0)
+            self.assertFalse(result["state_exists"])
+            self.assertFalse(result["active_turn_present"])
+            controller.send_escape.assert_called_once_with(ctc.web_tmux_session_name(session_id))
+
+    def test_cancel_rejects_missing_tmux_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            controller = Mock()
+            controller.session_exists.return_value = False
+            args = ctc.parse_args(["cancel", session_id, "--state-dir", str(Path(tmp) / "state")])
+
+            result = ctc.run_high_level_cancel(args, controller)
+
+            self.assertEqual(result["exit_code"], 2)
+            self.assertEqual(result["error"], "tmux_session_missing")
+            self.assertFalse(controller.send_escape.called)
+
+    def test_cancel_reports_send_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            controller = Mock()
+            controller.session_exists.return_value = True
+            controller.send_escape.side_effect = subprocess.CalledProcessError(1, ["tmux", "send-keys"])
+            args = ctc.parse_args(["cancel", session_id, "--state-dir", str(Path(tmp) / "state")])
+
+            result = ctc.run_high_level_cancel(args, controller)
+
+            self.assertEqual(result["exit_code"], 5)
+            self.assertEqual(result["error"], "cancel_failed")
+
+    def test_cancel_does_not_resurrect_active_turn_completed_during_escape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "active_turn": {"turn_id": "turn_active", "cancel_count": 0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def complete_during_escape(_session):
+                state_path.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "session_id": session_id,
+                            "tmux_session": ctc.web_tmux_session_name(session_id),
+                            "active_turn": None,
+                            "completed_turns": [{"turn_id": "turn_active", "answer": None}],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            controller = Mock()
+            controller.session_exists.return_value = True
+            controller.send_escape.side_effect = complete_during_escape
+            args = ctc.parse_args(["cancel", session_id, "--state-dir", str(state_dir)])
+
+            result = ctc.run_high_level_cancel(args, controller)
+
+            self.assertEqual(result["exit_code"], 0)
+            state = ctc.read_bridge_state(state_path)
+            self.assertIsNone(state["active_turn"])
+            self.assertEqual(state["completed_turns"][0]["turn_id"], "turn_active")
+
+
 class HighLevelAttachTest(unittest.TestCase):
     def test_prepare_high_level_attach_reuses_active_turn_without_sending_prompt(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1838,6 +1965,621 @@ class HighLevelAttachTest(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "tmux_session_missing"):
                 ctc.prepare_high_level_attach(controller, session_id, state_dir, Path(tmp) / "claude")
+
+
+class HighLevelReplayTest(unittest.TestCase):
+    def test_replay_completed_turns_outputs_jsonl_events(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            cwd.mkdir()
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / f"{session_id}.jsonl"
+            transcript.parent.mkdir(parents=True)
+
+            q1 = json_line({"sessionId": session_id, "type": "user", "message": {"content": "q1"}})
+            a1 = json_line(
+                {
+                    "sessionId": session_id,
+                    "type": "assistant",
+                    "message": {"content": [{"type": "text", "text": "a1"}]},
+                }
+            )
+            q2 = json_line({"sessionId": session_id, "type": "user", "message": {"content": "q2"}})
+            a2 = json_line(
+                {
+                    "sessionId": session_id,
+                    "type": "assistant",
+                    "message": {"content": [{"type": "text", "text": "a2"}]},
+                }
+            )
+            transcript.write_text(q1 + a1 + q2 + a2, encoding="utf-8")
+            q1_start = 0
+            q1_done = len((q1 + a1).encode("utf-8"))
+            q2_start = q1_done
+            q2_done = len((q1 + a1 + q2 + a2).encode("utf-8"))
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "cwd": str(cwd),
+                        "transcript": ctc.transcript_file_state(transcript, q2_done),
+                        "completed_turns": [
+                            {
+                                "turn_id": "turn1",
+                                "session_id": session_id,
+                                "answer": "a1",
+                                "anchor_start_offset": q1_start,
+                                "completed_offset": q1_done,
+                                "transcript": ctc.transcript_file_state(transcript, q1_done),
+                                "cost": {"estimated": True, "currency": "USD", "turn_usd": 0.1},
+                            },
+                            {
+                                "turn_id": "turn2",
+                                "session_id": session_id,
+                                "answer": "a2",
+                                "anchor_start_offset": q2_start,
+                                "completed_offset": q2_done,
+                                "transcript": ctc.transcript_file_state(transcript, q2_done),
+                                "cost": {"estimated": True, "currency": "USD", "turn_usd": 0.2},
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = ctc.parse_args(["replay", session_id, "--state-dir", str(state_dir), "--root", str(root), "--last", "2"])
+            writes = []
+
+            result = ctc.run_high_level_replay(args, Mock(), writes.append)
+
+            self.assertEqual(result["exit_code"], 0)
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            self.assertEqual(
+                [payload["event"] for payload in payloads],
+                ["user", "assistant_text", "done", "metrics", "user", "assistant_text", "done", "metrics"],
+            )
+            self.assertEqual(payloads[0]["turn_id"], "turn1")
+            self.assertEqual(payloads[4]["turn_id"], "turn2")
+            self.assertEqual(payloads[7]["cost"]["session_usd"], 0.3)
+
+            last_args = ctc.parse_args(["last", session_id, "--state-dir", str(state_dir), "--root", str(root)])
+            last_writes = []
+            last_result = ctc.run_high_level_replay(last_args, Mock(), last_writes.append)
+            last_payloads = [json.loads(line) for line in "".join(last_writes).splitlines()]
+
+            self.assertEqual(last_result["exit_code"], 0)
+            self.assertEqual(last_payloads[0]["turn_id"], "turn2")
+
+    def test_replay_last_turn_attaches_active_turn_until_done(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            cwd.mkdir()
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / f"{session_id}.jsonl"
+            transcript.parent.mkdir(parents=True)
+            user_line = json_line({"sessionId": session_id, "type": "user", "message": {"content": "active q"}})
+            transcript.write_text(
+                user_line
+                + json_line(
+                    {
+                        "sessionId": session_id,
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": "active a"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "cwd": str(cwd),
+                        "transcript": ctc.transcript_file_state(transcript, 0),
+                        "active_turn": {
+                            "turn_id": "turn_active",
+                            "stream_state": "active",
+                            "claude_state": "working",
+                            "prompt_preview": "active q",
+                            "before_send_wall_time_utc": "2026-05-18T00:00:00Z",
+                            "before_send_transcript": ctc.transcript_file_state(transcript, 0),
+                            "anchor_start_offset": 0,
+                            "anchor_end_offset": len(user_line.encode("utf-8")),
+                            "replay_start_offset": 0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = True
+            controller.capture_screen.return_value = "Done\nclaude> "
+            args = ctc.parse_args(
+                [
+                    "replay",
+                    session_id,
+                    "--state-dir",
+                    str(state_dir),
+                    "--root",
+                    str(root),
+                    "--last",
+                    "1",
+                    "--interval",
+                    "0",
+                    "--idle",
+                    "0",
+                    "--timeout",
+                    "1",
+                ]
+            )
+            writes = []
+
+            result = ctc.run_high_level_replay(args, controller, writes.append)
+
+            self.assertEqual(result["exit_code"], 0)
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            self.assertEqual([payload["event"] for payload in payloads], ["user", "assistant_text", "done", "metrics"])
+            self.assertTrue(all(payload["turn_id"] == "turn_active" for payload in payloads))
+            self.assertFalse(controller.send_prompt.called)
+
+    def test_replay_last_two_outputs_completed_then_active_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            cwd.mkdir()
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / f"{session_id}.jsonl"
+            transcript.parent.mkdir(parents=True)
+            q1 = json_line({"sessionId": session_id, "type": "user", "message": {"content": "done q"}})
+            a1 = json_line({"sessionId": session_id, "type": "assistant", "message": {"content": [{"type": "text", "text": "done a"}]}})
+            q2 = json_line({"sessionId": session_id, "type": "user", "message": {"content": "active q"}})
+            a2 = json_line({"sessionId": session_id, "type": "assistant", "message": {"content": [{"type": "text", "text": "active a"}]}})
+            transcript.write_text(q1 + a1 + q2 + a2, encoding="utf-8")
+            q1_done = len((q1 + a1).encode("utf-8"))
+            q2_start = q1_done
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "cwd": str(cwd),
+                        "transcript": ctc.transcript_file_state(transcript, q1_done),
+                        "completed_turns": [
+                            {
+                                "turn_id": "turn_done",
+                                "session_id": session_id,
+                                "answer": "done a",
+                                "anchor_start_offset": 0,
+                                "completed_offset": q1_done,
+                                "transcript": ctc.transcript_file_state(transcript, q1_done),
+                            }
+                        ],
+                        "active_turn": {
+                            "turn_id": "turn_active",
+                            "stream_state": "active",
+                            "claude_state": "working",
+                            "prompt_preview": "active q",
+                            "before_send_wall_time_utc": "2026-05-18T00:00:00Z",
+                            "before_send_transcript": ctc.transcript_file_state(transcript, q1_done),
+                            "anchor_start_offset": q2_start,
+                            "anchor_end_offset": q2_start + len(q2.encode("utf-8")),
+                            "replay_start_offset": q2_start,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = True
+            controller.capture_screen.return_value = "Done\nclaude> "
+            args = ctc.parse_args(
+                [
+                    "last",
+                    session_id,
+                    "--state-dir",
+                    str(state_dir),
+                    "--root",
+                    str(root),
+                    "--last",
+                    "2",
+                    "--interval",
+                    "0",
+                    "--idle",
+                    "0",
+                    "--timeout",
+                    "1",
+                ]
+            )
+            writes = []
+
+            result = ctc.run_high_level_replay(args, controller, writes.append)
+
+            self.assertEqual(result["exit_code"], 0)
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            self.assertEqual(
+                [payload["event"] for payload in payloads],
+                ["user", "assistant_text", "done", "metrics", "user", "assistant_text", "done", "metrics"],
+            )
+            self.assertEqual(payloads[0]["turn_id"], "turn_done")
+            self.assertEqual(payloads[4]["turn_id"], "turn_active")
+            self.assertIsNone(ctc.read_bridge_state(state_path)["active_turn"])
+
+    def test_replay_recovers_when_active_turn_completes_before_attach(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            cwd.mkdir()
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / f"{session_id}.jsonl"
+            transcript.parent.mkdir(parents=True)
+            q1 = json_line({"sessionId": session_id, "type": "user", "message": {"content": "done q"}})
+            a1 = json_line({"sessionId": session_id, "type": "assistant", "message": {"content": [{"type": "text", "text": "done a"}]}})
+            q2 = json_line({"sessionId": session_id, "type": "user", "message": {"content": "racing q"}})
+            a2 = json_line({"sessionId": session_id, "type": "assistant", "message": {"content": [{"type": "text", "text": "racing a"}]}})
+            transcript.write_text(q1 + a1 + q2 + a2, encoding="utf-8")
+            q1_done = len((q1 + a1).encode("utf-8"))
+            q2_start = q1_done
+            q2_done = len((q1 + a1 + q2 + a2).encode("utf-8"))
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            initial_state = {
+                "schema_version": 1,
+                "session_id": session_id,
+                "tmux_session": ctc.web_tmux_session_name(session_id),
+                "cwd": str(cwd),
+                "transcript": ctc.transcript_file_state(transcript, q1_done),
+                "completed_turns": [
+                    {
+                        "turn_id": "turn_done",
+                        "session_id": session_id,
+                        "answer": "done a",
+                        "anchor_start_offset": 0,
+                        "completed_offset": q1_done,
+                        "transcript": ctc.transcript_file_state(transcript, q1_done),
+                    }
+                ],
+                "active_turn": {
+                    "turn_id": "turn_racing",
+                    "stream_state": "active",
+                    "claude_state": "working",
+                    "prompt_preview": "racing q",
+                    "before_send_wall_time_utc": "2026-05-18T00:00:00Z",
+                    "before_send_transcript": ctc.transcript_file_state(transcript, q1_done),
+                    "anchor_start_offset": q2_start,
+                    "anchor_end_offset": q2_start + len(q2.encode("utf-8")),
+                    "replay_start_offset": q2_start,
+                },
+            }
+            state_path.write_text(json.dumps(initial_state), encoding="utf-8")
+
+            def complete_before_attach(**_kwargs):
+                completed_state = dict(initial_state)
+                completed_state["active_turn"] = None
+                completed_state["completed_turns"] = [
+                    *initial_state["completed_turns"],
+                    {
+                        "turn_id": "turn_racing",
+                        "session_id": session_id,
+                        "answer": "racing a",
+                        "anchor_start_offset": q2_start,
+                        "completed_offset": q2_done,
+                        "transcript": ctc.transcript_file_state(transcript, q2_done),
+                    },
+                ]
+                ctc._write_high_level_state(state_path, completed_state)
+                raise RuntimeError("no_active_turn")
+
+            args = ctc.parse_args(
+                [
+                    "last",
+                    session_id,
+                    "--state-dir",
+                    str(state_dir),
+                    "--root",
+                    str(root),
+                    "--last",
+                    "2",
+                ]
+            )
+            writes = []
+
+            with patch.object(ctc, "prepare_high_level_attach", side_effect=complete_before_attach):
+                result = ctc.run_high_level_replay(args, Mock(), writes.append)
+
+            self.assertEqual(result["exit_code"], 0)
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            self.assertEqual(
+                [payload["event"] for payload in payloads],
+                ["user", "assistant_text", "done", "metrics", "user", "assistant_text", "done", "metrics"],
+            )
+            self.assertEqual(payloads[0]["turn_id"], "turn_done")
+            self.assertEqual(payloads[4]["turn_id"], "turn_racing")
+            self.assertEqual(payloads[6]["answer"], "racing a")
+
+    def test_replay_does_not_emit_completed_turns_when_active_attach_preflight_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            cwd.mkdir()
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / f"{session_id}.jsonl"
+            transcript.parent.mkdir(parents=True)
+            q1 = json_line({"sessionId": session_id, "type": "user", "message": {"content": "done q"}})
+            a1 = json_line({"sessionId": session_id, "type": "assistant", "message": {"content": [{"type": "text", "text": "done a"}]}})
+            transcript.write_text(q1 + a1, encoding="utf-8")
+            q1_done = len((q1 + a1).encode("utf-8"))
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "cwd": str(cwd),
+                        "transcript": ctc.transcript_file_state(transcript, q1_done),
+                        "completed_turns": [
+                            {
+                                "turn_id": "turn_done",
+                                "session_id": session_id,
+                                "answer": "done a",
+                                "anchor_start_offset": 0,
+                                "completed_offset": q1_done,
+                                "transcript": ctc.transcript_file_state(transcript, q1_done),
+                            }
+                        ],
+                        "active_turn": {
+                            "turn_id": "turn_active",
+                            "stream_state": "active",
+                            "claude_state": "working",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = False
+            args = ctc.parse_args(["last", session_id, "--state-dir", str(state_dir), "--root", str(root), "--last", "2"])
+            writes = []
+
+            result = ctc.run_high_level_replay(args, controller, writes.append)
+
+            self.assertEqual(result["exit_code"], 5)
+            self.assertEqual(result["error"], "tmux_session_missing")
+            self.assertEqual(writes, [])
+            self.assertEqual(result["events"], [])
+
+    def test_replay_interrupted_active_cancelled_turn_until_done(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            cwd.mkdir()
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / f"{session_id}.jsonl"
+            transcript.parent.mkdir(parents=True)
+            q1 = json_line({"sessionId": session_id, "type": "user", "message": {"content": "run slow command"}})
+            transcript.write_text(
+                q1
+                + json_line(
+                    {
+                        "sessionId": session_id,
+                        "type": "assistant",
+                        "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "sleep 45"}}]},
+                    }
+                )
+                + json_line(
+                    {
+                        "sessionId": session_id,
+                        "type": "user",
+                        "toolUseResult": "User rejected tool use",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": "toolu_1",
+                                    "is_error": True,
+                                    "content": "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+                                }
+                            ]
+                        },
+                    }
+                )
+                + json_line({"sessionId": session_id, "type": "user", "message": {"content": "[Request interrupted by user for tool use]"}}),
+                encoding="utf-8",
+            )
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "cwd": str(cwd),
+                        "transcript": ctc.transcript_file_state(transcript, 0),
+                        "active_turn": {
+                            "turn_id": "turn_cancelled",
+                            "stream_state": "interrupted",
+                            "claude_state": "working",
+                            "prompt_preview": "run slow command",
+                            "before_send_wall_time_utc": "2026-05-18T00:00:00Z",
+                            "before_send_transcript": ctc.transcript_file_state(transcript, 0),
+                            "anchor_start_offset": 0,
+                            "anchor_end_offset": len(q1.encode("utf-8")),
+                            "replay_start_offset": 0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = True
+            controller.capture_screen.return_value = "Done\nclaude> "
+            args = ctc.parse_args(
+                [
+                    "last",
+                    session_id,
+                    "--state-dir",
+                    str(state_dir),
+                    "--root",
+                    str(root),
+                    "--interval",
+                    "0",
+                    "--idle",
+                    "0",
+                    "--timeout",
+                    "1",
+                ]
+            )
+            writes = []
+
+            result = ctc.run_high_level_replay(args, controller, writes.append)
+
+            self.assertEqual(result["exit_code"], 0)
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            self.assertEqual([payload["event"] for payload in payloads], ["user", "tool_use", "tool_result", "user", "done", "metrics"])
+            self.assertEqual(payloads[-2]["state"], "ready")
+            self.assertNotIn("answer", payloads[-2])
+            self.assertIsNone(ctc.read_bridge_state(state_path)["active_turn"])
+
+    def test_replay_completed_turn_without_transcript_still_returns_done_and_metrics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "cwd": str(Path(tmp) / "missing-project"),
+                        "completed_turns": [
+                            {
+                                "turn_id": "turn_without_transcript",
+                                "session_id": session_id,
+                                "answer": "stored answer",
+                                "completed_offset": 123,
+                                "cost": {"estimated": True, "currency": "USD", "turn_usd": 0.01},
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = ctc.parse_args(["last", session_id, "--state-dir", str(state_dir), "--root", str(Path(tmp) / "claude")])
+            writes = []
+
+            result = ctc.run_high_level_replay(args, Mock(), writes.append)
+
+            self.assertEqual(result["exit_code"], 0)
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            self.assertEqual([payload["event"] for payload in payloads], ["done", "metrics"])
+            self.assertEqual(payloads[0]["answer"], "stored answer")
+            self.assertEqual(payloads[1]["cost"]["session_usd"], 0.01)
+
+    def test_replay_stale_transcript_identity_returns_only_stored_done_and_metrics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            cwd.mkdir()
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / f"{session_id}.jsonl"
+            transcript.parent.mkdir(parents=True)
+            original_user = json_line({"sessionId": session_id, "type": "user", "message": {"content": "original q"}})
+            original_answer = json_line(
+                {
+                    "sessionId": session_id,
+                    "type": "assistant",
+                    "message": {"content": [{"type": "text", "text": "original a"}]},
+                }
+            )
+            transcript.write_text(original_user + original_answer, encoding="utf-8")
+            completed_offset = len((original_user + original_answer).encode("utf-8"))
+            stored_transcript = ctc.transcript_file_state(transcript, completed_offset)
+
+            transcript.unlink()
+            transcript.write_text(
+                json_line({"sessionId": session_id, "type": "user", "message": {"content": "wrong q"}})
+                + json_line(
+                    {
+                        "sessionId": session_id,
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": "wrong a"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "cwd": str(cwd),
+                        "transcript": stored_transcript,
+                        "completed_turns": [
+                            {
+                                "turn_id": "turn_done",
+                                "session_id": session_id,
+                                "answer": "stored answer",
+                                "anchor_start_offset": 0,
+                                "completed_offset": completed_offset,
+                                "transcript": stored_transcript,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = ctc.parse_args(["replay", session_id, "--state-dir", str(state_dir), "--root", str(root)])
+            writes = []
+
+            result = ctc.run_high_level_replay(args, Mock(), writes.append)
+
+            self.assertEqual(result["exit_code"], 0)
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            self.assertEqual([payload["event"] for payload in payloads], ["done", "metrics"])
+            self.assertEqual(payloads[0]["answer"], "stored answer")
+            self.assertNotIn("wrong a", "".join(writes))
+
+    def test_last_error_messages_use_last_command_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            no_session_args = ctc.parse_args(["last", "--state-dir", str(Path(tmp) / "state")])
+            missing_result = ctc.run_high_level_replay(no_session_args, Mock(), lambda _line: None)
+            self.assertEqual(missing_result["error"], "last requires SESSION_ID or --session-id")
+
+            bad_count_args = ctc.parse_args(
+                [
+                    "last",
+                    "550e8400-e29b-41d4-a716-446655440000",
+                    "--state-dir",
+                    str(Path(tmp) / "state"),
+                    "--last",
+                    "0",
+                ]
+            )
+            bad_count_result = ctc.run_high_level_replay(bad_count_args, Mock(), lambda _line: None)
+            self.assertEqual(bad_count_result["error"], "last --last must be >= 1")
 
 
 class ScreenStatusTest(unittest.TestCase):
@@ -2089,6 +2831,71 @@ class TranscriptTest(unittest.TestCase):
                         ]
                     },
                 },
+            ]
+        )
+
+        self.assertEqual(status.state, "working")
+
+    def test_transcript_status_is_ready_after_user_interrupts_tool_use(self):
+        status = ctc.analyze_transcript_status(
+            [
+                {"type": "user", "message": {"content": "run slow command"}},
+                {
+                    "type": "assistant",
+                    "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "sleep 45"}}]},
+                },
+                {
+                    "type": "user",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "toolu_1",
+                                "is_error": True,
+                                "content": "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+                            }
+                        ]
+                    },
+                    "toolUseResult": "User rejected tool use",
+                },
+                {"type": "user", "message": {"content": "[Request interrupted by user for tool use]"}},
+            ]
+        )
+
+        self.assertEqual(status.state, "ready")
+
+    def test_transcript_status_stays_working_after_rejected_tool_result_without_interrupt_marker(self):
+        status = ctc.analyze_transcript_status(
+            [
+                {"type": "user", "message": {"content": "run slow command"}},
+                {
+                    "type": "assistant",
+                    "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "sleep 45"}}]},
+                },
+                {
+                    "type": "user",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "toolu_1",
+                                "is_error": True,
+                                "content": "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+                            }
+                        ]
+                    },
+                    "toolUseResult": "User rejected tool use",
+                },
+            ]
+        )
+
+        self.assertEqual(status.state, "working")
+
+    def test_transcript_status_treats_interruption_phrase_inside_user_prompt_as_normal_user_text(self):
+        status = ctc.analyze_transcript_status(
+            [
+                {"type": "assistant", "message": {"content": [{"type": "text", "text": "old answer"}]}},
+                {"type": "user", "message": {"content": "Explain the phrase Request interrupted by user for tool use"}},
             ]
         )
 
@@ -2461,6 +3268,98 @@ class StreamTest(unittest.TestCase):
             self.assertEqual(status.state, "timeout")
             self.assertNotIn("done", [payload["event"] for payload in payloads])
 
+    def test_high_level_stream_finishes_cancelled_tool_use_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "session.jsonl"
+            transcript.write_text(
+                json_line({"type": "user", "timestamp": "t0", "message": {"content": "run slow command"}})
+                + json_line(
+                    {
+                        "type": "assistant",
+                        "timestamp": "t1",
+                        "message": {
+                            "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "sleep 45"}}]
+                        },
+                    }
+                )
+                + json_line(
+                    {
+                        "type": "user",
+                        "timestamp": "t2",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": "toolu_1",
+                                    "is_error": True,
+                                    "content": "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+                                }
+                            ]
+                        },
+                        "toolUseResult": "User rejected tool use",
+                    }
+                )
+                + json_line(
+                    {
+                        "type": "user",
+                        "timestamp": "t3",
+                        "message": {"content": "[Request interrupted by user for tool use]"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=f"ctc-csess-{session_id}",
+                state_path=Path(tmp) / "state" / "sessions" / f"{session_id}.json",
+                state_dir=Path(tmp) / "state",
+                cwd=Path(tmp),
+                prompt="run slow command",
+                turn_id="turn_cancelled",
+                before_send_offset=0,
+                replay_start_offset=0,
+            )
+            ctc._write_high_level_state(
+                runtime.state_path,
+                ctc.build_pending_turn_state({}, runtime, transcript, wall_time=1000.0),
+            )
+            controller = Mock()
+            controller.capture_screen.return_value = "Done\nclaude> "
+            writes = []
+            current_time = 0.0
+
+            def fake_now():
+                return current_time
+
+            def fake_sleep(seconds):
+                nonlocal current_time
+                current_time += seconds
+
+            status = ctc.stream_high_level_transcript_until_done(
+                transcript,
+                runtime,
+                controller,
+                interval=1.0,
+                timeout=5.0,
+                idle_seconds=1.0,
+                write=writes.append,
+                sleep=fake_sleep,
+                now=fake_now,
+            )
+
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            self.assertEqual(status.state, "ready")
+            self.assertEqual(
+                [payload["event"] for payload in payloads],
+                ["user", "tool_use", "tool_result", "user", "done", "metrics"],
+            )
+            self.assertEqual(payloads[-2]["reason"], "matched (^|\\n)\\s*claude>\\s*$; transcript ready")
+            self.assertNotIn("answer", payloads[-2])
+            state = ctc.read_bridge_state(runtime.state_path)
+            self.assertIsNone(state["active_turn"])
+            self.assertEqual(state["completed_turns"][0]["turn_id"], "turn_cancelled")
+
     def test_high_level_stream_emits_stable_ids_done_and_metrics(self):
         with tempfile.TemporaryDirectory() as tmp:
             transcript = Path(tmp) / "session.jsonl"
@@ -2546,10 +3445,12 @@ class StreamTest(unittest.TestCase):
             state = ctc.read_bridge_state(runtime.state_path)
             self.assertIsNone(state["active_turn"])
             self.assertEqual(state["last_turn"]["completed_offset"], completed_offset)
+            self.assertEqual(state["transcript"]["path"], str(transcript))
             self.assertEqual(state["last_turn"]["answer"], "final answer")
             self.assertEqual(state["last_turn"]["elapsed_ms"], 1000)
             self.assertNotIn("context", state["last_turn"])
             self.assertEqual(state["completed_turns"][0]["turn_id"], "turn_test")
+            self.assertEqual(state["completed_turns"][0]["transcript"]["path"], str(transcript))
             self.assertEqual(state["completed_turns"][0]["answer"], "final answer")
             self.assertEqual(state["completed_turns"][0]["usage"]["cache_read_tokens"], 3)
             self.assertNotIn("context", state["completed_turns"][0])
@@ -2896,8 +3797,408 @@ class StreamTest(unittest.TestCase):
             self.assertEqual(records[0].event["message"]["content"][0]["text"], "done")
 
 
+class CliIntegrationTest(unittest.TestCase):
+    def test_cli_replay_completed_turn_outputs_jsonl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            cwd.mkdir()
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / f"{session_id}.jsonl"
+            transcript.parent.mkdir(parents=True)
+            user_line = json_line({"sessionId": session_id, "type": "user", "message": {"content": "q"}})
+            assistant_line = json_line(
+                {
+                    "sessionId": session_id,
+                    "type": "assistant",
+                    "message": {"content": [{"type": "text", "text": "a"}]},
+                    "usage": {"input_tokens": 1, "output_tokens": 2},
+                }
+            )
+            transcript.write_text(user_line + assistant_line, encoding="utf-8")
+            completed_offset = len((user_line + assistant_line).encode("utf-8"))
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "cwd": str(cwd),
+                        "transcript": ctc.transcript_file_state(transcript, completed_offset),
+                        "completed_turns": [
+                            {
+                                "turn_id": "turn_cli",
+                                "session_id": session_id,
+                                "answer": "a",
+                                "anchor_start_offset": 0,
+                                "completed_offset": completed_offset,
+                                "transcript": ctc.transcript_file_state(transcript, completed_offset),
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_cli(["replay", session_id, "--state-dir", str(state_dir), "--root", str(root), "--last", "1"])
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payloads = [json.loads(line) for line in result.stdout.splitlines()]
+            self.assertEqual([payload["event"] for payload in payloads], ["user", "assistant_text", "done", "metrics"])
+            self.assertEqual(payloads[2]["answer"], "a")
+
+    def test_cli_last_active_turn_attaches_until_done(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_bin = Path(tmp) / "bin"
+            fake_log = Path(tmp) / "tmux.log"
+            write_fake_tmux(fake_bin)
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            cwd.mkdir()
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / f"{session_id}.jsonl"
+            transcript.parent.mkdir(parents=True)
+            user_line = json_line({"sessionId": session_id, "type": "user", "message": {"content": "active q"}})
+            transcript.write_text(
+                user_line
+                + json_line(
+                    {
+                        "sessionId": session_id,
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": "active a"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "cwd": str(cwd),
+                        "transcript": ctc.transcript_file_state(transcript, 0),
+                        "active_turn": {
+                            "turn_id": "turn_active_cli",
+                            "stream_state": "active",
+                            "claude_state": "working",
+                            "prompt_preview": "active q",
+                            "before_send_wall_time_utc": "2026-05-18T00:00:00Z",
+                            "before_send_transcript": ctc.transcript_file_state(transcript, 0),
+                            "anchor_start_offset": 0,
+                            "anchor_end_offset": len(user_line.encode("utf-8")),
+                            "replay_start_offset": 0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_cli(
+                [
+                    "last",
+                    session_id,
+                    "--state-dir",
+                    str(state_dir),
+                    "--root",
+                    str(root),
+                    "--interval",
+                    "0",
+                    "--idle",
+                    "0",
+                    "--timeout",
+                    "1",
+                ],
+                env=fake_tmux_env(fake_bin, fake_log),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payloads = [json.loads(line) for line in result.stdout.splitlines()]
+            self.assertEqual([payload["event"] for payload in payloads], ["user", "assistant_text", "done", "metrics"])
+            self.assertTrue(all(payload["turn_id"] == "turn_active_cli" for payload in payloads))
+            self.assertIn("has-session -t " + ctc.web_tmux_session_name(session_id), fake_log.read_text(encoding="utf-8"))
+            self.assertIsNone(ctc.read_bridge_state(state_path)["active_turn"])
+
+    def test_cli_cancel_sends_escape_without_updating_active_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_bin = Path(tmp) / "bin"
+            fake_log = Path(tmp) / "tmux.log"
+            write_fake_tmux(fake_bin)
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "active_turn": {"turn_id": "turn_cancel"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_cli(
+                ["cancel", session_id, "--state-dir", str(state_dir)],
+                env=fake_tmux_env(fake_bin, fake_log),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["event"], "cancel")
+            self.assertEqual(payload["sent_key"], "Escape")
+            self.assertIn("send-keys -t " + ctc.web_tmux_session_name(session_id) + " Escape", fake_log.read_text(encoding="utf-8"))
+            state = ctc.read_bridge_state(state_path)
+            self.assertEqual(state["active_turn"], {"turn_id": "turn_cancel"})
+
+    def test_cli_last_cancelled_active_turn_finishes_and_clears_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_bin = Path(tmp) / "bin"
+            fake_log = Path(tmp) / "tmux.log"
+            write_fake_tmux(fake_bin)
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            cwd.mkdir()
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / f"{session_id}.jsonl"
+            transcript.parent.mkdir(parents=True)
+            user_line = json_line({"sessionId": session_id, "type": "user", "message": {"content": "run slow command"}})
+            transcript.write_text(
+                user_line
+                + json_line(
+                    {
+                        "sessionId": session_id,
+                        "type": "assistant",
+                        "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "sleep 45"}}]},
+                    }
+                )
+                + json_line(
+                    {
+                        "sessionId": session_id,
+                        "type": "user",
+                        "toolUseResult": "User rejected tool use",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": "toolu_1",
+                                    "is_error": True,
+                                    "content": "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+                                }
+                            ]
+                        },
+                    }
+                )
+                + json_line({"sessionId": session_id, "type": "user", "message": {"content": "[Request interrupted by user for tool use]"}}),
+                encoding="utf-8",
+            )
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "cwd": str(cwd),
+                        "transcript": ctc.transcript_file_state(transcript, 0),
+                        "active_turn": {
+                            "turn_id": "turn_cli_cancelled",
+                            "stream_state": "interrupted",
+                            "claude_state": "working",
+                            "prompt_preview": "run slow command",
+                            "before_send_wall_time_utc": "2026-05-18T00:00:00Z",
+                            "before_send_transcript": ctc.transcript_file_state(transcript, 0),
+                            "anchor_start_offset": 0,
+                            "anchor_end_offset": len(user_line.encode("utf-8")),
+                            "replay_start_offset": 0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_cli(
+                [
+                    "last",
+                    session_id,
+                    "--state-dir",
+                    str(state_dir),
+                    "--root",
+                    str(root),
+                    "--interval",
+                    "0",
+                    "--idle",
+                    "0",
+                    "--timeout",
+                    "1",
+                ],
+                env=fake_tmux_env(fake_bin, fake_log),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payloads = [json.loads(line) for line in result.stdout.splitlines()]
+            self.assertEqual([payload["event"] for payload in payloads], ["user", "tool_use", "tool_result", "user", "done", "metrics"])
+            self.assertNotIn("answer", payloads[-2])
+            state = ctc.read_bridge_state(state_path)
+            self.assertIsNone(state["active_turn"])
+            self.assertEqual(state["completed_turns"][0]["turn_id"], "turn_cli_cancelled")
+
+    def test_cli_last_two_replays_completed_then_active_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_bin = Path(tmp) / "bin"
+            fake_log = Path(tmp) / "tmux.log"
+            write_fake_tmux(fake_bin)
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            cwd.mkdir()
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / f"{session_id}.jsonl"
+            transcript.parent.mkdir(parents=True)
+            q1 = json_line({"sessionId": session_id, "type": "user", "message": {"content": "done q"}})
+            a1 = json_line({"sessionId": session_id, "type": "assistant", "message": {"content": [{"type": "text", "text": "done a"}]}})
+            q2 = json_line({"sessionId": session_id, "type": "user", "message": {"content": "active q"}})
+            a2 = json_line({"sessionId": session_id, "type": "assistant", "message": {"content": [{"type": "text", "text": "active a"}]}})
+            transcript.write_text(q1 + a1 + q2 + a2, encoding="utf-8")
+            q1_done = len((q1 + a1).encode("utf-8"))
+            q2_start = q1_done
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "cwd": str(cwd),
+                        "transcript": ctc.transcript_file_state(transcript, q1_done),
+                        "completed_turns": [
+                            {
+                                "turn_id": "turn_done_cli",
+                                "session_id": session_id,
+                                "answer": "done a",
+                                "anchor_start_offset": 0,
+                                "completed_offset": q1_done,
+                                "transcript": ctc.transcript_file_state(transcript, q1_done),
+                            }
+                        ],
+                        "active_turn": {
+                            "turn_id": "turn_active_cli2",
+                            "stream_state": "active",
+                            "claude_state": "working",
+                            "prompt_preview": "active q",
+                            "before_send_wall_time_utc": "2026-05-18T00:00:00Z",
+                            "before_send_transcript": ctc.transcript_file_state(transcript, q1_done),
+                            "anchor_start_offset": q2_start,
+                            "anchor_end_offset": q2_start + len(q2.encode("utf-8")),
+                            "replay_start_offset": q2_start,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_cli(
+                [
+                    "last",
+                    session_id,
+                    "--state-dir",
+                    str(state_dir),
+                    "--root",
+                    str(root),
+                    "--last",
+                    "2",
+                    "--interval",
+                    "0",
+                    "--idle",
+                    "0",
+                    "--timeout",
+                    "1",
+                ],
+                env=fake_tmux_env(fake_bin, fake_log),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payloads = [json.loads(line) for line in result.stdout.splitlines()]
+            self.assertEqual(
+                [payload["event"] for payload in payloads],
+                ["user", "assistant_text", "done", "metrics", "user", "assistant_text", "done", "metrics"],
+            )
+            self.assertEqual(payloads[0]["turn_id"], "turn_done_cli")
+            self.assertEqual(payloads[4]["turn_id"], "turn_active_cli2")
+            self.assertIsNone(ctc.read_bridge_state(state_path)["active_turn"])
+
+    def test_cli_replay_no_turns_returns_no_replayable_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(json.dumps({"schema_version": 1, "session_id": session_id}), encoding="utf-8")
+
+            result = run_cli(["last", session_id, "--state-dir", str(state_dir)])
+
+            self.assertEqual(result.returncode, 4)
+            self.assertIn("no_replayable_turns", result.stderr)
+
+
 def json_line(payload):
     return json.dumps(payload, ensure_ascii=False) + "\n"
+
+
+def run_cli(args, env=None):
+    merged_env = os.environ.copy()
+    merged_env["TERM"] = "xterm-256color"
+    if env:
+        merged_env.update(env)
+    return subprocess.run(
+        [sys.executable, str(Path(ctc.__file__).resolve()), *args],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=merged_env,
+    )
+
+
+def write_fake_tmux(bin_dir: Path) -> None:
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    script = bin_dir / "tmux"
+    script.write_text(
+        """#!/bin/sh
+echo "$@" >> "$TMUX_FAKE_LOG"
+if [ "$1" = "has-session" ]; then
+  exit "${TMUX_FAKE_HAS_SESSION:-0}"
+fi
+if [ "$1" = "capture-pane" ]; then
+  printf 'Done\\nclaude> \\n'
+  exit 0
+fi
+if [ "$1" = "send-keys" ]; then
+  exit "${TMUX_FAKE_SEND_KEYS_STATUS:-0}"
+fi
+if [ "$1" = "list-sessions" ]; then
+  exit 0
+fi
+exit 0
+""",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+
+
+def fake_tmux_env(fake_bin: Path, fake_log: Path, **extra):
+    env = {"PATH": f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}", "TMUX_FAKE_LOG": str(fake_log)}
+    env.update({key: str(value) for key, value in extra.items()})
+    return env
 
 
 if __name__ == "__main__":

@@ -146,6 +146,10 @@ High-level `stream [--session-id <id>] --cwd <path> <prompt...>` contract:
 - Does not complete a subagent flow until the `Task` tool result is followed by final assistant text.
 - Combines transcript readiness with tmux screen readiness and a short idle window.
 - Emits final turn metrics after `done` as a separate `metrics` event.
+- Provides `cancel <session_id>` to send `Escape` to the underlying Claude Code tmux pane without sending a new prompt.
+- Provides `last <session_id> --last N` / `replay <session_id> --last N` to re-emit completed turn JSONL events for clients that disconnected after a turn finished.
+- If the newest turn is still active, `last`/`replay` attaches to the active turn and streams until completion without sending a new prompt.
+- If Claude Code records a cancelled tool use as `User rejected tool use` plus `[Request interrupted by user ...]`, treat it as a completed cancelled turn and emit final `done`/`metrics` even when no final assistant text exists.
 - Current final metrics include model, input tokens, cache read tokens, cache write tokens, output tokens, context fields only when present in the transcript, and pricing-table-based estimated turn cost when model/usage can be resolved.
 - Do not estimate or synthesize `metrics.context` from token usage when transcript context fields are absent.
 - Elapsed time and estimated session cumulative cost are emitted by the CLI in the final `metrics` event when the turn reaches `done`.
