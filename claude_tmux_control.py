@@ -3590,7 +3590,7 @@ def resolve_status_transcript_path(
 
 
 def project_transcript_dir(root: Path, cwd: Path) -> Path:
-    encoded = str(cwd.absolute()).replace("/", "-")
+    encoded = str(cwd.absolute()).replace("/", "-").replace("_", "-")
     return root / "projects" / encoded
 
 
