@@ -12,6 +12,17 @@
 - Do not print token values in logs, errors, examples, tests, or screenshots.
 - Use separate `CLAUDE_CONFIG_DIR` values when isolating multiple accounts.
 
+## Claude Environment Files
+
+For newly created tmux sessions, `ctc` can read `<cwd>/.ctc.env`, explicit `--env-file PATH` files, and `--env NAME` whitelist entries from the current process environment.
+
+Treat these values as secrets:
+
+- Do not commit `.ctc.env`.
+- Prefer `--env NAME` over `KEY=VALUE` command arguments so values do not enter shell history.
+- Remember env injection is new-session-only; already running Claude Code sessions keep their original environment.
+- `CLAUDE_CODE_OAUTH_TOKEN` is reserved for `--oauth-token-env` and is rejected in `.ctc.env` or `--env`.
+
 ## Permission Mode
 
 New Claude Code sessions are launched with `--dangerously-skip-permissions` by default.

@@ -134,6 +134,7 @@
 - [x] ChatGPT-style 웹 채팅 연동 가이드를 별도 문서로 작성한다.
 - [x] OAuth token을 호출 프로세스 env로 받고 `CLAUDE_CODE_OAUTH_TOKEN`으로 Claude Code에 전달한다.
 - [x] 복수 계정 token은 `--oauth-token-env <SOURCE_ENV>`로 호출 시점에 선택한다.
+- [x] `.ctc.env`, `--env-file`, `--env`로 project별 추가 env를 새 tmux session에 주입한다.
 - [x] Claude Code를 기본적으로 `--dangerously-skip-permissions`로 실행해 dynamic approval prompt를 피한다.
 - [x] concurrent requests가 같은 session에 동시에 prompt를 보내는 경우의 lock 정책을 문서화한다.
 - [x] session별 send lock을 구현한다.

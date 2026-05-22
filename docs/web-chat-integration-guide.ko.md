@@ -140,6 +140,20 @@ ctc stream \
   "$USER_PROMPT"
 ```
 
+Claude Code에 project별 secret이 필요하면 secret 값을 command argument로 직접 넣지 말고 `<project>/.ctc.env` 또는 `--env NAME`을 사용합니다.
+
+```bash
+ZETTA_API_KEY="..." \
+ctc stream \
+  --cwd "$PROJECT_DIR" \
+  --env ZETTA_API_KEY \
+  "$USER_PROMPT"
+```
+
+`<project>/.ctc.env`가 있고 명시적 `--env-file`이 없으면 `ctc`는 새 tmux session 생성 시 이 파일을 읽습니다. 이미 실행 중인 session에는 env 변경이 반영되지 않으므로, 변경된 env를 쓰려면 tmux session을 종료하거나 reap한 뒤 다시 시작해야 합니다.
+
+`CLAUDE_CODE_OAUTH_TOKEN`은 `--oauth-token-env` 전용이며 `.ctc.env`와 `--env`에서는 설정할 수 없습니다.
+
 고수준 `stream` 내부 동작:
 
 ```text

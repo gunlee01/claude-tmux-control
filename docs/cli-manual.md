@@ -102,6 +102,8 @@ Important options:
 | `--interval N` | transcript polling interval, default `2.0` |
 | `--timeout N` | max wait time |
 | `--tool-result-limit N` | truncate tool result previews |
+| `--env-file PATH` | read extra environment for newly created tmux sessions |
+| `--env NAME` | copy one named variable from the current `ctc` process env |
 
 ### `ask`
 
@@ -197,6 +199,27 @@ ctc stream --cwd "$PWD" --oauth-token-env ACCOUNT_A_TOKEN "hello"
 ```
 
 Do not print or log token values.
+
+### Extra Claude Environment
+
+Commands that create Claude Code tmux sessions (`stream`, `ask`, `start`, and `chat`) can inject additional environment variables.
+
+If no `--env-file` is provided and `<cwd>/.ctc.env` exists, the bridge reads it for newly created tmux sessions.
+
+```env
+ZETTA_API_BASE_URL=https://api.example.test
+```
+
+Use `--env-file PATH` to select another file. Use `--env NAME` to copy a specific variable from the current `ctc` process environment without putting the value in shell history.
+
+```bash
+ZETTA_API_KEY="..." \
+ctc stream --cwd "$PWD" --env ZETTA_API_KEY "hello"
+```
+
+Environment injection applies only when a new tmux session is created. Existing sessions keep their original environment.
+
+`CLAUDE_CODE_OAUTH_TOKEN` is reserved for `--oauth-token-env`; `.ctc.env` and `--env` cannot set it.
 
 ## 6. Permission Mode
 

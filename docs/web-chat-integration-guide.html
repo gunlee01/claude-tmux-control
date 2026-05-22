@@ -714,6 +714,10 @@
           <strong>웹 UI 답변</strong>
           <span>`answer "$SESSION_ID"`를 호출하지 않는다. 일반 완료는 `stream`의 `done.answer` 또는 `ask_result.answer`를 사용한다. 취소된 turn은 answer 없이 `done`/`metrics`만 올 수 있다.</span>
         </div>
+        <div class="role-row">
+          <strong>환경 주입</strong>
+          <span>새 tmux session을 만들 때 `<project>/.ctc.env`, `--env-file`, `--env NAME`을 Claude process에 전달할 수 있다. 이미 실행 중인 session에는 반영되지 않는다.</span>
+        </div>
       </div>
 
       <div class="form-grid">
@@ -732,9 +736,19 @@
       </div>
       <div class="form-grid">
         <label>
+          Env File
+          <input id="envFile" value="" placeholder="/secure/project.env" spellcheck="false">
+        </label>
+        <label>
+          Whitelist Env
+          <input id="envName" value="ZETTA_API_KEY" spellcheck="false">
+        </label>
+        <label>
           User Prompt
           <input id="userPrompt" value="Finish this PR" spellcheck="false">
         </label>
+      </div>
+      <div class="form-grid">
         <label>
           Claude Command
           <input id="claudeCommand" value="claude" spellcheck="false">
@@ -1050,6 +1064,9 @@ ctc stream${s.mode === "existing" ? ` \\
   --session-id "${escapeHtml(s.sessionId)}"` : ""} \\
   --cwd "${escapeHtml(s.projectDir)}" \\
   --oauth-token-env ${escapeHtml(s.oauthEnv)} \\
+${s.envFile ? `  --env-file "${escapeHtml(s.envFile)}" \\
+` : ""}${s.envName ? `  --env ${escapeHtml(s.envName)} \\
+` : ""}
   --command "${escapeHtml(s.claudeCommand)}" \\
   "${escapeHtml(s.userPrompt)}"`
       },
@@ -1060,6 +1077,9 @@ ctc ask${s.mode === "existing" ? ` \\
   --session-id "${escapeHtml(s.sessionId)}"` : ""} \\
   --cwd "${escapeHtml(s.projectDir)}" \\
   --oauth-token-env ${escapeHtml(s.oauthEnv)} \\
+${s.envFile ? `  --env-file "${escapeHtml(s.envFile)}" \\
+` : ""}${s.envName ? `  --env ${escapeHtml(s.envName)} \\
+` : ""}
   "${escapeHtml(s.userPrompt)}"
 
 # waits until the turn is complete, then returns optional answer + metrics`
@@ -1138,6 +1158,8 @@ ctc reap --idle-seconds 1800 --prefix ctc-csess-`
         tmux: `ctc-csess-${sessionId}`,
         projectDir: document.getElementById("projectDir").value || ".",
         oauthEnv: slug(document.getElementById("oauthEnv").value || "CLAUDE_CODE_OAUTH_TOKEN"),
+        envFile: document.getElementById("envFile").value.trim(),
+        envName: slug(document.getElementById("envName").value || ""),
         userPrompt: document.getElementById("userPrompt").value || "Finish this PR",
         claudeCommand: document.getElementById("claudeCommand").value.trim() || "claude",
         mode: document.getElementById("sessionMode").value
@@ -1247,7 +1269,7 @@ ctc reap --idle-seconds 1800 --prefix ctc-csess-`
       });
     });
 
-    document.querySelectorAll("#sessionId, #projectDir, #oauthEnv, #userPrompt, #claudeCommand, #sessionMode").forEach(input => {
+    document.querySelectorAll("#sessionId, #projectDir, #oauthEnv, #envFile, #envName, #userPrompt, #claudeCommand, #sessionMode").forEach(input => {
       input.addEventListener("input", renderCommands);
       input.addEventListener("change", renderCommands);
     });

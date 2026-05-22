@@ -12,6 +12,17 @@
 - log, error, example, test, screenshot에 token 값을 출력하지 마세요.
 - 여러 계정을 분리해야 하면 `CLAUDE_CONFIG_DIR`를 계정별로 분리합니다.
 
+## Claude Environment Files
+
+새 tmux session을 만들 때 `ctc`는 `<cwd>/.ctc.env`, 명시적 `--env-file PATH`, 현재 process env의 `--env NAME` whitelist를 Claude Code process에 주입할 수 있습니다.
+
+이 값들은 secret으로 취급하세요.
+
+- `.ctc.env`를 commit하지 마세요.
+- 값이 shell history에 남지 않도록 `KEY=VALUE` command argument보다 `--env NAME`을 선호하세요.
+- env 주입은 새 session 생성 시점에만 적용됩니다. 이미 실행 중인 Claude Code session은 시작 당시 env를 유지합니다.
+- `CLAUDE_CODE_OAUTH_TOKEN`은 `--oauth-token-env` 전용입니다. `.ctc.env`와 `--env`에서는 거절됩니다.
+
 ## Permission Mode
 
 새 Claude Code session은 기본적으로 `--dangerously-skip-permissions`로 실행됩니다.

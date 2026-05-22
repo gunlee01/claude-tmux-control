@@ -229,7 +229,7 @@ ctc start work
 새 tmux session을 만들고 Claude Code를 실행합니다.
 
 ```bash
-ctc start SESSION [--cwd PATH] [--command COMMAND] [--attach] [--oauth-token-env ENV]
+ctc start SESSION [--cwd PATH] [--command COMMAND] [--attach] [--oauth-token-env ENV] [--env-file PATH] [--env NAME]
 ```
 
 | 옵션 | 의미 |
@@ -238,12 +238,14 @@ ctc start SESSION [--cwd PATH] [--command COMMAND] [--attach] [--oauth-token-env
 | `--command COMMAND` | tmux 안에서 실행할 Claude Code command |
 | `--attach` | 생성/재사용 후 바로 tmux attach |
 | `--oauth-token-env ENV` | 이 env 값을 `CLAUDE_CODE_OAUTH_TOKEN`으로 주입 |
+| `--env-file PATH` | 새 tmux session에 주입할 추가 env file |
+| `--env NAME` | 현재 `ctc` process env에서 특정 key만 복사 |
 
 주의:
 
 - `--command` 기본값은 `claude`입니다.
 - command에 permission override가 없으면 `--dangerously-skip-permissions`가 자동으로 붙습니다.
-- `--oauth-token-env`는 새 tmux session을 만들 때만 의미가 있습니다.
+- `--oauth-token-env`, `--env-file`, `--env`는 새 tmux session을 만들 때만 의미가 있습니다.
 - `start`가 모르는 옵션은 Claude Code option으로 command 뒤에 전달합니다.
 
 Claude Code option passthrough:
@@ -908,10 +910,32 @@ ACCOUNT_B_TOKEN="..." ctc stream --cwd "$PWD" --oauth-token-env ACCOUNT_B_TOKEN 
 
 실제로 Claude Code process에는 항상 `CLAUDE_CODE_OAUTH_TOKEN` 이름으로 들어갑니다.
 
+### 추가 Claude Environment
+
+`stream`, `ask`, `start`, `chat`은 새 tmux session을 만들 때 추가 env를 주입할 수 있습니다.
+
+`--env-file`을 명시하지 않고 `<cwd>/.ctc.env`가 있으면 기본으로 읽습니다.
+
+```env
+ZETTA_API_BASE_URL=https://api.example.test
+```
+
+다른 파일을 쓰려면 `--env-file PATH`를 넘깁니다. 현재 `ctc` process env에서 특정 key만 복사하려면 `--env NAME`을 사용합니다.
+
+```bash
+ZETTA_API_KEY="..." \
+ctc stream --cwd "$PWD" --env ZETTA_API_KEY "hello"
+```
+
+env 주입은 새 tmux session 생성 시점에만 적용됩니다. 기존 session은 시작 당시 env를 유지합니다.
+
+`CLAUDE_CODE_OAUTH_TOKEN`은 `--oauth-token-env` 전용입니다. `.ctc.env`와 `--env`에서는 이 key를 설정할 수 없습니다.
+
 보안 주의:
 
 - token을 command argument로 넘기지 않습니다.
 - shell history에 token 값이 남지 않게 주의합니다.
+- `.ctc.env`를 commit하지 않습니다.
 - 운영에서는 process env 접근 권한과 log redaction을 확인해야 합니다.
 
 ## 7. Permission Mode

@@ -32,9 +32,12 @@ DEFAULT_PRICING_TABLE = Path(__file__).with_name("claude_pricing.json")
 DEFAULT_INSTALLED_PRICING_TABLE = Path(sys.prefix) / "share" / "claude-tmux-control" / "claude_pricing.json"
 DEFAULT_CONTROLLED_PREFIX = "ctc-"
 DEFAULT_WEB_SESSION_PREFIX = "ctc-csess-"
+DEFAULT_ENV_FILE_NAME = ".ctc.env"
 DEFAULT_TOOL_RESULT_TEXT_LIMIT = 100
 STATE_SCHEMA_VERSION = 1
 _PRICING_TABLE_CACHE: dict | None = None
+ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+RESERVED_ENV_NAMES = {CLAUDE_OAUTH_TOKEN_ENV}
 WORKING_PATTERNS = (
     re.compile(r"\besc\b.*\binterrupt\b", re.IGNORECASE),
     re.compile(r"\bthinking\b", re.IGNORECASE),
@@ -240,6 +243,7 @@ Docs:
         default=CLAUDE_OAUTH_TOKEN_ENV,
         help=f"source environment variable to pass as {CLAUDE_OAUTH_TOKEN_ENV}",
     )
+    add_environment_args(start)
 
     launch = subparsers.add_parser("launch", help="LOW: run Claude Code inside an existing tmux session.")
     launch.add_argument("session", help="tmux session name")
@@ -327,6 +331,7 @@ Docs:
         default=CLAUDE_OAUTH_TOKEN_ENV,
         help=f"source environment variable to pass as {CLAUDE_OAUTH_TOKEN_ENV}",
     )
+    add_environment_args(ask)
     ask.add_argument("--state-dir", type=Path, default=DEFAULT_STATE_DIR, help="bridge state directory")
     ask.add_argument("--transcript", type=Path, help="specific transcript JSONL path")
     ask.add_argument("--root", type=Path, default=DEFAULT_TRANSCRIPT_ROOT, help="Claude config/transcript directory")
@@ -393,6 +398,7 @@ Docs:
         default=CLAUDE_OAUTH_TOKEN_ENV,
         help=f"source environment variable to pass as {CLAUDE_OAUTH_TOKEN_ENV}",
     )
+    add_environment_args(stream)
     stream.add_argument("--state-dir", type=Path, default=DEFAULT_STATE_DIR, help="bridge state directory")
     stream.add_argument("--transcript", type=Path, help="specific transcript JSONL path")
     stream.add_argument("--root", type=Path, default=DEFAULT_TRANSCRIPT_ROOT, help="Claude config/transcript directory")
@@ -426,6 +432,7 @@ Docs:
         default=CLAUDE_OAUTH_TOKEN_ENV,
         help=f"source environment variable to pass as {CLAUDE_OAUTH_TOKEN_ENV}",
     )
+    add_environment_args(chat)
     chat.add_argument("--height", type=int, default=200, help="number of pane history lines to capture")
     chat.add_argument("--interval", type=float, default=0.5, help="seconds between captures after sending input")
     chat.add_argument("--idle", type=float, default=2.0, help="return to the input prompt after this many stable seconds")
@@ -436,6 +443,26 @@ Docs:
         parser.error(f"unrecognized arguments: {' '.join(claude_args)}")
     args.claude_args = passthrough if args.command_name in CLAUDE_LAUNCH_COMMANDS else []
     return args
+
+
+def add_environment_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--env",
+        dest="env_names",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="copy a named environment variable from the ctc process into a newly created tmux session",
+    )
+    parser.add_argument(
+        "--env-file",
+        dest="env_files",
+        action="append",
+        type=Path,
+        default=[],
+        metavar="PATH",
+        help=f"read environment variables from PATH for newly created tmux sessions; defaults to cwd/{DEFAULT_ENV_FILE_NAME}",
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -461,12 +488,20 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _run_command(args: argparse.Namespace, controller: TmuxController) -> int:
     if args.command_name == "start":
-        created = controller.start_session(
-            args.session,
-            build_claude_command(args.claude_command, args.claude_args),
-            args.cwd,
-            env=claude_environment_from_args(args),
-        )
+        if controller.session_exists(args.session):
+            created = False
+        else:
+            try:
+                env = claude_environment_from_args(args)
+            except ValueError as error:
+                print(str(error), file=sys.stderr)
+                return 2
+            created = controller.start_session(
+                args.session,
+                build_claude_command(args.claude_command, args.claude_args),
+                args.cwd,
+                env=env,
+            )
         write_session_state(_session_state_path(args.session), args.session, "", Path(args.cwd))
         print(f"{'created' if created else 'reused'} session: {args.session}")
         if args.attach:
@@ -592,12 +627,18 @@ def _run_command(args: argparse.Namespace, controller: TmuxController) -> int:
         return 0
 
     if args.command_name == "chat":
-        controller.start_session(
-            args.session,
-            build_claude_command(args.claude_command, args.claude_args),
-            args.cwd,
-            env=claude_environment_from_args(args),
-        )
+        if not controller.session_exists(args.session):
+            try:
+                env = claude_environment_from_args(args)
+            except ValueError as error:
+                print(str(error), file=sys.stderr)
+                return 2
+            controller.start_session(
+                args.session,
+                build_claude_command(args.claude_command, args.claude_args),
+                args.cwd,
+                env=env,
+            )
         write_session_state(_session_state_path(args.session), args.session, "", Path(args.cwd))
         return _chat(controller, args.session, args.height, args.interval, args.idle)
 
@@ -616,14 +657,76 @@ def claude_environment_from_args(
     args: argparse.Namespace,
     environ: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
+    env = os.environ if environ is None else environ
+    result: dict[str, str] = {}
+
+    for env_file in _env_files_from_args(args):
+        result.update(read_env_file(env_file))
+
+    for name in getattr(args, "env_names", []) or []:
+        _validate_env_name(name)
+        if name in RESERVED_ENV_NAMES:
+            raise ValueError(f"reserved_env: {name}")
+        if name not in env:
+            raise ValueError(f"missing_env: {name}")
+        result[name] = env[name]
+
     source_env = getattr(args, "oauth_token_env", None)
     if not source_env:
-        return {}
-    env = os.environ if environ is None else environ
+        return result
     token = env.get(source_env)
     if not token:
-        return {}
-    return {CLAUDE_OAUTH_TOKEN_ENV: token}
+        return result
+    result[CLAUDE_OAUTH_TOKEN_ENV] = token
+    return result
+
+
+def _env_files_from_args(args: argparse.Namespace) -> list[Path]:
+    explicit = list(getattr(args, "env_files", []) or [])
+    if explicit:
+        return [path.expanduser() for path in explicit]
+
+    cwd = getattr(args, "cwd", None)
+    if cwd is None:
+        return []
+    default_path = Path(cwd).expanduser().resolve() / DEFAULT_ENV_FILE_NAME
+    return [default_path] if default_path.exists() else []
+
+
+def read_env_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise ValueError(f"invalid_env_file: {path}") from error
+
+    for index, original_line in enumerate(lines, start=1):
+        line = original_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        if "=" not in line:
+            raise ValueError(f"invalid_env_file: {path}:{index}")
+        name, value = line.split("=", 1)
+        name = name.strip()
+        if not ENV_NAME_PATTERN.fullmatch(name):
+            raise ValueError(f"invalid_env_file: {path}:{index}")
+        if name in RESERVED_ENV_NAMES:
+            raise ValueError(f"reserved_env: {name}")
+        values[name] = _unquote_env_value(value.strip())
+    return values
+
+
+def _validate_env_name(name: str) -> None:
+    if not ENV_NAME_PATTERN.fullmatch(name):
+        raise ValueError(f"invalid_env: {name}")
+
+
+def _unquote_env_value(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
 
 
 def _has_permission_override(command: str, claude_args: Sequence[str] = ()) -> bool:
@@ -1209,7 +1312,7 @@ def run_high_level_turn(
             state_dir=args.state_dir,
             session_id=args.session_id,
             claude_command=args.claude_command,
-            env=claude_environment_from_args(args),
+            env_builder=lambda: claude_environment_from_args(args),
         )
     except ValueError as error:
         return {"exit_code": 2, "error": str(error)}
@@ -1306,6 +1409,7 @@ def prepare_high_level_stream(
     session_id: str | None = None,
     claude_command: str = "claude",
     env: Mapping[str, str] | None = None,
+    env_builder: Callable[[], Mapping[str, str]] | None = None,
     now: Callable[[], float] = time.time,
 ) -> StreamRuntime:
     actual_session_id = validate_or_create_session_id(session_id)
@@ -1336,6 +1440,11 @@ def prepare_high_level_stream(
             else:
                 raise RuntimeError("turn_in_progress")
 
+        tmux_exists = controller.session_exists(tmux_session)
+        new_session_env: Mapping[str, str] | None = env
+        if not tmux_exists and env_builder is not None:
+            new_session_env = env_builder()
+
         transcript = resolve_high_level_transcript(root, canonical_cwd, state, session_id=actual_session_id)
         before_send_offset = transcript.stat().st_size if transcript and transcript.exists() else 0
         turn_id = make_turn_id(now)
@@ -1363,7 +1472,7 @@ def prepare_high_level_stream(
         _write_high_level_state(state_path, pending_state)
 
         try:
-            if controller.session_exists(tmux_session):
+            if tmux_exists:
                 screen_status = analyze_screen_status(controller.capture_screen(tmux_session, height=80))
                 if screen_status.state != "ready":
                     raise RuntimeError("turn_in_progress")
@@ -1371,7 +1480,7 @@ def prepare_high_level_stream(
             else:
                 resume = bool(state or transcript)
                 command = build_initial_claude_command(claude_command, actual_session_id, prompt, resume=resume)
-                controller.start_session(tmux_session, command=command, cwd=canonical_cwd, env=env)
+                controller.start_session(tmux_session, command=command, cwd=canonical_cwd, env=new_session_env)
         except KeyboardInterrupt:
             _mark_turn_interrupted(runtime)
             raise

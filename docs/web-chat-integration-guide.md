@@ -51,6 +51,22 @@ browser
 
 Do not send a second prompt until the previous turn reaches `done`/`metrics` or is explicitly cancelled and finalized.
 
+### Runtime Environment
+
+When Claude Code needs project-specific secrets, prefer `<project>/.ctc.env` or `--env NAME` over putting secret values in command arguments.
+
+```bash
+ZETTA_API_KEY="..." \
+ctc stream \
+  --cwd "$PROJECT_DIR" \
+  --env ZETTA_API_KEY \
+  "$USER_PROMPT"
+```
+
+If `<project>/.ctc.env` exists and no explicit `--env-file` is passed, `ctc` reads it when creating a new tmux session. Environment changes do not affect already running sessions; stop/reap the tmux session before expecting updated env values.
+
+`CLAUDE_CODE_OAUTH_TOKEN` is reserved for `--oauth-token-env` and cannot be set through `.ctc.env` or `--env`.
+
 ## 4. Event Handling
 
 | Event | UI behavior |

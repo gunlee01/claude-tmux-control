@@ -51,6 +51,7 @@
 
 - [x] Pass caller-provided OAuth token as `CLAUDE_CODE_OAUTH_TOKEN`.
 - [x] Support `--oauth-token-env`.
+- [x] Support project env injection with `.ctc.env`, `--env-file`, and `--env`.
 - [x] Default Claude Code launch to `--dangerously-skip-permissions`.
 - [x] Avoid duplicating permission override flags.
 

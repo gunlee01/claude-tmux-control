@@ -197,6 +197,18 @@ TERM=xterm-256color ctc stream --cwd "$PWD" "hello"
 
 `--oauth-token-env` selects the source env var when needed.
 
+Additional Claude-side environment can come from a project env file or an explicit whitelist. By default, high-level commands read `<cwd>/.ctc.env` when it exists; use `--env-file PATH` to choose another file and `--env NAME` to copy a named variable from the current `ctc` process environment.
+
+```bash
+ZETTA_API_KEY="$TOKEN" \
+TERM=xterm-256color ctc stream \
+  --cwd "$PWD" \
+  --env ZETTA_API_KEY \
+  "hello"
+```
+
+Environment injection applies only when a new tmux session is created. Existing sessions keep the environment they started with. `CLAUDE_CODE_OAUTH_TOKEN` is reserved for `--oauth-token-env` and is rejected in `.ctc.env` or `--env`.
+
 See [Security Guide](./docs/security.md) for token, transcript, Docker, and `--dangerously-skip-permissions` guidance.
 
 ## Examples

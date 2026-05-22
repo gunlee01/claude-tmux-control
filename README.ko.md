@@ -320,6 +320,20 @@ TERM=xterm-256color ctc stream \
   "hello"
 ```
 
+Claude process에 추가 env가 필요하면 project env file 또는 명시적 whitelist를 씁니다.
+
+기본적으로 high-level 명령은 `--cwd` 아래의 `.ctc.env`가 있으면 읽습니다. 다른 파일은 `--env-file PATH`로 지정하고, 현재 `ctc` process env에서 특정 key만 복사하려면 `--env NAME`을 씁니다.
+
+```bash
+ZETTA_API_KEY="$TOKEN" \
+TERM=xterm-256color ctc stream \
+  --cwd "$PWD" \
+  --env ZETTA_API_KEY \
+  "hello"
+```
+
+env 주입은 새 tmux session을 만들 때만 적용됩니다. 기존 session은 시작 당시 env를 유지합니다. `CLAUDE_CODE_OAUTH_TOKEN`은 `--oauth-token-env` 전용이라 `.ctc.env`나 `--env`에서는 거절됩니다.
+
 Claude Code 실행 command에는 기본적으로 `--dangerously-skip-permissions`가 붙습니다.
 
 token, transcript, Docker, `--dangerously-skip-permissions` 관련 주의사항은 [Security Guide](./docs/security.ko.md)를 봅니다.

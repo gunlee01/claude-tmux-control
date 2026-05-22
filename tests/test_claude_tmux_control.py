@@ -96,6 +96,20 @@ class TmuxControllerTest(unittest.TestCase):
         self.assertFalse(created)
         self.assertEqual(len(runner.calls), 1)
 
+    def test_run_start_reuses_existing_session_without_parsing_environment(self):
+        runner = FakeRunner()
+        runner.session_exists = True
+        controller = ctc.TmuxController(run=runner)
+        args = ctc.parse_args(["start", "cc-test", "--env", "MISSING_SECRET"])
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = ctc._run_command(args, controller)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("reused session: cc-test", stdout.getvalue())
+        self.assertEqual(runner.calls, [(["tmux", "has-session", "-t", "cc-test"], {"check": False, "capture_output": True, "text": True})])
+
     def test_send_prompt_pastes_text_and_submits_enter(self):
         runner = FakeRunner()
         controller = ctc.TmuxController(run=runner)
@@ -316,17 +330,137 @@ class CliTest(unittest.TestCase):
         )
 
     def test_oauth_environment_reads_configured_source_env(self):
-        args = ctc.parse_args(["start", "work", "--oauth-token-env", "ACCOUNT_A_TOKEN"])
+        with tempfile.TemporaryDirectory() as tmp:
+            args = ctc.parse_args(["start", "work", "--cwd", tmp, "--oauth-token-env", "ACCOUNT_A_TOKEN"])
 
-        self.assertEqual(
-            ctc.claude_environment_from_args(args, environ={"ACCOUNT_A_TOKEN": "oauth-token"}),
-            {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"},
-        )
+            self.assertEqual(
+                ctc.claude_environment_from_args(args, environ={"ACCOUNT_A_TOKEN": "oauth-token"}),
+                {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"},
+            )
 
     def test_oauth_environment_is_empty_when_source_env_is_missing(self):
-        args = ctc.parse_args(["start", "work", "--oauth-token-env", "ACCOUNT_A_TOKEN"])
+        with tempfile.TemporaryDirectory() as tmp:
+            args = ctc.parse_args(["start", "work", "--cwd", tmp, "--oauth-token-env", "ACCOUNT_A_TOKEN"])
 
-        self.assertEqual(ctc.claude_environment_from_args(args, environ={}), {})
+            self.assertEqual(ctc.claude_environment_from_args(args, environ={}), {})
+
+    def test_parse_accepts_explicit_environment_options(self):
+        args = ctc.parse_args(
+            [
+                "stream",
+                "--cwd",
+                "/tmp/project",
+                "--env-file",
+                "/tmp/project/.ctc.env",
+                "--env",
+                "ZETTA_API_KEY",
+                "hello",
+            ]
+        )
+
+        self.assertEqual(args.env_files, [Path("/tmp/project/.ctc.env")])
+        self.assertEqual(args.env_names, ["ZETTA_API_KEY"])
+
+    def test_claude_environment_reads_env_file_and_process_whitelist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = Path(tmp) / "custom.env"
+            env_file.write_text(
+                "\n".join(
+                    [
+                        "# comment",
+                        "ZETTA_BASE_URL=https://api.example.test",
+                        "export QUOTED='hello world'",
+                        'DOUBLE_QUOTED="yes"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            args = ctc.parse_args(
+                [
+                    "stream",
+                    "--cwd",
+                    tmp,
+                    "--env-file",
+                    str(env_file),
+                    "--env",
+                    "ZETTA_API_KEY",
+                    "hello",
+                ]
+            )
+
+            env = ctc.claude_environment_from_args(args, environ={"ZETTA_API_KEY": "secret"})
+
+            self.assertEqual(env["ZETTA_BASE_URL"], "https://api.example.test")
+            self.assertEqual(env["QUOTED"], "hello world")
+            self.assertEqual(env["DOUBLE_QUOTED"], "yes")
+            self.assertEqual(env["ZETTA_API_KEY"], "secret")
+
+    def test_claude_environment_uses_default_cwd_env_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, ".ctc.env").write_text("ZETTA_BASE_URL=https://default.example.test\n", encoding="utf-8")
+            args = ctc.parse_args(["stream", "--cwd", tmp, "hello"])
+
+            self.assertEqual(
+                ctc.claude_environment_from_args(args, environ={}),
+                {"ZETTA_BASE_URL": "https://default.example.test"},
+            )
+
+    def test_claude_environment_rejects_malformed_env_file_without_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = Path(tmp) / "bad.env"
+            env_file.write_text("ZETTA_API_KEY secret-value\n", encoding="utf-8")
+            args = ctc.parse_args(["start", "work", "--cwd", tmp, "--env-file", str(env_file)])
+
+            with self.assertRaisesRegex(ValueError, r"invalid_env_file: .*:1"):
+                ctc.claude_environment_from_args(args, environ={})
+
+            try:
+                ctc.claude_environment_from_args(args, environ={})
+            except ValueError as error:
+                self.assertNotIn("secret-value", str(error))
+
+    def test_claude_environment_rejects_reserved_oauth_from_env_file_and_env_option(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = Path(tmp) / "bad.env"
+            env_file.write_text("CLAUDE_CODE_OAUTH_TOKEN=file-token\n", encoding="utf-8")
+            file_args = ctc.parse_args(["start", "work", "--cwd", tmp, "--env-file", str(env_file)])
+            env_args = ctc.parse_args(["start", "work", "--cwd", tmp, "--env", "CLAUDE_CODE_OAUTH_TOKEN"])
+
+            with self.assertRaisesRegex(ValueError, "reserved_env: CLAUDE_CODE_OAUTH_TOKEN"):
+                ctc.claude_environment_from_args(file_args, environ={})
+            with self.assertRaisesRegex(ValueError, "reserved_env: CLAUDE_CODE_OAUTH_TOKEN"):
+                ctc.claude_environment_from_args(env_args, environ={"CLAUDE_CODE_OAUTH_TOKEN": "token"})
+
+    def test_claude_environment_fails_closed_when_whitelisted_env_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = ctc.parse_args(["start", "work", "--cwd", tmp, "--env", "ZETTA_API_KEY"])
+
+            with self.assertRaisesRegex(ValueError, "missing_env: ZETTA_API_KEY"):
+                ctc.claude_environment_from_args(args, environ={})
+
+    def test_claude_environment_process_env_overrides_env_file_for_non_oauth_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = Path(tmp) / "custom.env"
+            env_file.write_text("ZETTA_API_KEY=file-value\n", encoding="utf-8")
+            args = ctc.parse_args(["start", "work", "--cwd", tmp, "--env-file", str(env_file), "--env", "ZETTA_API_KEY"])
+
+            self.assertEqual(
+                ctc.claude_environment_from_args(args, environ={"ZETTA_API_KEY": "process-value"}),
+                {"ZETTA_API_KEY": "process-value"},
+            )
+
+    def test_claude_environment_applies_oauth_after_extra_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = Path(tmp) / "custom.env"
+            env_file.write_text("ZETTA_API_KEY=file-value\n", encoding="utf-8")
+            args = ctc.parse_args(
+                ["start", "work", "--cwd", tmp, "--env-file", str(env_file), "--oauth-token-env", "ACCOUNT_A_TOKEN"]
+            )
+
+            self.assertEqual(
+                ctc.claude_environment_from_args(args, environ={"ACCOUNT_A_TOKEN": "oauth-token"}),
+                {"ZETTA_API_KEY": "file-value", "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"},
+            )
 
     def test_preflight_requires_tmux(self):
         args = ctc.parse_args(["send", "work", "hello"])
@@ -726,6 +860,92 @@ class HighLevelStreamSetupTest(unittest.TestCase):
             state = ctc.read_bridge_state(runtime.state_path)
             self.assertEqual(state["active_turn"]["claude_state"], "starting")
             self.assertTrue(state["active_turn"]["no_transcript_baseline"])
+
+    def test_prepare_high_level_stream_injects_default_cwd_env_file_for_new_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, ".ctc.env").write_text("ZETTA_BASE_URL=https://default.example.test\n", encoding="utf-8")
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runner = FakeRunner()
+            controller = ctc.TmuxController(run=runner)
+            args = ctc.parse_args(["stream", "--cwd", tmp, "--session-id", session_id, "hello"])
+
+            runtime = ctc.prepare_high_level_stream(
+                controller=controller,
+                cwd=args.cwd,
+                prompt="hello",
+                root=Path(tmp) / "claude",
+                state_dir=Path(tmp) / "state",
+                session_id=session_id,
+                env_builder=lambda: ctc.claude_environment_from_args(args, environ={}),
+            )
+
+            self.assertIn(
+                (
+                    [
+                        "tmux",
+                        "new-session",
+                        "-d",
+                        "-s",
+                        runtime.tmux_session,
+                        "-e",
+                        "ZETTA_BASE_URL=https://default.example.test",
+                        "-c",
+                        str(Path(tmp).resolve()),
+                        "claude --session-id 550e8400-e29b-41d4-a716-446655440000 "
+                        "--dangerously-skip-permissions hello",
+                    ],
+                    {"check": True},
+                ),
+                runner.calls,
+            )
+
+    def test_prepare_high_level_stream_reuses_existing_session_without_parsing_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, ".ctc.env").write_text("not valid\n", encoding="utf-8")
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runner = FakeRunner()
+            runner.session_exists = True
+            runner.capture_text = "Done\nclaude> "
+            controller = ctc.TmuxController(run=runner)
+            args = ctc.parse_args(["stream", "--cwd", tmp, "--session-id", session_id, "--env", "MISSING_SECRET", "next"])
+
+            runtime = ctc.prepare_high_level_stream(
+                controller=controller,
+                cwd=args.cwd,
+                prompt="next",
+                root=Path(tmp) / "claude",
+                state_dir=Path(tmp) / "state",
+                session_id=session_id,
+                env_builder=lambda: ctc.claude_environment_from_args(args, environ={}),
+            )
+
+            self.assertEqual(runtime.tmux_session, "ctc-csess-550e8400-e29b-41d4-a716-446655440000")
+            self.assertIn(
+                (
+                    ["tmux", "load-buffer", "-b", "claude-tmux-control", "-"],
+                    {"input": "next", "text": True, "check": True},
+                ),
+                runner.calls,
+            )
+
+    def test_prepare_high_level_stream_env_failure_does_not_write_state_for_new_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_dir = Path(tmp) / "state"
+            args = ctc.parse_args(["stream", "--cwd", tmp, "--session-id", session_id, "--env", "MISSING_SECRET", "hello"])
+
+            with self.assertRaisesRegex(ValueError, "missing_env: MISSING_SECRET"):
+                ctc.prepare_high_level_stream(
+                    controller=ctc.TmuxController(run=FakeRunner()),
+                    cwd=args.cwd,
+                    prompt="hello",
+                    root=Path(tmp) / "claude",
+                    state_dir=state_dir,
+                    session_id=session_id,
+                    env_builder=lambda: ctc.claude_environment_from_args(args, environ={}),
+                )
+
+            self.assertFalse(ctc.web_session_state_path(session_id, state_dir).exists())
 
     def test_build_pending_turn_state_preserves_completed_turn_totals(self):
         with tempfile.TemporaryDirectory() as tmp:
