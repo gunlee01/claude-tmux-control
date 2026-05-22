@@ -25,7 +25,10 @@ web/client process
 - Keep explanations concise and conclusion-first.
 - Code, commands, paths, and option names stay in English.
 - Prefer short, practical examples over long theory.
-- Preserve existing Korean documentation style in `README.md` and `docs/*.md`.
+- Commit messages for this repository must be written in English.
+- Append the required AI co-author attribution line to AI-generated commits.
+- Keep primary Markdown docs in English: `README.md` and `docs/*.md`.
+- Preserve Korean documentation in matching `.ko.md` files and keep the top language switch links working both ways.
 
 ## Tech Stack
 
