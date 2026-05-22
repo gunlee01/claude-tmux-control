@@ -197,6 +197,16 @@ TERM=xterm-256color ctc stream --cwd "$PWD" "hello"
 
 `--oauth-token-env` selects the source env var when needed.
 
+See [Security Guide](./docs/security.md) for token, transcript, Docker, and `--dangerously-skip-permissions` guidance.
+
+## Examples
+
+Runnable examples are in [examples](./examples/README.md).
+
+- `shell-stream.sh`: one-turn shell wrapper around `ctc stream`
+- `web-client-minimal.py`: minimal backend-style stdout JSONL consumer
+- `docker-compose.yml`: persistent Claude config and bridge state volumes
+
 ## Useful Commands
 
 ```bash
@@ -237,3 +247,5 @@ This is not an official stable SDK protocol for Claude Code. Run smoke tests aft
 - [Web Chat Integration Guide](./docs/web-chat-integration-guide.md)
 - [Operations Guide](./docs/operations.md)
 - [Docker Guide](./docs/docker.md)
+- [Security Guide](./docs/security.md)
+- [Release Guide](./docs/release.md)

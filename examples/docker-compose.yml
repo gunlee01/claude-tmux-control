@@ -1,0 +1,17 @@
+services:
+  ctc:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?set CLAUDE_CODE_OAUTH_TOKEN}
+      CLAUDE_CONFIG_DIR: /home/ctc/.claude
+    volumes:
+      - claude-home:/home/ctc/.claude
+      - ctc-state:/home/ctc/.cache/claude-tmux-control
+      - ..:/repo
+    working_dir: /repo
+
+volumes:
+  claude-home:
+  ctc-state:

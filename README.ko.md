@@ -322,6 +322,16 @@ TERM=xterm-256color ctc stream \
 
 Claude Code 실행 command에는 기본적으로 `--dangerously-skip-permissions`가 붙습니다.
 
+token, transcript, Docker, `--dangerously-skip-permissions` 관련 주의사항은 [Security Guide](./docs/security.ko.md)를 봅니다.
+
+## Examples
+
+실행 가능한 예제는 [examples](./examples/README.ko.md)에 있습니다.
+
+- `shell-stream.sh`: `ctc stream`을 감싼 one-turn shell wrapper
+- `web-client-minimal.py`: stdout JSONL을 읽는 최소 backend-style consumer
+- `docker-compose.yml`: Claude config와 bridge state를 volume으로 유지하는 예시
+
 ## Useful Commands
 
 웹/외부 프로그램에서 주로 쓰는 high-level 명령입니다.
@@ -396,3 +406,6 @@ Claude Code 업데이트 후에는 `stream`, `done`, `metrics`, `reap` 동작을
 - [Web Client Quickstart](./docs/quickstart-web-client.ko.md)
 - [Web Chat Integration Guide](./docs/web-chat-integration-guide.ko.md)
 - [Operations Guide](./docs/operations.ko.md)
+- [Docker Guide](./docs/docker.ko.md)
+- [Security Guide](./docs/security.ko.md)
+- [Release Guide](./docs/release.ko.md)

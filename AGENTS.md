@@ -62,6 +62,14 @@ web/client process
   - Planned local state schema for transcript cursors, turn anchors, locks, and efficient streaming.
 - `docs/docker.md`
   - Docker image build, Claude Code first-run preseed, managed settings preflight, container 운영 절차.
+- `docs/security.md`
+  - Token handling, dangerous permission mode, transcript/state sensitivity, and Docker safety.
+- `docs/release.md`
+  - Release checklist for GitHub tags, PyPI readiness, and Docker registry readiness.
+- `scripts/check_docs.py`
+  - Markdown language switch, translation pair, and local link validation.
+- `examples/`
+  - Public integration examples. Keep them minimal and stdout-JSONL oriented.
 - `docker/Dockerfile`
   - Runtime image for `ctc`, `tmux`, and Claude Code CLI.
 - `docker/entrypoint.sh`
@@ -267,6 +275,10 @@ rm -rf __pycache__ tests/__pycache__ scripts/__pycache__
 - Update `docs/web-chat-integration-guide.md` and `docs/web-chat-integration-guide.html` whenever a source change affects external chat integration, stream events, session lifecycle, token/context extraction, cost/usage reporting, or error/exit-code behavior.
 - Update `docs/local-storage-plan.md` when changing state schema, cursoring, transcript rotation handling, lock semantics, or polling behavior.
 - Update `docs/docker.md` whenever Docker image build, `docker/entrypoint.sh`, Claude Code first-run preseed, managed settings preflight, auth env handling, or container cleanup behavior changes.
+- Update `docs/security.md` whenever auth handling, token exposure risk, state/transcript storage, permission mode, or Docker secret behavior changes.
+- Update `docs/release.md` whenever packaging, CI, release, Docker registry, or versioning behavior changes.
+- Keep English docs and matching `.ko.md` docs in sync for user-facing Markdown.
+- Run `python scripts/check_docs.py` after documentation changes.
 - If a behavior affects product direction, update `docs/PRD.md`.
 
 ## Current Known Gaps

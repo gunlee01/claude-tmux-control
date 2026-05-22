@@ -8,5 +8,7 @@ __pycache__
 dist
 build
 *.egg-info
+logs
+temporary_docs
 secret.env
 *.env
