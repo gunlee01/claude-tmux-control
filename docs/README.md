@@ -10,6 +10,7 @@
 - [Interactive Web Chat Guide](./web-chat-integration-guide.html): 같은 내용을 브라우저에서 탐색하는 인터랙티브 HTML 문서
 - [Web Chat App Flow](./web-chat-app-flow.html): 브라우저 채팅앱이 CLI stream을 호출하고 event를 UI에 반영하는 흐름도 HTML
 - [Operations Guide](./operations.md): idle cleanup, reap, kill, 장애 복구 운영 절차
+- [Docker Guide](./docker.md): Docker 이미지 build, first-run preseed, managed settings preflight
 - [Claude Pricing Table](../claude_pricing.json): metrics cost 계산에 쓰는 Claude model별 USD/MTok 단가
 - [Local Storage Plan](./local-storage-plan.md): transcript cursor, session state, lock, offset 기반 streaming 계획
 - [Test Scenarios](./test-scenarios.md): client-style 반복 테스트와 실제 Claude Code smoke 시나리오

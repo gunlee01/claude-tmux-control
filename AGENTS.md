@@ -57,6 +57,12 @@ web/client process
   - Interactive browser version of the web chat integration guide.
 - `docs/local-storage-plan.md`
   - Planned local state schema for transcript cursors, turn anchors, locks, and efficient streaming.
+- `docs/docker.md`
+  - Docker image build, Claude Code first-run preseed, managed settings preflight, container 운영 절차.
+- `docker/Dockerfile`
+  - Runtime image for `ctc`, `tmux`, and Claude Code CLI.
+- `docker/entrypoint.sh`
+  - Container startup preseed for Claude Code onboarding/trust/bypass prompts and managed settings preflight.
 - `docs/PRD.md`
   - Product direction and design decisions.
 - `docs/implementation-checklist.md`
@@ -257,6 +263,7 @@ rm -rf __pycache__ tests/__pycache__ scripts/__pycache__
 - Update `docs/cli-manual.md` and `docs/implementation-checklist.md` when CLI behavior changes.
 - Update `docs/web-chat-integration-guide.md` and `docs/web-chat-integration-guide.html` whenever a source change affects external chat integration, stream events, session lifecycle, token/context extraction, cost/usage reporting, or error/exit-code behavior.
 - Update `docs/local-storage-plan.md` when changing state schema, cursoring, transcript rotation handling, lock semantics, or polling behavior.
+- Update `docs/docker.md` whenever Docker image build, `docker/entrypoint.sh`, Claude Code first-run preseed, managed settings preflight, auth env handling, or container cleanup behavior changes.
 - If a behavior affects product direction, update `docs/PRD.md`.
 
 ## Current Known Gaps
