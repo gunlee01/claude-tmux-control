@@ -2682,6 +2682,10 @@ class TranscriptTest(unittest.TestCase):
         cwd = Path("/home/user/app_tmp")
 
         self.assertEqual(ctc.project_transcript_dir(root, cwd), Path("/home/user/.claude/projects/-home-user-app-tmp"))
+        self.assertEqual(
+            ctc.project_transcript_dir(root, Path("/home/user/app/.workspace")),
+            Path("/home/user/.claude/projects/-home-user-app--workspace"),
+        )
 
     def test_resolve_transcript_prefers_file_containing_last_sent_prompt(self):
         with tempfile.TemporaryDirectory() as tmp:
