@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 authors = [
   { name = "Gun Lee" }
 ]
-license = { text = "Proprietary" }
+license = "Apache-2.0"
 keywords = ["claude-code", "tmux", "cli", "streaming"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -26,8 +26,8 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://oss.navercorp.com/gunh-lee/claude-tmux-control"
-Repository = "https://oss.navercorp.com/gunh-lee/claude-tmux-control"
+Homepage = "https://github.com/gunlee01/claude-tmux-control"
+Repository = "https://github.com/gunlee01/claude-tmux-control"
 
 [project.scripts]
 ctc = "claude_tmux_control:main"
