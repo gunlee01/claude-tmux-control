@@ -85,6 +85,23 @@ These options apply only when the bridge creates or resumes a Claude Code proces
 
 Keep `--claude-args` operator-controlled. Do not expose arbitrary raw arguments to untrusted browser clients.
 
+### Permission Mode
+
+New Claude Code processes launch with `--dangerously-skip-permissions` by default. This is intentionally non-interactive, but it is also high-risk because Claude Code can run tools without per-action approval.
+
+A client/backend can change this only at Claude process launch time by passing a Claude Code permission option through trusted `--claude-args`:
+
+```bash
+TERM=xterm-256color \
+ctc stream \
+  --session-id "$SESSION_ID" \
+  --cwd "$PROJECT_DIR" \
+  --claude-args "--permission-mode plan" \
+  "$USER_PROMPT"
+```
+
+If your product exposes this to users, expose a safe application-level setting such as `permissionMode=plan` and map it server-side. Do not pass arbitrary browser-provided strings into `--claude-args`.
+
 ## 4. Event Handling
 
 | Event | UI behavior |

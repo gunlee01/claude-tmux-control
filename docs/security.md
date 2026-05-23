@@ -31,6 +31,14 @@ This is required for non-interactive service flows where dynamic approvals canno
 
 The bridge always launches the fixed `claude` executable. `--claude-args` can still change Claude Code behavior, including permission mode, so treat it as a privileged operator setting and do not pass untrusted client input into it.
 
+To opt out of the default dangerous mode, pass a Claude Code permission option through trusted launch arguments:
+
+```bash
+ctc stream --cwd "$PWD" --claude-args "--permission-mode plan" "hello"
+```
+
+The bridge will not add `--dangerously-skip-permissions` when `--claude-args` already contains `--permission-mode ...` or `--dangerously-skip-permissions`.
+
 Use these controls around it:
 
 - Run inside a restricted project directory.

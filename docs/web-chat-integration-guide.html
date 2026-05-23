@@ -765,6 +765,9 @@
           </select>
         </label>
       </div>
+      <div class="notice">
+        Claude Code launches with <code>--dangerously-skip-permissions</code> by default. To change it, map a trusted backend setting to <code>--claude-args "--permission-mode ..."</code>; do not pass arbitrary browser input into Claude Args.
+      </div>
 
       <div class="tabs">
         <button class="tab-button active" data-command-tab="stream">stream</button>
@@ -1066,6 +1069,14 @@
 ` : ""}`;
     }
 
+    function hasPermissionOverride(s) {
+      return /(^|\s)(--dangerously-skip-permissions|--permission-mode(=|\s|$))/.test(s.claudeArgs || "");
+    }
+
+    function defaultPermissionArg(s) {
+      return hasPermissionOverride(s) ? "" : " --dangerously-skip-permissions";
+    }
+
     const commandTemplates = {
       stream: {
         title: "high-level stream",
@@ -1120,10 +1131,10 @@ SESSION_ID="${escapeHtml(s.sessionId)}"
 TMUX_SESSION="ctc-csess-$SESSION_ID"
 
 # new session:
-claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --session-id "$SESSION_ID" --dangerously-skip-permissions "${escapeHtml(s.userPrompt)}"
+claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --session-id "$SESSION_ID"${defaultPermissionArg(s)} "${escapeHtml(s.userPrompt)}"
 
 # resume inactive session:
-claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --resume "$SESSION_ID" --dangerously-skip-permissions "${escapeHtml(s.userPrompt)}"
+claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --resume "$SESSION_ID"${defaultPermissionArg(s)} "${escapeHtml(s.userPrompt)}"
 
 # active tmux session:
 tmux load-buffer + paste-buffer + send-keys Enter`

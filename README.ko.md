@@ -352,7 +352,18 @@ TERM=xterm-256color ctc stream \
 
 이 옵션들은 새 Claude Code process를 시작할 때만 적용됩니다. 기존 tmux session은 시작 당시 model과 argument를 유지합니다.
 
-Claude Code 실행에는 기본적으로 `--dangerously-skip-permissions`가 붙습니다.
+Claude Code 실행에는 기본적으로 `--dangerously-skip-permissions`가 붙습니다. 이 값은 non-interactive service flow에는 편하지만, Claude Code가 action별 승인 없이 tool을 실행할 수 있다는 뜻입니다. 제한된 project directory, container, dedicated service user 같은 통제된 환경에서만 쓰세요.
+
+기본 permission 동작을 바꾸려면 신뢰된 `--claude-args`로 Claude Code permission option을 전달합니다.
+
+```bash
+TERM=xterm-256color ctc stream \
+  --cwd "$PWD" \
+  --claude-args "--permission-mode plan" \
+  "hello"
+```
+
+`--claude-args`에 `--permission-mode ...` 또는 `--dangerously-skip-permissions`가 이미 있으면 bridge는 `--dangerously-skip-permissions`를 추가로 붙이지 않습니다.
 
 token, transcript, Docker, `--dangerously-skip-permissions` 관련 주의사항은 [Security Guide](./docs/security.ko.md)를 봅니다.
 

@@ -33,6 +33,14 @@ bridge는 항상 고정된 `claude` 실행 파일을 사용합니다.
 
 `--claude-args`는 permission mode를 포함해 Claude Code 동작을 바꿀 수 있으므로 권한 있는 운영자 설정으로 취급하세요. 신뢰할 수 없는 client 입력을 그대로 넣지 마세요.
 
+기본 dangerous mode를 쓰지 않으려면 신뢰된 launch argument로 Claude Code permission option을 전달합니다.
+
+```bash
+ctc stream --cwd "$PWD" --claude-args "--permission-mode plan" "hello"
+```
+
+`--claude-args`에 `--permission-mode ...` 또는 `--dangerously-skip-permissions`가 이미 있으면 bridge는 `--dangerously-skip-permissions`를 추가로 붙이지 않습니다.
+
 다음 기준으로 범위를 제한하세요.
 
 - 제한된 project directory 안에서 실행합니다.

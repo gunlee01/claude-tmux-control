@@ -223,6 +223,19 @@ TERM=xterm-256color ctc stream \
 
 These options apply only when a new Claude Code process is launched. Existing tmux sessions keep their original model and arguments.
 
+Claude Code launches with `--dangerously-skip-permissions` by default. This is convenient for non-interactive service flows, but it lets Claude Code run tools without per-action approval. Run it only in a controlled project directory, container, or dedicated service user.
+
+To change the default permission behavior, pass a Claude Code permission option through trusted `--claude-args`:
+
+```bash
+TERM=xterm-256color ctc stream \
+  --cwd "$PWD" \
+  --claude-args "--permission-mode plan" \
+  "hello"
+```
+
+The bridge does not add `--dangerously-skip-permissions` when `--claude-args` already contains `--permission-mode ...` or `--dangerously-skip-permissions`.
+
 See [Security Guide](./docs/security.md) for token, transcript, Docker, and `--dangerously-skip-permissions` guidance.
 
 ## Examples

@@ -249,7 +249,11 @@ ctc stream --cwd "$PWD" --claude-args "--permission-mode plan" "hello"
 
 Claude Code launch commands default to `--dangerously-skip-permissions`. The bridge does not duplicate the flag when another permission override is already present.
 
-This mode should be used only in controlled/sandboxed environments such as Docker or isolated servers.
+This is a high-risk default. It avoids interactive approval prompts for service flows, but it also allows Claude Code to run tools without per-action confirmation.
+
+Use this default only in controlled environments such as Docker, isolated servers, restricted project directories, or dedicated service users.
+
+Clients can change permission behavior by passing a Claude Code permission option through trusted `--claude-args`. Expose this as a backend-controlled setting or a safe enum, not as an arbitrary browser text field.
 
 Examples:
 
@@ -259,6 +263,9 @@ ctc start work --model opus
 
 ctc start work --claude-args "--permission-mode plan"
 # launches: claude --permission-mode plan
+
+ctc stream --cwd "$PWD" --claude-args "--permission-mode plan" "hello"
+# launches without adding --dangerously-skip-permissions
 ```
 
 ## 8. Transcript Resolution

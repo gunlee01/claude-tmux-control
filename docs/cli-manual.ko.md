@@ -967,6 +967,10 @@ ctc stream --cwd "$PWD" --claude-args "--permission-mode plan" "hello"
 --dangerously-skip-permissions
 ```
 
+이 기본값은 위험합니다. service flow에서 interactive approval prompt를 피할 수 있지만, Claude Code가 action별 확인 없이 tool을 실행할 수 있습니다.
+
+Docker, isolated server, 제한된 project directory, dedicated service user 같은 통제된 환경에서만 기본값을 사용하세요.
+
 이미 다음 중 하나가 Claude argument에 있으면 중복으로 붙이지 않습니다.
 
 ```bash
@@ -982,7 +986,14 @@ ctc start work --model opus
 
 ctc start work --claude-args "--permission-mode plan"
 # 실행: claude --permission-mode plan
+
+ctc stream --cwd "$PWD" --claude-args "--permission-mode plan" "hello"
+# --dangerously-skip-permissions를 추가로 붙이지 않음
 ```
+
+client가 permission behavior를 바꿔야 하면 신뢰된 `--claude-args`로 Claude Code permission option을 전달합니다.
+
+웹앱에서는 이것을 raw text box로 열지 말고, backend-controlled setting 또는 안전한 enum으로 받아서 `--claude-args "--permission-mode ..."` 형태로 매핑하세요.
 
 ## 9. Transcript Resolution
 
