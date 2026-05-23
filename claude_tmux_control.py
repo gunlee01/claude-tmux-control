@@ -2782,7 +2782,13 @@ def _is_anchor_user_record(record: TranscriptRecord, prompt: str) -> bool:
     if _is_tool_result_content(content) or _is_internal_user_content(content) or _is_interruption_user_content(content):
         return False
     user_text = _format_user_content(content)
-    return not prompt or prompt in user_text
+    if not prompt:
+        return True
+    normalized_prompt = prompt.strip()
+    normalized_user_text = user_text.strip()
+    if normalized_prompt and normalized_prompt in normalized_user_text:
+        return True
+    return prompt in user_text
 
 
 def _is_external_user_record(record: TranscriptRecord) -> bool:

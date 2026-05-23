@@ -3886,6 +3886,64 @@ class StreamTest(unittest.TestCase):
             self.assertNotIn("stray answer", json.dumps(payloads, ensure_ascii=False))
             self.assertIn("target answer", json.dumps(payloads, ensure_ascii=False))
 
+    def test_high_level_stream_matches_anchor_when_prompt_has_trailing_space(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "session.jsonl"
+            transcript.write_text(
+                json_line({"type": "user", "timestamp": "t0", "message": {"content": "target prompt"}})
+                + json_line(
+                    {
+                        "type": "assistant",
+                        "timestamp": "t1",
+                        "message": {"content": [{"type": "text", "text": "target answer"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=f"ctc-csess-{session_id}",
+                state_path=Path(tmp) / "state" / "sessions" / f"{session_id}.json",
+                state_dir=Path(tmp) / "state",
+                cwd=Path(tmp),
+                prompt="target prompt ",
+                turn_id="turn_anchor",
+                before_send_offset=0,
+                replay_start_offset=0,
+            )
+            ctc._write_high_level_state(
+                runtime.state_path,
+                ctc.build_pending_turn_state({}, runtime, transcript, wall_time=1000.0),
+            )
+            controller = Mock()
+            controller.capture_screen.return_value = "Done\nclaude> "
+            writes = []
+            current_time = 0.0
+
+            def fake_now():
+                return current_time
+
+            def fake_sleep(seconds):
+                nonlocal current_time
+                current_time += seconds
+
+            status = ctc.stream_high_level_transcript_until_done(
+                transcript,
+                runtime,
+                controller,
+                interval=1.0,
+                timeout=5.0,
+                idle_seconds=1.0,
+                write=writes.append,
+                sleep=fake_sleep,
+                now=fake_now,
+            )
+
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            self.assertEqual(status.state, "ready")
+            self.assertIn("target answer", json.dumps(payloads, ensure_ascii=False))
+
     def test_high_level_transcript_resolution_never_falls_back_to_global_latest(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "claude"
