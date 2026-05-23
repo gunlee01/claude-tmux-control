@@ -200,10 +200,10 @@ TERM=xterm-256color ctc stream --cwd "$PWD" "hello"
 Additional Claude-side environment can come from a project env file or an explicit whitelist. By default, high-level commands read `<cwd>/.ctc.env` when it exists; use `--env-file PATH` to choose another file and `--env NAME` to copy a named variable from the current `ctc` process environment.
 
 ```bash
-ZETTA_API_KEY="$TOKEN" \
+SERVICE_API_KEY="$TOKEN" \
 TERM=xterm-256color ctc stream \
   --cwd "$PWD" \
-  --env ZETTA_API_KEY \
+  --env SERVICE_API_KEY \
   "hello"
 ```
 

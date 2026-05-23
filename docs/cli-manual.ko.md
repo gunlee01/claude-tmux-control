@@ -917,14 +917,14 @@ ACCOUNT_B_TOKEN="..." ctc stream --cwd "$PWD" --oauth-token-env ACCOUNT_B_TOKEN 
 `--env-file`을 명시하지 않고 `<cwd>/.ctc.env`가 있으면 기본으로 읽습니다.
 
 ```env
-ZETTA_API_BASE_URL=https://api.example.test
+SERVICE_BASE_URL=https://api.example.test
 ```
 
 다른 파일을 쓰려면 `--env-file PATH`를 넘깁니다. 현재 `ctc` process env에서 특정 key만 복사하려면 `--env NAME`을 사용합니다.
 
 ```bash
-ZETTA_API_KEY="..." \
-ctc stream --cwd "$PWD" --env ZETTA_API_KEY "hello"
+SERVICE_API_KEY="..." \
+ctc stream --cwd "$PWD" --env SERVICE_API_KEY "hello"
 ```
 
 env 주입은 새 tmux session 생성 시점에만 적용됩니다. 기존 session은 시작 당시 env를 유지합니다.

@@ -353,13 +353,13 @@ class CliTest(unittest.TestCase):
                 "--env-file",
                 "/tmp/project/.ctc.env",
                 "--env",
-                "ZETTA_API_KEY",
+                "SERVICE_API_KEY",
                 "hello",
             ]
         )
 
         self.assertEqual(args.env_files, [Path("/tmp/project/.ctc.env")])
-        self.assertEqual(args.env_names, ["ZETTA_API_KEY"])
+        self.assertEqual(args.env_names, ["SERVICE_API_KEY"])
 
     def test_claude_environment_reads_env_file_and_process_whitelist(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -368,7 +368,7 @@ class CliTest(unittest.TestCase):
                 "\n".join(
                     [
                         "# comment",
-                        "ZETTA_BASE_URL=https://api.example.test",
+                        "SERVICE_BASE_URL=https://api.example.test",
                         "export QUOTED='hello world'",
                         'DOUBLE_QUOTED="yes"',
                     ]
@@ -383,32 +383,32 @@ class CliTest(unittest.TestCase):
                     "--env-file",
                     str(env_file),
                     "--env",
-                    "ZETTA_API_KEY",
+                    "SERVICE_API_KEY",
                     "hello",
                 ]
             )
 
-            env = ctc.claude_environment_from_args(args, environ={"ZETTA_API_KEY": "secret"})
+            env = ctc.claude_environment_from_args(args, environ={"SERVICE_API_KEY": "secret"})
 
-            self.assertEqual(env["ZETTA_BASE_URL"], "https://api.example.test")
+            self.assertEqual(env["SERVICE_BASE_URL"], "https://api.example.test")
             self.assertEqual(env["QUOTED"], "hello world")
             self.assertEqual(env["DOUBLE_QUOTED"], "yes")
-            self.assertEqual(env["ZETTA_API_KEY"], "secret")
+            self.assertEqual(env["SERVICE_API_KEY"], "secret")
 
     def test_claude_environment_uses_default_cwd_env_file(self):
         with tempfile.TemporaryDirectory() as tmp:
-            Path(tmp, ".ctc.env").write_text("ZETTA_BASE_URL=https://default.example.test\n", encoding="utf-8")
+            Path(tmp, ".ctc.env").write_text("SERVICE_BASE_URL=https://default.example.test\n", encoding="utf-8")
             args = ctc.parse_args(["stream", "--cwd", tmp, "hello"])
 
             self.assertEqual(
                 ctc.claude_environment_from_args(args, environ={}),
-                {"ZETTA_BASE_URL": "https://default.example.test"},
+                {"SERVICE_BASE_URL": "https://default.example.test"},
             )
 
     def test_claude_environment_rejects_malformed_env_file_without_values(self):
         with tempfile.TemporaryDirectory() as tmp:
             env_file = Path(tmp) / "bad.env"
-            env_file.write_text("ZETTA_API_KEY secret-value\n", encoding="utf-8")
+            env_file.write_text("SERVICE_API_KEY secret-value\n", encoding="utf-8")
             args = ctc.parse_args(["start", "work", "--cwd", tmp, "--env-file", str(env_file)])
 
             with self.assertRaisesRegex(ValueError, r"invalid_env_file: .*:1"):
@@ -433,33 +433,33 @@ class CliTest(unittest.TestCase):
 
     def test_claude_environment_fails_closed_when_whitelisted_env_is_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
-            args = ctc.parse_args(["start", "work", "--cwd", tmp, "--env", "ZETTA_API_KEY"])
+            args = ctc.parse_args(["start", "work", "--cwd", tmp, "--env", "SERVICE_API_KEY"])
 
-            with self.assertRaisesRegex(ValueError, "missing_env: ZETTA_API_KEY"):
+            with self.assertRaisesRegex(ValueError, "missing_env: SERVICE_API_KEY"):
                 ctc.claude_environment_from_args(args, environ={})
 
     def test_claude_environment_process_env_overrides_env_file_for_non_oauth_key(self):
         with tempfile.TemporaryDirectory() as tmp:
             env_file = Path(tmp) / "custom.env"
-            env_file.write_text("ZETTA_API_KEY=file-value\n", encoding="utf-8")
-            args = ctc.parse_args(["start", "work", "--cwd", tmp, "--env-file", str(env_file), "--env", "ZETTA_API_KEY"])
+            env_file.write_text("SERVICE_API_KEY=file-value\n", encoding="utf-8")
+            args = ctc.parse_args(["start", "work", "--cwd", tmp, "--env-file", str(env_file), "--env", "SERVICE_API_KEY"])
 
             self.assertEqual(
-                ctc.claude_environment_from_args(args, environ={"ZETTA_API_KEY": "process-value"}),
-                {"ZETTA_API_KEY": "process-value"},
+                ctc.claude_environment_from_args(args, environ={"SERVICE_API_KEY": "process-value"}),
+                {"SERVICE_API_KEY": "process-value"},
             )
 
     def test_claude_environment_applies_oauth_after_extra_environment(self):
         with tempfile.TemporaryDirectory() as tmp:
             env_file = Path(tmp) / "custom.env"
-            env_file.write_text("ZETTA_API_KEY=file-value\n", encoding="utf-8")
+            env_file.write_text("SERVICE_API_KEY=file-value\n", encoding="utf-8")
             args = ctc.parse_args(
                 ["start", "work", "--cwd", tmp, "--env-file", str(env_file), "--oauth-token-env", "ACCOUNT_A_TOKEN"]
             )
 
             self.assertEqual(
                 ctc.claude_environment_from_args(args, environ={"ACCOUNT_A_TOKEN": "oauth-token"}),
-                {"ZETTA_API_KEY": "file-value", "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"},
+                {"SERVICE_API_KEY": "file-value", "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token"},
             )
 
     def test_preflight_requires_tmux(self):
@@ -863,7 +863,7 @@ class HighLevelStreamSetupTest(unittest.TestCase):
 
     def test_prepare_high_level_stream_injects_default_cwd_env_file_for_new_session(self):
         with tempfile.TemporaryDirectory() as tmp:
-            Path(tmp, ".ctc.env").write_text("ZETTA_BASE_URL=https://default.example.test\n", encoding="utf-8")
+            Path(tmp, ".ctc.env").write_text("SERVICE_BASE_URL=https://default.example.test\n", encoding="utf-8")
             session_id = "550e8400-e29b-41d4-a716-446655440000"
             runner = FakeRunner()
             controller = ctc.TmuxController(run=runner)
@@ -888,7 +888,7 @@ class HighLevelStreamSetupTest(unittest.TestCase):
                         "-s",
                         runtime.tmux_session,
                         "-e",
-                        "ZETTA_BASE_URL=https://default.example.test",
+                        "SERVICE_BASE_URL=https://default.example.test",
                         "-c",
                         str(Path(tmp).resolve()),
                         "claude --session-id 550e8400-e29b-41d4-a716-446655440000 "

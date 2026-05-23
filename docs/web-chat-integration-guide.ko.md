@@ -143,10 +143,10 @@ ctc stream \
 Claude Code에 project별 secret이 필요하면 secret 값을 command argument로 직접 넣지 말고 `<project>/.ctc.env` 또는 `--env NAME`을 사용합니다.
 
 ```bash
-ZETTA_API_KEY="..." \
+SERVICE_API_KEY="..." \
 ctc stream \
   --cwd "$PROJECT_DIR" \
-  --env ZETTA_API_KEY \
+  --env SERVICE_API_KEY \
   "$USER_PROMPT"
 ```
 

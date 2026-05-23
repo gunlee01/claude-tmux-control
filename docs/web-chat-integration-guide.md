@@ -56,10 +56,10 @@ Do not send a second prompt until the previous turn reaches `done`/`metrics` or 
 When Claude Code needs project-specific secrets, prefer `<project>/.ctc.env` or `--env NAME` over putting secret values in command arguments.
 
 ```bash
-ZETTA_API_KEY="..." \
+SERVICE_API_KEY="..." \
 ctc stream \
   --cwd "$PROJECT_DIR" \
-  --env ZETTA_API_KEY \
+  --env SERVICE_API_KEY \
   "$USER_PROMPT"
 ```
 

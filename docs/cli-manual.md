@@ -207,14 +207,14 @@ Commands that create Claude Code tmux sessions (`stream`, `ask`, `start`, and `c
 If no `--env-file` is provided and `<cwd>/.ctc.env` exists, the bridge reads it for newly created tmux sessions.
 
 ```env
-ZETTA_API_BASE_URL=https://api.example.test
+SERVICE_BASE_URL=https://api.example.test
 ```
 
 Use `--env-file PATH` to select another file. Use `--env NAME` to copy a specific variable from the current `ctc` process environment without putting the value in shell history.
 
 ```bash
-ZETTA_API_KEY="..." \
-ctc stream --cwd "$PWD" --env ZETTA_API_KEY "hello"
+SERVICE_API_KEY="..." \
+ctc stream --cwd "$PWD" --env SERVICE_API_KEY "hello"
 ```
 
 Environment injection applies only when a new tmux session is created. Existing sessions keep their original environment.

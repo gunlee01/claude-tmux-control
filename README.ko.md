@@ -325,10 +325,10 @@ Claude process에 추가 env가 필요하면 project env file 또는 명시적 w
 기본적으로 high-level 명령은 `--cwd` 아래의 `.ctc.env`가 있으면 읽습니다. 다른 파일은 `--env-file PATH`로 지정하고, 현재 `ctc` process env에서 특정 key만 복사하려면 `--env NAME`을 씁니다.
 
 ```bash
-ZETTA_API_KEY="$TOKEN" \
+SERVICE_API_KEY="$TOKEN" \
 TERM=xterm-256color ctc stream \
   --cwd "$PWD" \
-  --env ZETTA_API_KEY \
+  --env SERVICE_API_KEY \
   "hello"
 ```
 
