@@ -25,6 +25,7 @@ RunFn = Callable[..., subprocess.CompletedProcess[str]]
 CLAUDE_OAUTH_TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"
 CLAUDE_DANGEROUS_SKIP_PERMISSIONS_FLAG = "--dangerously-skip-permissions"
 CLAUDE_LAUNCH_COMMANDS = {"start", "launch", "chat"}
+CLAUDE_EXECUTABLE = "claude"
 DEFAULT_BUFFER_NAME = "claude-tmux-control"
 DEFAULT_TRANSCRIPT_ROOT = Path.home() / ".claude"
 DEFAULT_STATE_DIR = Path.home() / ".cache" / "claude-tmux-control"
@@ -201,6 +202,7 @@ class TmuxController:
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
+    argv = _normalize_claude_args_option_values(argv)
     parser = argparse.ArgumentParser(
         prog="ctc",
         description="Start, feed, and read an interactive Claude Code session through tmux.",
@@ -235,9 +237,9 @@ Docs:
 
     start = subparsers.add_parser("start", help="LOW: create/reuse a named tmux session for manual debugging.")
     start.add_argument("session", help="tmux session name")
-    start.add_argument("--command", dest="claude_command", default="claude", help="command to run in tmux")
     start.add_argument("--cwd", default=str(Path.cwd()), help="working directory for a new session")
     start.add_argument("--attach", action="store_true", help="attach to the tmux session after starting it")
+    add_claude_launch_args(start)
     start.add_argument(
         "--oauth-token-env",
         default=CLAUDE_OAUTH_TOKEN_ENV,
@@ -247,7 +249,7 @@ Docs:
 
     launch = subparsers.add_parser("launch", help="LOW: run Claude Code inside an existing tmux session.")
     launch.add_argument("session", help="tmux session name")
-    launch.add_argument("--command", dest="claude_command", default="claude", help="command to paste and run")
+    add_claude_launch_args(launch)
 
     send = subparsers.add_parser("send", help="LOW: paste text into a tmux session.")
     send.add_argument("session", help="tmux session name")
@@ -325,7 +327,7 @@ Docs:
     ask.add_argument("prompt", nargs="*", help="prompt text")
     ask.add_argument("--session-id", help="web-facing Claude session id UUID for high-level ask")
     ask.add_argument("--cwd", type=Path, required=True, help="working directory for high-level ask")
-    ask.add_argument("--command", dest="claude_command", default="claude", help="Claude Code command")
+    add_claude_launch_args(ask)
     ask.add_argument(
         "--oauth-token-env",
         default=CLAUDE_OAUTH_TOKEN_ENV,
@@ -392,7 +394,7 @@ Docs:
     stream.add_argument("prompt", nargs="*", help="high-level prompt text when --cwd is used")
     stream.add_argument("--session-id", help="web-facing Claude session id UUID for high-level stream")
     stream.add_argument("--cwd", type=Path, help="working directory for high-level stream")
-    stream.add_argument("--command", dest="claude_command", default="claude", help="Claude Code command")
+    add_claude_launch_args(stream)
     stream.add_argument(
         "--oauth-token-env",
         default=CLAUDE_OAUTH_TOKEN_ENV,
@@ -425,8 +427,8 @@ Docs:
 
     chat = subparsers.add_parser("chat", help="LOW: create/reuse a tmux session, then send prompts interactively.")
     chat.add_argument("session", help="tmux session name")
-    chat.add_argument("--command", dest="claude_command", default="claude", help="command to run in tmux")
     chat.add_argument("--cwd", default=str(Path.cwd()), help="working directory for a new session")
+    add_claude_launch_args(chat)
     chat.add_argument(
         "--oauth-token-env",
         default=CLAUDE_OAUTH_TOKEN_ENV,
@@ -437,12 +439,31 @@ Docs:
     chat.add_argument("--interval", type=float, default=0.5, help="seconds between captures after sending input")
     chat.add_argument("--idle", type=float, default=2.0, help="return to the input prompt after this many stable seconds")
 
-    args, claude_args = parser.parse_known_args(argv)
-    passthrough = _normalize_passthrough_args(claude_args)
-    if passthrough and args.command_name not in CLAUDE_LAUNCH_COMMANDS:
-        parser.error(f"unrecognized arguments: {' '.join(claude_args)}")
-    args.claude_args = passthrough if args.command_name in CLAUDE_LAUNCH_COMMANDS else []
-    return args
+    return parser.parse_args(argv)
+
+
+def _normalize_claude_args_option_values(argv: Sequence[str]) -> list[str]:
+    values = list(argv)
+    normalized: list[str] = []
+    index = 0
+    while index < len(values):
+        value = values[index]
+        if value == "--claude-args" and index + 1 < len(values):
+            normalized.append(f"--claude-args={values[index + 1]}")
+            index += 2
+            continue
+        normalized.append(value)
+        index += 1
+    return normalized
+
+
+def add_claude_launch_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--model", help="Claude model for newly launched Claude Code sessions")
+    parser.add_argument(
+        "--claude-args",
+        dest="claude_args_string",
+        help="trusted Claude Code CLI arguments, parsed without shell execution",
+    )
 
 
 def add_environment_args(parser: argparse.ArgumentParser) -> None:
@@ -493,12 +514,13 @@ def _run_command(args: argparse.Namespace, controller: TmuxController) -> int:
         else:
             try:
                 env = claude_environment_from_args(args)
+                claude_args = claude_args_from_options(args)
             except ValueError as error:
                 print(str(error), file=sys.stderr)
                 return 2
             created = controller.start_session(
                 args.session,
-                build_claude_command(args.claude_command, args.claude_args),
+                build_claude_command(claude_args),
                 args.cwd,
                 env=env,
             )
@@ -509,7 +531,12 @@ def _run_command(args: argparse.Namespace, controller: TmuxController) -> int:
         return 0
 
     if args.command_name == "launch":
-        controller.launch_in_existing_session(args.session, build_claude_command(args.claude_command, args.claude_args))
+        try:
+            claude_args = claude_args_from_options(args)
+        except ValueError as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        controller.launch_in_existing_session(args.session, build_claude_command(claude_args))
         print(f"launched command in existing session: {args.session}")
         return 0
 
@@ -599,6 +626,9 @@ def _run_command(args: argparse.Namespace, controller: TmuxController) -> int:
     if args.command_name == "stream":
         if _is_high_level_stream_args(args):
             return _run_high_level_stream(args, controller)
+        if getattr(args, "model", None) or getattr(args, "claude_args_string", None):
+            print("claude_launch_args_require_cwd", file=sys.stderr)
+            return 2
         if not args.session:
             print("stream requires SESSION for low-level mode or --cwd for high-level mode", file=sys.stderr)
             return 2
@@ -630,12 +660,13 @@ def _run_command(args: argparse.Namespace, controller: TmuxController) -> int:
         if not controller.session_exists(args.session):
             try:
                 env = claude_environment_from_args(args)
+                claude_args = claude_args_from_options(args)
             except ValueError as error:
                 print(str(error), file=sys.stderr)
                 return 2
             controller.start_session(
                 args.session,
-                build_claude_command(args.claude_command, args.claude_args),
+                build_claude_command(claude_args),
                 args.cwd,
                 env=env,
             )
@@ -645,12 +676,24 @@ def _run_command(args: argparse.Namespace, controller: TmuxController) -> int:
     raise ValueError(f"unsupported command: {args.command_name}")
 
 
-def build_claude_command(command: str, claude_args: Sequence[str] = ()) -> str:
-    passthrough = " ".join(shlex.quote(arg) for arg in claude_args)
-    full_command = f"{command} {passthrough}" if passthrough else command
-    if _has_permission_override(command, claude_args):
-        return full_command
-    return f"{full_command} {CLAUDE_DANGEROUS_SKIP_PERMISSIONS_FLAG}"
+def claude_args_from_options(args: argparse.Namespace) -> list[str]:
+    try:
+        values = shlex.split(getattr(args, "claude_args_string", None) or "")
+    except ValueError as error:
+        raise ValueError("invalid_claude_args") from error
+    model = getattr(args, "model", None)
+    if model and _has_model_option(values):
+        raise ValueError("duplicate_model")
+    if model:
+        values.extend(["--model", model])
+    return values
+
+
+def build_claude_command(claude_args: Sequence[str] = ()) -> str:
+    args = list(claude_args)
+    if not _has_permission_override(args):
+        args.append(CLAUDE_DANGEROUS_SKIP_PERMISSIONS_FLAG)
+    return _shell_join([CLAUDE_EXECUTABLE, *args])
 
 
 def claude_environment_from_args(
@@ -729,20 +772,21 @@ def _unquote_env_value(value: str) -> str:
     return value
 
 
-def _has_permission_override(command: str, claude_args: Sequence[str] = ()) -> bool:
-    return (
-        CLAUDE_DANGEROUS_SKIP_PERMISSIONS_FLAG in command
-        or "--permission-mode" in command
-        or CLAUDE_DANGEROUS_SKIP_PERMISSIONS_FLAG in claude_args
-        or "--permission-mode" in claude_args
+def _has_permission_override(claude_args: Sequence[str]) -> bool:
+    return any(
+        arg == CLAUDE_DANGEROUS_SKIP_PERMISSIONS_FLAG
+        or arg == "--permission-mode"
+        or arg.startswith("--permission-mode=")
+        for arg in claude_args
     )
 
 
-def _normalize_passthrough_args(args: Sequence[str]) -> list[str]:
-    values = list(args)
-    if values and values[0] == "--":
-        return values[1:]
-    return values
+def _has_model_option(claude_args: Sequence[str]) -> bool:
+    return any(arg == "--model" or arg.startswith("--model=") for arg in claude_args)
+
+
+def _shell_join(args: Sequence[str]) -> str:
+    return " ".join(shlex.quote(arg) for arg in args)
 
 
 def check_runtime_dependencies(
@@ -763,56 +807,16 @@ def check_runtime_dependencies(
     ):
         return None
 
-    executable = _extract_shell_command_executable(args.claude_command)
-    if executable and not which(executable):
+    if not which(CLAUDE_EXECUTABLE):
         return "\n".join(
             [
-                f"Claude Code executable not found in PATH: {executable}",
+                f"Claude Code executable not found in PATH: {CLAUDE_EXECUTABLE}",
                 "Install Claude Code CLI first, then retry.",
                 "Example: curl -fsSL https://claude.ai/install.sh | bash",
                 "After install, confirm with: claude --version",
             ]
         )
     return None
-
-
-def _extract_shell_command_executable(command: str) -> str | None:
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        return None
-
-    while tokens and _is_shell_assignment(tokens[0]):
-        tokens.pop(0)
-
-    if tokens and tokens[0] == "env":
-        tokens.pop(0)
-        while tokens:
-            token = tokens[0]
-            if token == "--":
-                tokens.pop(0)
-                break
-            if _is_shell_assignment(token):
-                tokens.pop(0)
-                continue
-            if token in {"-i", "--ignore-environment"}:
-                tokens.pop(0)
-                continue
-            if token in {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}:
-                tokens.pop(0)
-                if tokens:
-                    tokens.pop(0)
-                continue
-            if token.startswith("-"):
-                tokens.pop(0)
-                continue
-            break
-
-    return tokens[0] if tokens else None
-
-
-def _is_shell_assignment(token: str) -> bool:
-    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", token))
 
 
 def _resolve_events_transcript(args: argparse.Namespace, controller: TmuxController) -> Path | None:
@@ -1311,7 +1315,7 @@ def run_high_level_turn(
             root=args.root,
             state_dir=args.state_dir,
             session_id=args.session_id,
-            claude_command=args.claude_command,
+            claude_args_builder=lambda: claude_args_from_options(args),
             env_builder=lambda: claude_environment_from_args(args),
         )
     except ValueError as error:
@@ -1407,7 +1411,8 @@ def prepare_high_level_stream(
     root: Path = DEFAULT_TRANSCRIPT_ROOT,
     state_dir: Path = DEFAULT_STATE_DIR,
     session_id: str | None = None,
-    claude_command: str = "claude",
+    claude_args: Sequence[str] = (),
+    claude_args_builder: Callable[[], Sequence[str]] | None = None,
     env: Mapping[str, str] | None = None,
     env_builder: Callable[[], Mapping[str, str]] | None = None,
     now: Callable[[], float] = time.time,
@@ -1442,6 +1447,9 @@ def prepare_high_level_stream(
 
         tmux_exists = controller.session_exists(tmux_session)
         new_session_env: Mapping[str, str] | None = env
+        new_session_claude_args: Sequence[str] = claude_args
+        if not tmux_exists and claude_args_builder is not None:
+            new_session_claude_args = claude_args_builder()
         if not tmux_exists and env_builder is not None:
             new_session_env = env_builder()
 
@@ -1479,7 +1487,7 @@ def prepare_high_level_stream(
                 controller.send_prompt(tmux_session, prompt)
             else:
                 resume = bool(state or transcript)
-                command = build_initial_claude_command(claude_command, actual_session_id, prompt, resume=resume)
+                command = build_initial_claude_command(new_session_claude_args, actual_session_id, prompt, resume=resume)
                 controller.start_session(tmux_session, command=command, cwd=canonical_cwd, env=new_session_env)
         except KeyboardInterrupt:
             _mark_turn_interrupted(runtime)
@@ -1907,14 +1915,13 @@ def transcript_file_state(path: Path | None, offset: int | None = None) -> dict 
     }
 
 
-def build_initial_claude_command(command: str, session_id: str, prompt: str, resume: bool) -> str:
+def build_initial_claude_command(claude_args: Sequence[str], session_id: str, prompt: str, resume: bool) -> str:
     session_flag = "--resume" if resume else "--session-id"
-    args = [session_flag, session_id]
-    if not _has_permission_override(command, args):
+    args = [*claude_args, session_flag, session_id]
+    if not _has_permission_override(claude_args):
         args.append(CLAUDE_DANGEROUS_SKIP_PERMISSIONS_FLAG)
     args.append(prompt)
-    passthrough = " ".join(shlex.quote(arg) for arg in args)
-    return f"{command} {passthrough}"
+    return _shell_join([CLAUDE_EXECUTABLE, *args])
 
 
 def make_turn_id(now: Callable[[], float] = time.time) -> str:

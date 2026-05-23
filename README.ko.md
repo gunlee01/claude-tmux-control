@@ -334,7 +334,25 @@ TERM=xterm-256color ctc stream \
 
 env 주입은 새 tmux session을 만들 때만 적용됩니다. 기존 session은 시작 당시 env를 유지합니다. `CLAUDE_CODE_OAUTH_TOKEN`은 `--oauth-token-env` 전용이라 `.ctc.env`나 `--env`에서는 거절됩니다.
 
-Claude Code 실행 command에는 기본적으로 `--dangerously-skip-permissions`가 붙습니다.
+## Claude Launch Options
+
+bridge는 항상 고정된 `claude` 실행 파일을 사용합니다.
+
+model 선택은 `--model MODEL`을 씁니다.
+
+신뢰된 추가 Claude Code option은 `--claude-args "ARGS"`로 전달합니다.
+
+```bash
+TERM=xterm-256color ctc stream \
+  --cwd "$PWD" \
+  --model opus \
+  --claude-args "--add-dir ../shared" \
+  "hello"
+```
+
+이 옵션들은 새 Claude Code process를 시작할 때만 적용됩니다. 기존 tmux session은 시작 당시 model과 argument를 유지합니다.
+
+Claude Code 실행에는 기본적으로 `--dangerously-skip-permissions`가 붙습니다.
 
 token, transcript, Docker, `--dangerously-skip-permissions` 관련 주의사항은 [Security Guide](./docs/security.ko.md)를 봅니다.
 

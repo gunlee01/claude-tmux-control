@@ -29,6 +29,10 @@
 
 동적 승인 UI를 처리할 수 없는 service flow에는 필요하지만, Claude Code가 action별 확인 없이 tool을 실행할 수 있다는 뜻입니다.
 
+bridge는 항상 고정된 `claude` 실행 파일을 사용합니다.
+
+`--claude-args`는 permission mode를 포함해 Claude Code 동작을 바꿀 수 있으므로 권한 있는 운영자 설정으로 취급하세요. 신뢰할 수 없는 client 입력을 그대로 넣지 마세요.
+
 다음 기준으로 범위를 제한하세요.
 
 - 제한된 project directory 안에서 실행합니다.

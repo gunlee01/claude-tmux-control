@@ -54,6 +54,7 @@
 - [x] Support project env injection with `.ctc.env`, `--env-file`, and `--env`.
 - [x] Default Claude Code launch to `--dangerously-skip-permissions`.
 - [x] Avoid duplicating permission override flags.
+- [x] Keep Claude Code executable fixed to `claude` and pass trusted launch options through `--model` / `--claude-args`.
 
 ## 8. Docker
 

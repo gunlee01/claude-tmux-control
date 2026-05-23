@@ -750,8 +750,12 @@
       </div>
       <div class="form-grid">
         <label>
-          Claude Command
-          <input id="claudeCommand" value="claude" spellcheck="false">
+          Claude Model
+          <input id="claudeModel" value="opus" spellcheck="false">
+        </label>
+        <label>
+          Claude Args
+          <input id="claudeArgs" value="--add-dir ../shared" spellcheck="false">
         </label>
         <label>
           Mode
@@ -1056,6 +1060,12 @@
       }
     ];
 
+    function launchArgs(s) {
+      return `${s.claudeModel ? `  --model ${escapeHtml(s.claudeModel)} \\
+` : ""}${s.claudeArgs ? `  --claude-args "${escapeHtml(s.claudeArgs)}" \\
+` : ""}`;
+    }
+
     const commandTemplates = {
       stream: {
         title: "high-level stream",
@@ -1066,8 +1076,7 @@ ctc stream${s.mode === "existing" ? ` \\
   --oauth-token-env ${escapeHtml(s.oauthEnv)} \\
 ${s.envFile ? `  --env-file "${escapeHtml(s.envFile)}" \\
 ` : ""}${s.envName ? `  --env ${escapeHtml(s.envName)} \\
-` : ""}
-  --command "${escapeHtml(s.claudeCommand)}" \\
+` : ""}${launchArgs(s)}
   "${escapeHtml(s.userPrompt)}"`
       },
       ask: {
@@ -1079,7 +1088,7 @@ ctc ask${s.mode === "existing" ? ` \\
   --oauth-token-env ${escapeHtml(s.oauthEnv)} \\
 ${s.envFile ? `  --env-file "${escapeHtml(s.envFile)}" \\
 ` : ""}${s.envName ? `  --env ${escapeHtml(s.envName)} \\
-` : ""}
+` : ""}${launchArgs(s)}
   "${escapeHtml(s.userPrompt)}"
 
 # waits until the turn is complete, then returns optional answer + metrics`
@@ -1111,10 +1120,10 @@ SESSION_ID="${escapeHtml(s.sessionId)}"
 TMUX_SESSION="ctc-csess-$SESSION_ID"
 
 # new session:
-claude --session-id "$SESSION_ID" "${escapeHtml(s.userPrompt)}"
+claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --session-id "$SESSION_ID" --dangerously-skip-permissions "${escapeHtml(s.userPrompt)}"
 
 # resume inactive session:
-claude --resume "$SESSION_ID" "${escapeHtml(s.userPrompt)}"
+claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --resume "$SESSION_ID" --dangerously-skip-permissions "${escapeHtml(s.userPrompt)}"
 
 # active tmux session:
 tmux load-buffer + paste-buffer + send-keys Enter`
@@ -1161,7 +1170,8 @@ ctc reap --idle-seconds 1800 --prefix ctc-csess-`
         envFile: document.getElementById("envFile").value.trim(),
         envName: slug(document.getElementById("envName").value || ""),
         userPrompt: document.getElementById("userPrompt").value || "Finish this PR",
-        claudeCommand: document.getElementById("claudeCommand").value.trim() || "claude",
+        claudeModel: document.getElementById("claudeModel").value.trim(),
+        claudeArgs: document.getElementById("claudeArgs").value.trim(),
         mode: document.getElementById("sessionMode").value
       };
     }
@@ -1269,7 +1279,7 @@ ctc reap --idle-seconds 1800 --prefix ctc-csess-`
       });
     });
 
-    document.querySelectorAll("#sessionId, #projectDir, #oauthEnv, #envFile, #envName, #userPrompt, #claudeCommand, #sessionMode").forEach(input => {
+    document.querySelectorAll("#sessionId, #projectDir, #oauthEnv, #envFile, #envName, #userPrompt, #claudeModel, #claudeArgs, #sessionMode").forEach(input => {
       input.addEventListener("input", renderCommands);
       input.addEventListener("change", renderCommands);
     });

@@ -82,7 +82,7 @@ The same `session_id` cannot be reused with a different `cwd`.
 High-level one-turn streaming:
 
 ```bash
-ctc stream --cwd PATH [--session-id UUID] [--timeout SECONDS] PROMPT
+ctc stream --cwd PATH [--session-id UUID] [--model MODEL] [--claude-args "ARGS"] [--timeout SECONDS] PROMPT
 ```
 
 Attach to the active turn without sending a new prompt:
@@ -104,13 +104,23 @@ Important options:
 | `--tool-result-limit N` | truncate tool result previews |
 | `--env-file PATH` | read extra environment for newly created tmux sessions |
 | `--env NAME` | copy one named variable from the current `ctc` process env |
+| `--model MODEL` | pass a Claude model to a newly launched Claude Code process |
+| `--claude-args "ARGS"` | trusted extra Claude Code CLI arguments, parsed without shell execution |
+
+`--model` and `--claude-args` apply only when the bridge launches a new Claude Code process. Existing tmux sessions keep their original process options.
+
+Quote `--claude-args` as one shell argument:
+
+```bash
+ctc stream --cwd "$PWD" --model opus --claude-args "--add-dir ../shared" "hello"
+```
 
 ### `ask`
 
 Runs one high-level turn and prints final JSON instead of streaming progress.
 
 ```bash
-ctc ask --cwd PATH [--session-id UUID] PROMPT
+ctc ask --cwd PATH [--session-id UUID] [--model MODEL] [--claude-args "ARGS"] PROMPT
 ```
 
 ### `cancel`
@@ -171,7 +181,7 @@ Terminates one tmux session by tmux session name.
 
 ```bash
 ctc start TMUX_SESSION --cwd PATH
-ctc launch TMUX_SESSION --command "claude"
+ctc launch TMUX_SESSION --model opus
 ctc send TMUX_SESSION PROMPT
 ctc answer TMUX_SESSION --wait
 ctc turn TMUX_SESSION --tail 3
@@ -221,13 +231,37 @@ Environment injection applies only when a new tmux session is created. Existing 
 
 `CLAUDE_CODE_OAUTH_TOKEN` is reserved for `--oauth-token-env`; `.ctc.env` and `--env` cannot set it.
 
-## 6. Permission Mode
+## 6. Claude Launch Arguments
+
+The bridge always launches the fixed `claude` executable. It does not accept an arbitrary shell command.
+
+Use `--model MODEL` for the common model selection case. Use `--claude-args "ARGS"` for trusted extra Claude Code CLI arguments.
+
+```bash
+ctc start work --cwd "$PWD" --model opus
+ctc stream --cwd "$PWD" --claude-args "--add-dir ../shared" "hello"
+ctc stream --cwd "$PWD" --claude-args "--permission-mode plan" "hello"
+```
+
+`--claude-args` is parsed with shell-like quoting, but it is not executed by a shell. Keep it operator-controlled; do not expose a raw text box for untrusted clients.
+
+## 7. Permission Mode
 
 Claude Code launch commands default to `--dangerously-skip-permissions`. The bridge does not duplicate the flag when another permission override is already present.
 
 This mode should be used only in controlled/sandboxed environments such as Docker or isolated servers.
 
-## 7. Transcript Resolution
+Examples:
+
+```bash
+ctc start work --model opus
+# launches: claude --model opus --dangerously-skip-permissions
+
+ctc start work --claude-args "--permission-mode plan"
+# launches: claude --permission-mode plan
+```
+
+## 8. Transcript Resolution
 
 The transcript JSONL is the primary structured source. The bridge resolves transcript path from:
 
@@ -238,7 +272,7 @@ The transcript JSONL is the primary structured source. The bridge resolves trans
 
 After a turn is anchored, streaming reads from stored offsets instead of repeatedly scanning the full transcript.
 
-## 8. Exit Codes
+## 9. Exit Codes
 
 | Code | Meaning |
 | --- | --- |
@@ -250,7 +284,7 @@ After a turn is anchored, streaming reads from stored offsets instead of repeate
 | `127` | missing `tmux` or `claude` |
 | `130` | client interrupt |
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 ### `missing or unsuitable terminal`
 
@@ -283,7 +317,7 @@ ctc events --transcript /path/to/transcript.jsonl --json --tail 50
 ctc capture "ctc-csess-$SESSION_ID" --height 120
 ```
 
-## 10. Current Gaps
+## 11. Current Gaps
 
 - stream delivery is at-least-once until an explicit client acknowledgement protocol exists.
 - mid-stream metrics are best-effort only.

@@ -29,6 +29,8 @@ New Claude Code sessions are launched with `--dangerously-skip-permissions` by d
 
 This is required for non-interactive service flows where dynamic approvals cannot be handled, but it means Claude Code can run tools without per-action confirmation.
 
+The bridge always launches the fixed `claude` executable. `--claude-args` can still change Claude Code behavior, including permission mode, so treat it as a privileged operator setting and do not pass untrusted client input into it.
+
 Use these controls around it:
 
 - Run inside a restricted project directory.

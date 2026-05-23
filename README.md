@@ -209,6 +209,20 @@ TERM=xterm-256color ctc stream \
 
 Environment injection applies only when a new tmux session is created. Existing sessions keep the environment they started with. `CLAUDE_CODE_OAUTH_TOKEN` is reserved for `--oauth-token-env` and is rejected in `.ctc.env` or `--env`.
 
+## Claude Launch Options
+
+The bridge always launches the fixed `claude` executable. Use `--model MODEL` for model selection and `--claude-args "ARGS"` for trusted extra Claude Code CLI arguments.
+
+```bash
+TERM=xterm-256color ctc stream \
+  --cwd "$PWD" \
+  --model opus \
+  --claude-args "--add-dir ../shared" \
+  "hello"
+```
+
+These options apply only when a new Claude Code process is launched. Existing tmux sessions keep their original model and arguments.
+
 See [Security Guide](./docs/security.md) for token, transcript, Docker, and `--dangerously-skip-permissions` guidance.
 
 ## Examples

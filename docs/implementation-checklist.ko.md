@@ -33,6 +33,7 @@
 - [x] `start`: 새 tmux session 생성 또는 기존 session 재사용
 - [x] `start`: `CLAUDE_CODE_OAUTH_TOKEN` source env를 새 tmux session에 주입
 - [x] `start`/`launch`/`chat`: Claude Code command에 `--dangerously-skip-permissions` 기본 적용
+- [x] Claude Code 실행 파일은 `claude`로 고정하고, 신뢰된 실행 option은 `--model` / `--claude-args`로 전달
 - [x] `send`: tmux session에 prompt 전달
 - [x] `status`: working/ready 상태 확인
 - [x] `wait-ready`: 완료까지 대기

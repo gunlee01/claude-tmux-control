@@ -64,11 +64,11 @@ CLI가 `session_id`를 생성할 때는 UUID v4를 사용합니다.
 
 | 목적 | CLI 명령 | 인자 의미 |
 | --- | --- | --- |
-| 대화 한 턴 실행 | `stream --cwd <path> [--session-id <uuid>] "<prompt>"` | bridge `session_id` |
+| 대화 한 턴 실행 | `stream --cwd <path> [--session-id <uuid>] [--model MODEL] [--claude-args "ARGS"] "<prompt>"` | bridge `session_id` |
 | 진행 중 turn 재연결 | `stream --attach --session-id <uuid>` | bridge `session_id` |
 | 진행 중 turn 취소 | `cancel <uuid>` | bridge `session_id` |
 | 완료된 turn replay | `last <uuid> --last <n>` 또는 `replay <uuid> --last <n>` | bridge `session_id` |
-| 최종 결과만 실행 | `ask --cwd <path> [--session-id <uuid>] "<prompt>"` | bridge `session_id` |
+| 최종 결과만 실행 | `ask --cwd <path> [--session-id <uuid>] [--model MODEL] [--claude-args "ARGS"] "<prompt>"` | bridge `session_id` |
 | session metadata 조회 | `info <uuid> --json` | bridge `session_id` |
 | session 목록 조회 | `list --json` | high-level controlled sessions |
 | 오래된 web process 정리 | `reap --idle-seconds <n> --prefix ctc-csess-` | high-level web tmux prefix |
@@ -115,18 +115,27 @@ ctc stream \
   "$USER_PROMPT"
 ```
 
-고수준 `stream`은 임의의 unknown option passthrough를 받지 않습니다.
+Claude Code 실행 파일은 항상 `claude`입니다.
 
-Claude Code 실행 옵션을 고정해서 써야 하면 `--command`에 포함합니다.
+model 선택은 `--model MODEL`을 씁니다.
+
+신뢰된 추가 Claude Code option은 `--claude-args "ARGS"`로 전달합니다.
 
 ```bash
 TERM=xterm-256color \
 ctc stream \
   --session-id "$SESSION_ID" \
   --cwd "$PROJECT_DIR" \
-  --command "claude --model opus --add-dir ../shared" \
+  --model opus \
+  --claude-args "--add-dir ../shared" \
   "$USER_PROMPT"
 ```
+
+이 옵션들은 bridge가 Claude Code process를 새로 만들거나 resume할 때만 적용됩니다.
+
+tmux session이 이미 있으면 기존 process의 model/argument가 유지됩니다.
+
+`--claude-args`는 운영자가 통제하는 값으로만 쓰고, 신뢰할 수 없는 browser client에 raw argument 입력창으로 노출하지 마세요.
 
 계정별 OAuth token을 써야 하면 요청 처리 프로세스에서 source env를 선택합니다.
 

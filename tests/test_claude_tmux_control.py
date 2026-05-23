@@ -110,6 +110,58 @@ class TmuxControllerTest(unittest.TestCase):
         self.assertIn("reused session: cc-test", stdout.getvalue())
         self.assertEqual(runner.calls, [(["tmux", "has-session", "-t", "cc-test"], {"check": False, "capture_output": True, "text": True})])
 
+    def test_run_start_reports_invalid_claude_args_without_traceback(self):
+        runner = FakeRunner()
+        controller = ctc.TmuxController(run=runner)
+        args = ctc.parse_args(["start", "cc-test", "--claude-args", "\"unterminated"])
+
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            exit_code = ctc._run_command(args, controller)
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("invalid_claude_args", stderr.getvalue())
+        self.assertNotIn("new-session", json.dumps(runner.calls))
+
+    def test_run_chat_reports_invalid_claude_args_without_traceback(self):
+        runner = FakeRunner()
+        controller = ctc.TmuxController(run=runner)
+        args = ctc.parse_args(["chat", "cc-test", "--claude-args", "\"unterminated"])
+
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            exit_code = ctc._run_command(args, controller)
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("invalid_claude_args", stderr.getvalue())
+        self.assertNotIn("new-session", json.dumps(runner.calls))
+
+    def test_run_launch_reports_invalid_claude_args_without_pasting(self):
+        runner = FakeRunner()
+        runner.session_exists = True
+        controller = ctc.TmuxController(run=runner)
+        args = ctc.parse_args(["launch", "cc-test", "--claude-args", "\"unterminated"])
+
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            exit_code = ctc._run_command(args, controller)
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("invalid_claude_args", stderr.getvalue())
+        self.assertNotIn("load-buffer", json.dumps(runner.calls))
+
+    def test_run_low_level_stream_rejects_claude_launch_args(self):
+        runner = FakeRunner()
+        controller = ctc.TmuxController(run=runner)
+        args = ctc.parse_args(["stream", "cc-test", "--model", "opus"])
+
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            exit_code = ctc._run_command(args, controller)
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("claude_launch_args_require_cwd", stderr.getvalue())
+
     def test_send_prompt_pastes_text_and_submits_enter(self):
         runner = FakeRunner()
         controller = ctc.TmuxController(run=runner)
@@ -248,27 +300,27 @@ class CliTest(unittest.TestCase):
         self.assertIn("debugging.", output)
         self.assertIn("docs/quickstart-web-client.md", output)
 
-    def test_parse_start_defaults_to_claude_command(self):
+    def test_parse_start_defaults_to_claude_options(self):
         args = ctc.parse_args(["start", "work"])
 
         self.assertEqual(args.command_name, "start")
         self.assertEqual(args.session, "work")
-        self.assertEqual(args.claude_command, "claude")
+        self.assertIsNone(args.model)
+        self.assertIsNone(args.claude_args_string)
         self.assertEqual(Path(args.cwd), Path.cwd())
         self.assertEqual(args.oauth_token_env, "CLAUDE_CODE_OAUTH_TOKEN")
-        self.assertEqual(args.claude_args, [])
 
-    def test_parse_start_collects_unknown_args_as_claude_args(self):
-        args = ctc.parse_args(["start", "work", "--cwd", "/tmp/project", "--model", "opus", "--add-dir", "../other"])
+    def test_parse_start_accepts_model_and_claude_args(self):
+        args = ctc.parse_args(["start", "work", "--cwd", "/tmp/project", "--model", "opus", "--claude-args", "--add-dir ../other"])
 
         self.assertEqual(args.command_name, "start")
         self.assertEqual(args.cwd, "/tmp/project")
-        self.assertEqual(args.claude_args, ["--model", "opus", "--add-dir", "../other"])
+        self.assertEqual(args.model, "opus")
+        self.assertEqual(args.claude_args_string, "--add-dir ../other")
 
-    def test_parse_start_strips_passthrough_separator(self):
-        args = ctc.parse_args(["start", "work", "--cwd", "/tmp/project", "--", "--model", "opus"])
-
-        self.assertEqual(args.claude_args, ["--model", "opus"])
+    def test_parse_start_rejects_unknown_claude_options(self):
+        with self.assertRaises(SystemExit):
+            ctc.parse_args(["start", "work", "--cwd", "/tmp/project", "--add-dir", "../other"])
 
     def test_parse_status_rejects_unknown_args(self):
         with self.assertRaises(SystemExit):
@@ -280,53 +332,91 @@ class CliTest(unittest.TestCase):
         self.assertEqual(args.command_name, "send")
         self.assertEqual(args.prompt, ["hello", "Claude"])
 
-    def test_parse_launch_defaults_to_claude_command(self):
+    def test_parse_launch_defaults_to_claude_options(self):
         args = ctc.parse_args(["launch", "work"])
 
         self.assertEqual(args.command_name, "launch")
         self.assertEqual(args.session, "work")
-        self.assertEqual(args.claude_command, "claude")
-        self.assertEqual(args.claude_args, [])
+        self.assertIsNone(args.model)
+        self.assertIsNone(args.claude_args_string)
 
-    def test_parse_launch_collects_unknown_args_as_claude_args(self):
-        args = ctc.parse_args(["launch", "work", "--model", "opus"])
+    def test_parse_launch_accepts_model_and_claude_args(self):
+        args = ctc.parse_args(["launch", "work", "--model", "opus", "--claude-args", "--add-dir ../shared"])
 
         self.assertEqual(args.command_name, "launch")
         self.assertEqual(args.session, "work")
-        self.assertEqual(args.claude_args, ["--model", "opus"])
+        self.assertEqual(args.model, "opus")
+        self.assertEqual(args.claude_args_string, "--add-dir ../shared")
 
-    def test_parse_chat_collects_unknown_args_as_claude_args(self):
-        args = ctc.parse_args(["chat", "work", "--cwd", "/tmp/project", "--model", "opus"])
+    def test_parse_chat_accepts_model_and_claude_args(self):
+        args = ctc.parse_args(["chat", "work", "--cwd", "/tmp/project", "--model", "opus", "--claude-args", "--add-dir ../shared"])
 
         self.assertEqual(args.command_name, "chat")
         self.assertEqual(args.session, "work")
         self.assertEqual(args.cwd, "/tmp/project")
-        self.assertEqual(args.claude_args, ["--model", "opus"])
+        self.assertEqual(args.model, "opus")
+        self.assertEqual(args.claude_args_string, "--add-dir ../shared")
+
+    def test_parse_stream_and_ask_accept_model_and_claude_args(self):
+        stream_args = ctc.parse_args(["stream", "--cwd", "/tmp/project", "--model", "opus", "--claude-args", "--add-dir ../shared", "hello"])
+        ask_args = ctc.parse_args(["ask", "--cwd", "/tmp/project", "--model", "sonnet", "--claude-args", "--add-dir ../shared", "hello"])
+
+        self.assertEqual(stream_args.model, "opus")
+        self.assertEqual(stream_args.claude_args_string, "--add-dir ../shared")
+        self.assertEqual(ask_args.model, "sonnet")
+        self.assertEqual(ask_args.claude_args_string, "--add-dir ../shared")
+
+    def test_parse_rejects_command_on_claude_launch_commands(self):
+        for argv in (
+            ["start", "work", "--command", "claude --model opus"],
+            ["launch", "work", "--command", "claude --model opus"],
+            ["chat", "work", "--command", "claude --model opus"],
+            ["stream", "--cwd", "/tmp/project", "--command", "claude --model opus", "hello"],
+            ["ask", "--cwd", "/tmp/project", "--command", "claude --model opus", "hello"],
+        ):
+            with self.subTest(argv=argv):
+                with self.assertRaises(SystemExit):
+                    ctc.parse_args(argv)
 
     def test_build_claude_command_adds_dangerous_skip_permissions(self):
         self.assertEqual(
-            ctc.build_claude_command("claude --model opus"),
+            ctc.build_claude_command(["--model", "opus"]),
             "claude --model opus --dangerously-skip-permissions",
         )
 
-    def test_build_claude_command_appends_passthrough_args(self):
+    def test_claude_args_from_options_appends_model_after_claude_args(self):
+        args = ctc.parse_args(["start", "work", "--model", "opus", "--claude-args", "--add-dir ../other"])
+
+        self.assertEqual(ctc.claude_args_from_options(args), ["--add-dir", "../other", "--model", "opus"])
+
+    def test_claude_args_from_options_rejects_duplicate_model_forms(self):
+        with self.assertRaisesRegex(ValueError, "duplicate_model"):
+            ctc.claude_args_from_options(ctc.parse_args(["start", "work", "--model", "sonnet", "--claude-args", "--model opus"]))
+        with self.assertRaisesRegex(ValueError, "duplicate_model"):
+            ctc.claude_args_from_options(ctc.parse_args(["start", "work", "--model", "sonnet", "--claude-args", "--model=opus"]))
+
+    def test_claude_args_from_options_rejects_malformed_args(self):
+        with self.assertRaisesRegex(ValueError, "invalid_claude_args"):
+            ctc.claude_args_from_options(ctc.parse_args(["start", "work", "--claude-args", "\"unterminated"]))
+
+    def test_build_claude_command_appends_claude_args(self):
         self.assertEqual(
-            ctc.build_claude_command("claude", ["--model", "opus", "--add-dir", "../other"]),
+            ctc.build_claude_command(["--model", "opus", "--add-dir", "../other"]),
             "claude --model opus --add-dir ../other --dangerously-skip-permissions",
         )
 
     def test_build_claude_command_does_not_duplicate_permission_flag(self):
         self.assertEqual(
-            ctc.build_claude_command("claude --dangerously-skip-permissions"),
+            ctc.build_claude_command(["--dangerously-skip-permissions"]),
             "claude --dangerously-skip-permissions",
         )
         self.assertEqual(
-            ctc.build_claude_command("claude --permission-mode bypassPermissions"),
+            ctc.build_claude_command(["--permission-mode", "bypassPermissions"]),
             "claude --permission-mode bypassPermissions",
         )
         self.assertEqual(
-            ctc.build_claude_command("claude", ["--permission-mode", "bypassPermissions"]),
-            "claude --permission-mode bypassPermissions",
+            ctc.build_claude_command(["--permission-mode=plan"]),
+            "claude --permission-mode=plan",
         )
 
     def test_oauth_environment_reads_configured_source_env(self):
@@ -488,19 +578,15 @@ class CliTest(unittest.TestCase):
 
         self.assertIsNone(error)
 
-    def test_preflight_checks_custom_command_executable(self):
-        args = ctc.parse_args(["start", "work", "--command", "custom-claude --flag"])
+    def test_preflight_checks_fixed_claude_executable(self):
+        args = ctc.parse_args(["start", "work", "--claude-args", "--model opus"])
 
         def which(command):
             return "/usr/bin/tmux" if command == "tmux" else None
 
         error = ctc.check_runtime_dependencies(args, which=which)
 
-        self.assertIn("custom-claude", error)
-
-    def test_extract_shell_command_executable_skips_env_assignments(self):
-        self.assertEqual(ctc._extract_shell_command_executable("TERM=xterm-256color claude --model opus"), "claude")
-        self.assertEqual(ctc._extract_shell_command_executable("env TOKEN=abc claude --model opus"), "claude")
+        self.assertIn("Claude Code executable not found in PATH: claude", error)
 
     def test_parse_events_accepts_optional_session_name(self):
         args = ctc.parse_args(["events", "work", "--tail", "5"])
@@ -792,7 +878,7 @@ class HighLevelStreamSetupTest(unittest.TestCase):
 
     def test_build_initial_claude_command_places_permission_before_prompt(self):
         command = ctc.build_initial_claude_command(
-            "claude",
+            ["--model", "opus"],
             "550e8400-e29b-41d4-a716-446655440000",
             "Finish this PR",
             resume=True,
@@ -800,8 +886,21 @@ class HighLevelStreamSetupTest(unittest.TestCase):
 
         self.assertEqual(
             command,
-            "claude --resume 550e8400-e29b-41d4-a716-446655440000 "
+            "claude --model opus --resume 550e8400-e29b-41d4-a716-446655440000 "
             "--dangerously-skip-permissions 'Finish this PR'",
+        )
+
+    def test_build_initial_claude_command_respects_permission_mode_equals(self):
+        command = ctc.build_initial_claude_command(
+            ["--permission-mode=plan"],
+            "550e8400-e29b-41d4-a716-446655440000",
+            "Finish this PR",
+            resume=False,
+        )
+
+        self.assertEqual(
+            command,
+            "claude --permission-mode=plan --session-id 550e8400-e29b-41d4-a716-446655440000 'Finish this PR'",
         )
 
     def test_prepare_high_level_stream_fails_closed_on_cwd_mismatch(self):
@@ -860,6 +959,41 @@ class HighLevelStreamSetupTest(unittest.TestCase):
             state = ctc.read_bridge_state(runtime.state_path)
             self.assertEqual(state["active_turn"]["claude_state"], "starting")
             self.assertTrue(state["active_turn"]["no_transcript_baseline"])
+
+    def test_prepare_high_level_stream_applies_model_to_new_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runner = FakeRunner()
+            controller = ctc.TmuxController(run=runner)
+            args = ctc.parse_args(["stream", "--cwd", tmp, "--session-id", session_id, "--model", "opus", "hello"])
+
+            runtime = ctc.prepare_high_level_stream(
+                controller=controller,
+                cwd=args.cwd,
+                prompt="hello",
+                root=Path(tmp) / "claude",
+                state_dir=Path(tmp) / "state",
+                session_id=session_id,
+                claude_args_builder=lambda: ctc.claude_args_from_options(args),
+            )
+
+            self.assertIn(
+                (
+                    [
+                        "tmux",
+                        "new-session",
+                        "-d",
+                        "-s",
+                        runtime.tmux_session,
+                        "-c",
+                        str(Path(tmp).resolve()),
+                        "claude --model opus --session-id 550e8400-e29b-41d4-a716-446655440000 "
+                        "--dangerously-skip-permissions hello",
+                    ],
+                    {"check": True},
+                ),
+                runner.calls,
+            )
 
     def test_prepare_high_level_stream_injects_default_cwd_env_file_for_new_session(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -928,6 +1062,34 @@ class HighLevelStreamSetupTest(unittest.TestCase):
                 runner.calls,
             )
 
+    def test_prepare_high_level_stream_reuses_existing_session_without_parsing_claude_args(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runner = FakeRunner()
+            runner.session_exists = True
+            runner.capture_text = "Done\nclaude> "
+            controller = ctc.TmuxController(run=runner)
+            args = ctc.parse_args(["stream", "--cwd", tmp, "--session-id", session_id, "--claude-args", "\"unterminated", "next"])
+
+            runtime = ctc.prepare_high_level_stream(
+                controller=controller,
+                cwd=args.cwd,
+                prompt="next",
+                root=Path(tmp) / "claude",
+                state_dir=Path(tmp) / "state",
+                session_id=session_id,
+                claude_args_builder=lambda: ctc.claude_args_from_options(args),
+            )
+
+            self.assertEqual(runtime.tmux_session, "ctc-csess-550e8400-e29b-41d4-a716-446655440000")
+            self.assertIn(
+                (
+                    ["tmux", "load-buffer", "-b", "claude-tmux-control", "-"],
+                    {"input": "next", "text": True, "check": True},
+                ),
+                runner.calls,
+            )
+
     def test_prepare_high_level_stream_env_failure_does_not_write_state_for_new_session(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_id = "550e8400-e29b-41d4-a716-446655440000"
@@ -943,6 +1105,25 @@ class HighLevelStreamSetupTest(unittest.TestCase):
                     state_dir=state_dir,
                     session_id=session_id,
                     env_builder=lambda: ctc.claude_environment_from_args(args, environ={}),
+                )
+
+            self.assertFalse(ctc.web_session_state_path(session_id, state_dir).exists())
+
+    def test_prepare_high_level_stream_claude_args_failure_does_not_write_state_for_new_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_dir = Path(tmp) / "state"
+            args = ctc.parse_args(["stream", "--cwd", tmp, "--session-id", session_id, "--claude-args", "\"unterminated", "hello"])
+
+            with self.assertRaisesRegex(ValueError, "invalid_claude_args"):
+                ctc.prepare_high_level_stream(
+                    controller=ctc.TmuxController(run=FakeRunner()),
+                    cwd=args.cwd,
+                    prompt="hello",
+                    root=Path(tmp) / "claude",
+                    state_dir=state_dir,
+                    session_id=session_id,
+                    claude_args_builder=lambda: ctc.claude_args_from_options(args),
                 )
 
             self.assertFalse(ctc.web_session_state_path(session_id, state_dir).exists())

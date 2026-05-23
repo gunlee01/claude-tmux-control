@@ -9,7 +9,7 @@ This document defines how a web/backend service should use `ctc` to expose Claud
 The primary command is:
 
 ```bash
-ctc stream --cwd <project_dir> --session-id <uuid> "<prompt>"
+ctc stream --cwd <project_dir> --session-id <uuid> [--model MODEL] [--claude-args "ARGS"] "<prompt>"
 ```
 
 The process emits JSONL on stdout. Each line is one event. The backend relays events to the browser through SSE, WebSocket, or another streaming transport.
@@ -21,9 +21,9 @@ Use one `session_id` per chat conversation. The bridge maps it to `ctc-csess-<se
 High-level web/client commands:
 
 ```bash
-ctc stream --cwd PATH [--session-id UUID] PROMPT
+ctc stream --cwd PATH [--session-id UUID] [--model MODEL] [--claude-args "ARGS"] PROMPT
 ctc stream --attach --session-id UUID
-ctc ask --cwd PATH [--session-id UUID] PROMPT
+ctc ask --cwd PATH [--session-id UUID] [--model MODEL] [--claude-args "ARGS"] PROMPT
 ctc cancel UUID
 ctc last UUID --last N
 ctc replay UUID --last N
@@ -66,6 +66,24 @@ ctc stream \
 If `<project>/.ctc.env` exists and no explicit `--env-file` is passed, `ctc` reads it when creating a new tmux session. Environment changes do not affect already running sessions; stop/reap the tmux session before expecting updated env values.
 
 `CLAUDE_CODE_OAUTH_TOKEN` is reserved for `--oauth-token-env` and cannot be set through `.ctc.env` or `--env`.
+
+### Claude Launch Arguments
+
+The bridge always launches the fixed `claude` executable. Use `--model MODEL` for model selection and `--claude-args "ARGS"` for trusted extra Claude Code CLI arguments.
+
+```bash
+TERM=xterm-256color \
+ctc stream \
+  --session-id "$SESSION_ID" \
+  --cwd "$PROJECT_DIR" \
+  --model opus \
+  --claude-args "--add-dir ../shared" \
+  "$USER_PROMPT"
+```
+
+These options apply only when the bridge creates or resumes a Claude Code process. If the tmux session already exists, the running process keeps its original model and arguments.
+
+Keep `--claude-args` operator-controlled. Do not expose arbitrary raw arguments to untrusted browser clients.
 
 ## 4. Event Handling
 

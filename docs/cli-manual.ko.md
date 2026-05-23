@@ -104,7 +104,7 @@ ctc start work --cwd "$PWD"
 
 `work`는 tmux session name입니다. bridge session UUID가 아니며, 웹 클라이언트의 기본 API가 아닙니다.
 
-Claude Code 실행 command에는 기본적으로 `--dangerously-skip-permissions`가 자동으로 붙습니다.
+Claude Code 실행에는 기본적으로 `--dangerously-skip-permissions`가 자동으로 붙습니다.
 
 실행 전에는 `tmux`와 Claude Code executable을 확인합니다.
 
@@ -173,7 +173,7 @@ ctc answer work --wait --timeout 120
 
 ```text
 client/web
-  -> ctc stream --cwd PATH [--session-id UUID] PROMPT
+  -> ctc stream --cwd PATH [--session-id UUID] [--model MODEL] [--claude-args "ARGS"] PROMPT
     -> internal tmux session ctc-csess-<UUID>
       -> Claude Code interactive CLI
     <- transcript JSONL
@@ -229,13 +229,14 @@ ctc start work
 새 tmux session을 만들고 Claude Code를 실행합니다.
 
 ```bash
-ctc start SESSION [--cwd PATH] [--command COMMAND] [--attach] [--oauth-token-env ENV] [--env-file PATH] [--env NAME]
+ctc start SESSION [--cwd PATH] [--model MODEL] [--claude-args "ARGS"] [--attach] [--oauth-token-env ENV] [--env-file PATH] [--env NAME]
 ```
 
 | 옵션 | 의미 |
 | --- | --- |
 | `--cwd PATH` | 새 session의 working directory |
-| `--command COMMAND` | tmux 안에서 실행할 Claude Code command |
+| `--model MODEL` | 새 Claude Code process에 전달할 model |
+| `--claude-args "ARGS"` | 신뢰된 추가 Claude Code CLI argument. shell 실행 없이 parsing |
 | `--attach` | 생성/재사용 후 바로 tmux attach |
 | `--oauth-token-env ENV` | 이 env 값을 `CLAUDE_CODE_OAUTH_TOKEN`으로 주입 |
 | `--env-file PATH` | 새 tmux session에 주입할 추가 env file |
@@ -243,21 +244,21 @@ ctc start SESSION [--cwd PATH] [--command COMMAND] [--attach] [--oauth-token-env
 
 주의:
 
-- `--command` 기본값은 `claude`입니다.
-- command에 permission override가 없으면 `--dangerously-skip-permissions`가 자동으로 붙습니다.
+- 실행 파일은 항상 `claude`입니다. 임의 shell command는 받지 않습니다.
+- permission override가 없으면 `--dangerously-skip-permissions`가 자동으로 붙습니다.
 - `--oauth-token-env`, `--env-file`, `--env`는 새 tmux session을 만들 때만 의미가 있습니다.
-- `start`가 모르는 옵션은 Claude Code option으로 command 뒤에 전달합니다.
+- `--model`, `--claude-args`도 새 Claude Code process를 시작할 때만 적용됩니다.
 
-Claude Code option passthrough:
+Claude Code option 예:
 
 ```bash
-ctc start work --cwd "$PWD" --model opus --add-dir ../shared
+ctc start work --cwd "$PWD" --model opus
 ```
 
-옵션 경계를 명시하고 싶으면 `--`를 씁니다.
+추가 Claude Code option이 필요하면 `--claude-args`를 하나의 shell argument로 quote합니다.
 
 ```bash
-ctc start work --cwd "$PWD" -- --model opus --add-dir ../shared
+ctc start work --cwd "$PWD" --model opus --claude-args "--add-dir ../shared"
 ```
 
 실제 실행 command는 대략 다음처럼 됩니다.
@@ -268,10 +269,10 @@ claude --model opus --add-dir ../shared --dangerously-skip-permissions
 
 ### `launch`
 
-이미 존재하는 tmux session 안에 Claude Code command를 붙여 넣고 실행합니다.
+이미 존재하는 tmux session 안에 Claude Code 실행 command를 붙여 넣고 실행합니다.
 
 ```bash
-ctc launch SESSION [--command COMMAND]
+ctc launch SESSION [--model MODEL] [--claude-args "ARGS"]
 ```
 
 주의:
@@ -279,7 +280,7 @@ ctc launch SESSION [--command COMMAND]
 - 기존 shell pane에 command를 입력하는 방식입니다.
 - OAuth token env 주입은 하지 않습니다.
 - 이미 Claude Code가 실행 중인 pane에는 `launch` 대신 `send`를 씁니다.
-- `launch`가 모르는 옵션도 Claude Code option으로 전달합니다.
+- 실행 파일은 항상 `claude`입니다.
 
 ### `send`
 
@@ -938,17 +939,35 @@ env 주입은 새 tmux session 생성 시점에만 적용됩니다. 기존 sessi
 - `.ctc.env`를 commit하지 않습니다.
 - 운영에서는 process env 접근 권한과 log redaction을 확인해야 합니다.
 
-## 7. Permission Mode
+## 7. Claude Launch Arguments
+
+bridge는 항상 고정된 `claude` 실행 파일을 사용합니다. 임의 shell command는 받지 않습니다.
+
+일반적인 model 선택은 `--model MODEL`을 씁니다.
+
+신뢰된 추가 Claude Code option은 `--claude-args "ARGS"`로 전달합니다.
+
+```bash
+ctc start work --cwd "$PWD" --model opus
+ctc stream --cwd "$PWD" --claude-args "--add-dir ../shared" "hello"
+ctc stream --cwd "$PWD" --claude-args "--permission-mode plan" "hello"
+```
+
+`--claude-args`는 shell-like quoting으로 parsing하지만 shell로 실행하지 않습니다.
+
+운영자가 통제하는 값에만 쓰고, 신뢰할 수 없는 client에 raw text box로 노출하지 마세요.
+
+## 8. Permission Mode
 
 이 bridge는 dynamic approval prompt 없이 동작하는 것을 목표로 합니다.
 
-그래서 Claude Code command에 기본적으로 다음 옵션을 붙입니다.
+그래서 Claude Code 실행 argument에 기본적으로 다음 옵션을 붙입니다.
 
 ```bash
 --dangerously-skip-permissions
 ```
 
-이미 다음 중 하나가 command에 있으면 중복으로 붙이지 않습니다.
+이미 다음 중 하나가 Claude argument에 있으면 중복으로 붙이지 않습니다.
 
 ```bash
 --dangerously-skip-permissions
@@ -958,11 +977,14 @@ env 주입은 새 tmux session 생성 시점에만 적용됩니다. 기존 sessi
 예:
 
 ```bash
-ctc start work --command "claude --model opus"
-# 실제 실행: claude --model opus --dangerously-skip-permissions
+ctc start work --model opus
+# 실행: claude --model opus --dangerously-skip-permissions
+
+ctc start work --claude-args "--permission-mode plan"
+# 실행: claude --permission-mode plan
 ```
 
-## 8. Transcript Resolution
+## 9. Transcript Resolution
 
 Claude Code transcript는 보통 아래 위치에 기록됩니다.
 
@@ -980,7 +1002,7 @@ session-scoped 명령은 다음 단서로 transcript를 찾습니다.
 
 내부 session summary prompt나 `tool_result`에 포함된 prompt 문자열은 user turn으로 보지 않습니다.
 
-## 9. Exit Codes
+## 10. Exit Codes
 
 현재 주요 exit code는 다음과 같습니다.
 
@@ -1005,7 +1027,7 @@ high-level `stream`/`ask` 오류는 stderr에 JSON을 출력할 수 있습니다
 
 같은 `error` 문자열이라도 명령에 따라 exit code가 다를 수 있습니다. 예를 들어 `cancel`은 대상 tmux session이 없으면 요청 대상이 없다는 의미로 exit `2`를 반환하고, `stream --attach`는 진행 중 turn에 붙을 수 없다는 runtime 상태로 exit `5`를 반환합니다.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 ### `missing or unsuitable terminal: xterm-ghostty`
 
@@ -1050,7 +1072,7 @@ ctc capture work
 ctc watch work
 ```
 
-## 11. Current Gaps
+## 12. Current Gaps
 
 아직 구현되지 않은 service-facing 기능:
 

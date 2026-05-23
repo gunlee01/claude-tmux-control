@@ -494,8 +494,12 @@
         </div>
         <div class="form-grid">
           <label>
-            Claude Command
-            <input id="claudeCommand" value="claude" spellcheck="false">
+            Claude Model
+            <input id="claudeModel" value="opus" spellcheck="false">
+          </label>
+          <label>
+            Claude Args
+            <input id="claudeArgs" value="--add-dir ../shared" spellcheck="false">
           </label>
           <label>
             State Dir
@@ -682,11 +686,24 @@
         sessionId: value("sessionId"),
         projectDir: value("projectDir") || ".",
         oauthEnv: value("oauthEnv") || "CLAUDE_CODE_OAUTH_TOKEN",
-        claudeCommand: value("claudeCommand") || "claude",
+        claudeModel: value("claudeModel"),
+        claudeArgs: value("claudeArgs"),
         stateDir: value("stateDir") || "~/.cache/claude-tmux-control",
         prompt: value("prompt") || "Hello",
         transport: value("transport") || "SSE"
       };
+    }
+
+    function launchArgLines(s) {
+      return `${s.claudeModel ? `  --model ${esc(s.claudeModel)} \\
+` : ""}${s.claudeArgs ? `  --claude-args "${esc(s.claudeArgs)}" \\
+` : ""}`;
+    }
+
+    function launchArgArrayLines(s, indent = "  ") {
+      return `${s.claudeModel ? `${indent}"--model", "${esc(s.claudeModel)}",
+` : ""}${s.claudeArgs ? `${indent}"--claude-args", "${esc(s.claudeArgs)}",
+` : ""}`;
     }
 
     function shellCommand(s) {
@@ -695,7 +712,7 @@ ctc stream${s.mode === "existing" ? ` \\
   --session-id "${esc(s.sessionId)}"` : ""} \\
   --cwd "${esc(s.projectDir)}" \\
   --oauth-token-env ${esc(s.oauthEnv)} \\
-  --command "${esc(s.claudeCommand)}" \\
+${launchArgLines(s)}
   --state-dir "${esc(s.stateDir)}" \\
   "${esc(s.prompt)}"`;
     }
@@ -707,7 +724,7 @@ const args = [
   "stream",
   "--cwd", "${esc(s.projectDir)}",
   "--oauth-token-env", "${esc(s.oauthEnv)}",
-  "--command", "${esc(s.claudeCommand)}",
+${launchArgArrayLines(s)}
   "--state-dir", "${esc(s.stateDir)}",
 ${s.mode === "existing" ? `  "--session-id", "${esc(s.sessionId)}",` : ""}
   "${esc(s.prompt)}"
@@ -736,7 +753,7 @@ cmd = [
     "stream",
     "--cwd", "${esc(s.projectDir)}",
     "--oauth-token-env", "${esc(s.oauthEnv)}",
-    "--command", "${esc(s.claudeCommand)}",
+${launchArgArrayLines(s, "    ")}
     "--state-dir", "${esc(s.stateDir)}",
 ${s.mode === "existing" ? `    "--session-id", "${esc(s.sessionId)}",` : ""}
     "${esc(s.prompt)}",
