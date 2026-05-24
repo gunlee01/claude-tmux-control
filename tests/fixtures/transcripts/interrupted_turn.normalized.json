@@ -1,0 +1,5 @@
+[
+  {"event":"user","timestamp":"2026-05-24T00:03:00Z","text":"run slow tool"},
+  {"event":"tool_use","timestamp":"2026-05-24T00:03:01Z","id":"toolu_2","name":"Bash","input":{"command":"sleep 30"}},
+  {"event":"user","timestamp":"2026-05-24T00:03:02Z","text":"[Request interrupted by user for tool use]"}
+]

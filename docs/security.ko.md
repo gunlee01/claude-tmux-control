@@ -41,6 +41,8 @@ ctc stream --cwd "$PWD" --claude-args "--permission-mode plan" "hello"
 
 `--claude-args`에 `--permission-mode ...` 또는 `--dangerously-skip-permissions`가 이미 있으면 bridge는 `--dangerously-skip-permissions`를 추가로 붙이지 않습니다.
 
+새 high-level Claude Code process를 실행하기 전에 bridge는 요청된 `--cwd`를 `~/.claude.json`의 trusted project로 preseed하고, 적용될 Claude config directory의 `settings.json`에 `skipDangerousModePermissionPrompt`를 설정합니다. service flow의 interactive trust prompt를 피하기 위한 동작이지만, `--cwd`를 제어하는 caller가 해당 directory를 trusted로 표시할 수 있다는 뜻입니다. `--cwd`는 backend-controlled path로 두거나 allowlist로 검증하세요.
+
 다음 기준으로 범위를 제한하세요.
 
 - 제한된 project directory 안에서 실행합니다.

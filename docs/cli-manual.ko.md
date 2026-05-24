@@ -556,6 +556,7 @@ ctc info "$SESSION_ID" --json
 | `transcript_path` | 연결된 Claude transcript JSONL |
 | `claude_transcript_session_id` | transcript 내부 `sessionId` |
 | `active_turn` | 진행 중 turn state |
+| `active_turn_recovery` | active/timeout/interrupted/failed 상태별 attach/cancel/new prompt 가능 여부와 권장 조치 |
 | `last_turn` | 마지막 완료/실패 turn state |
 | `usage_totals` | completed turn 기반 token 합계 |
 | `cost_totals` | completed turn 기반 session USD 합계 |
@@ -569,6 +570,15 @@ ctc list --json
 ```
 
 `ctc-csess-<uuid>` tmux session은 state file이 없어도 목록에 포함됩니다.
+
+### `stats`
+
+Claude transcript의 model, normalized usage, context, event count, read offset, estimated cost를 machine-readable JSON으로 출력합니다.
+
+```bash
+ctc stats "$SESSION_ID" --json
+ctc stats --transcript PATH --json
+```
 
 ### `events`
 
@@ -1037,6 +1047,14 @@ high-level `stream`/`ask` 오류는 stderr에 JSON을 출력할 수 있습니다
 클라이언트는 exit code와 stderr JSON의 `error` 값을 함께 봐야 합니다.
 
 같은 `error` 문자열이라도 명령에 따라 exit code가 다를 수 있습니다. 예를 들어 `cancel`은 대상 tmux session이 없으면 요청 대상이 없다는 의미로 exit `2`를 반환하고, `stream --attach`는 진행 중 turn에 붙을 수 없다는 runtime 상태로 exit `5`를 반환합니다.
+
+`turn_in_progress`나 timeout 계열 상태에서는 `ctc info "$SESSION_ID" --json`의 `active_turn_recovery`를 확인하세요.
+
+| 상태 | 권장 조치 |
+| --- | --- |
+| `active` | 기다리거나 attach, queue, cancel |
+| `timeout` / `interrupted` | 새 prompt 전송 전에 같은 session으로 attach 또는 retry |
+| `failed` | 새 prompt 전송 전에 inspect 또는 kill |
 
 ## 11. Troubleshooting
 

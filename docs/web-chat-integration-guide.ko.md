@@ -158,6 +158,8 @@ ctc stream \
 
 browser에서 받은 임의 문자열을 `--claude-args`에 그대로 넣지 마세요.
 
+high-level stream session을 새로 시작하거나 resume할 때 `ctc`는 Claude Code를 실행하기 전에 요청된 `--cwd`를 Claude Code trusted project로 preseed합니다. 기존 unrelated field를 지우지 않고 `~/.claude.json`과 적용될 `CLAUDE_CONFIG_DIR/settings.json`을 병합 갱신합니다.
+
 계정별 OAuth token을 써야 하면 요청 처리 프로세스에서 source env를 선택합니다.
 
 ```bash
@@ -426,7 +428,7 @@ usage/context 필드는 Claude Code transcript schema에 따라 위치와 이름
 
 context 정보가 없으면 CLI는 `metrics.context`를 생략합니다. `usage` 값을 더해서 context 추정치를 넣지는 않습니다.
 
-별도 raw 분석이 필요하면 `events --json` 또는 향후 `stats` 명령을 추가합니다.
+별도 raw 분석이 필요하면 `events --json` 또는 `stats --json`을 사용합니다.
 
 앱 서버는 최신 user turn 이후의 raw event를 보고 다음 위치를 우선 탐색합니다.
 
@@ -645,8 +647,6 @@ cron, systemd timer, app scheduler 중 하나에서 호출합니다.
 - `ensure`: 고수준 `stream` 내부에서 쓰는 session 보장 단계로 유지
 - low-level `status`, `answer`, `turn`의 machine-readable JSON mode가 필요하면 별도 web-facing contract로 정의
 - `status --json`, `answer --json`, `turn --json`
-- state-write lock과 generation compare/update retry 강화
 - transcript rotation follow 고도화
-- machine-readable stats command
 
 이 gap이 구현되면 이 문서를 같이 갱신해야 합니다.

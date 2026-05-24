@@ -39,6 +39,8 @@ ctc stream --cwd "$PWD" --claude-args "--permission-mode plan" "hello"
 
 The bridge will not add `--dangerously-skip-permissions` when `--claude-args` already contains `--permission-mode ...` or `--dangerously-skip-permissions`.
 
+Before launching a new high-level Claude Code process, the bridge pre-seeds the requested `--cwd` as a trusted project in `~/.claude.json` and sets `skipDangerousModePermissionPrompt` in the effective Claude config directory. This avoids interactive trust prompts for service flows, but it also means callers that control `--cwd` can mark that directory as trusted. Treat `--cwd` as a backend-controlled path or validate it against an allowlist.
+
 Use these controls around it:
 
 - Run inside a restricted project directory.

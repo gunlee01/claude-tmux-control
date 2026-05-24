@@ -83,7 +83,7 @@ State should preserve:
 ## Testing Decisions
 
 - Unit tests cover command construction, transcript parsing, stream event normalization, replay, status, kill, and reap.
-- Docker smoke tests verify first-run preseed and managed settings preflight.
+- CI verifies Docker image build and CLI startup. Authenticated Docker stream smoke should be run separately to verify first-run preseed and managed settings preflight.
 - Real Claude Code integration tests should focus on stream, reconnect, cancel, kill, and reap scenarios.
 
 ## Out of Scope

@@ -13,6 +13,9 @@ from unittest.mock import Mock, patch
 import claude_tmux_control as ctc
 
 
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
 class FakeRunner:
     def __init__(self):
         self.calls = []
@@ -872,6 +875,13 @@ class ReapTest(unittest.TestCase):
 
 
 class HighLevelStreamSetupTest(unittest.TestCase):
+    def setUp(self):
+        self._home_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._home_tmp.cleanup)
+        self._home_patch = patch.object(ctc.Path, "home", return_value=Path(self._home_tmp.name))
+        self._home_patch.start()
+        self.addCleanup(self._home_patch.stop)
+
     def test_validate_session_id_rejects_non_uuid_before_path_use(self):
         with self.assertRaisesRegex(ValueError, "invalid_session_id"):
             ctc.web_session_state_path("../../bad", Path("/tmp/state"))
@@ -959,6 +969,104 @@ class HighLevelStreamSetupTest(unittest.TestCase):
             state = ctc.read_bridge_state(runtime.state_path)
             self.assertEqual(state["active_turn"]["claude_state"], "starting")
             self.assertTrue(state["active_turn"]["no_transcript_baseline"])
+
+    def test_preseed_claude_project_trust_registers_cwd_and_preserves_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            cwd = Path(tmp) / "project"
+            config_dir = Path(tmp) / "config"
+            cwd.mkdir()
+            home.mkdir()
+            global_config = home / ".claude.json"
+            global_config.write_text(
+                json.dumps(
+                    {
+                        "theme": "dark",
+                        "projects": {
+                            str(cwd.resolve()): {
+                                "allowedTools": ["Bash"],
+                                "custom": "keep",
+                                "projectOnboardingSeenCount": 2,
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            ctc.preseed_claude_project_trust(cwd, env={"CLAUDE_CONFIG_DIR": str(config_dir)}, home=home)
+
+            updated = json.loads(global_config.read_text(encoding="utf-8"))
+            project = updated["projects"][str(cwd.resolve())]
+            self.assertTrue(updated["hasCompletedOnboarding"])
+            self.assertEqual(updated["theme"], "dark")
+            self.assertEqual(project["allowedTools"], ["Bash"])
+            self.assertEqual(project["custom"], "keep")
+            self.assertTrue(project["hasTrustDialogAccepted"])
+            self.assertTrue(project["hasCompletedProjectOnboarding"])
+            self.assertEqual(project["projectOnboardingSeenCount"], 4)
+            settings = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))
+            self.assertTrue(settings["skipDangerousModePermissionPrompt"])
+
+    def test_prepare_high_level_stream_preseeds_only_for_new_claude_process(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = []
+            runner = FakeRunner()
+            controller = ctc.TmuxController(run=runner)
+
+            ctc.prepare_high_level_stream(
+                controller=controller,
+                cwd=Path(tmp),
+                prompt="hello",
+                root=Path(tmp) / "claude",
+                state_dir=Path(tmp) / "state",
+                env={"CLAUDE_CONFIG_DIR": str(Path(tmp) / "claude-config")},
+                preseed_project_trust=lambda cwd, env: calls.append((cwd, env)),
+            )
+
+            self.assertEqual(calls, [(Path(tmp).resolve(), {"CLAUDE_CONFIG_DIR": str(Path(tmp) / "claude-config")})])
+
+            calls.clear()
+            runner.session_exists = True
+            runner.capture_text = "Done\nclaude> "
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            ctc.prepare_high_level_stream(
+                controller=ctc.TmuxController(run=runner),
+                cwd=Path(tmp),
+                prompt="second",
+                root=Path(tmp) / "claude",
+                state_dir=Path(tmp) / "state2",
+                session_id=session_id,
+                preseed_project_trust=lambda cwd, env: calls.append((cwd, env)),
+            )
+
+            self.assertEqual(calls, [])
+
+    def test_prepare_high_level_stream_preseed_integration_writes_temp_home_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = Path(tmp) / "project"
+            config_dir = Path(tmp) / "claude-config"
+            cwd.mkdir()
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+
+            ctc.prepare_high_level_stream(
+                controller=ctc.TmuxController(run=FakeRunner()),
+                cwd=cwd,
+                prompt="hello",
+                root=Path(tmp) / "claude",
+                state_dir=Path(tmp) / "state",
+                session_id=session_id,
+                env={"CLAUDE_CONFIG_DIR": str(config_dir)},
+            )
+
+            global_config = json.loads((Path(self._home_tmp.name) / ".claude.json").read_text(encoding="utf-8"))
+            settings = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))
+            project = global_config["projects"][str(cwd.resolve())]
+            self.assertTrue(global_config["hasCompletedOnboarding"])
+            self.assertTrue(project["hasTrustDialogAccepted"])
+            self.assertTrue(project["hasCompletedProjectOnboarding"])
+            self.assertEqual(project["projectOnboardingSeenCount"], 4)
+            self.assertTrue(settings["skipDangerousModePermissionPrompt"])
 
     def test_prepare_high_level_stream_applies_model_to_new_session(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1301,7 +1409,7 @@ class HighLevelStreamSetupTest(unittest.TestCase):
             root = Path(tmp) / "claude"
             state_dir = Path(tmp) / "state"
             session_id = "550e8400-e29b-41d4-a716-446655440000"
-            transcript = ctc.project_transcript_dir(root, cwd) / f"{session_id}.jsonl"
+            transcript = ctc.project_transcript_dir(root, cwd.resolve()) / f"{session_id}.jsonl"
             transcript.parent.mkdir(parents=True)
             user_line = json_line({"type": "user", "timestamp": "t0", "message": {"content": "old prompt"}})
             transcript.write_text(
@@ -1823,6 +1931,40 @@ class HighLevelStreamSetupTest(unittest.TestCase):
             self.assertEqual(state["active_turn"]["claude_state"], "starting")
             self.assertEqual(state["active_turn"]["stream_state"], "active")
 
+    def test_stale_state_write_does_not_resurrect_completed_active_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = Path(tmp) / "state" / "sessions" / f"{session_id}.json"
+            active_state = {
+                "schema_version": 1,
+                "session_id": session_id,
+                "generation": 0,
+                "active_turn": {
+                    "turn_id": "turn-1",
+                    "claude_state": "working",
+                    "stream_state": "active",
+                    "prompt_preview": "hello",
+                },
+                "completed_turns": [],
+            }
+            ctc._write_high_level_state(state_path, active_state)
+            stale_snapshot = ctc.read_bridge_state(state_path)
+
+            completed_state = dict(stale_snapshot)
+            completed_state["last_turn"] = dict(stale_snapshot["active_turn"])
+            completed_state["last_turn"]["completed_offset"] = 120
+            completed_state["active_turn"] = None
+            completed_state["completed_turns"] = [{"turn_id": "turn-1", "completed_offset": 120}]
+            ctc._write_high_level_state(state_path, completed_state)
+
+            stale_snapshot["active_turn"]["read_offset"] = 80
+            with self.assertRaisesRegex(ctc.StateGenerationConflict, "state_generation_conflict"):
+                ctc._write_high_level_state(state_path, stale_snapshot)
+
+            state = ctc.read_bridge_state(state_path)
+            self.assertIsNone(state["active_turn"])
+            self.assertEqual(state["completed_turns"], [{"turn_id": "turn-1", "completed_offset": 120}])
+
     def test_stream_interrupt_marks_turn_interrupted(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_id = "550e8400-e29b-41d4-a716-446655440000"
@@ -1952,6 +2094,159 @@ class HighLevelSessionInfoTest(unittest.TestCase):
 
             self.assertFalse(payload["tmux_active"])
             self.assertTrue(payload["state_exists"])
+
+    def test_build_session_info_includes_recovery_actions_for_timeout_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "cwd": str(Path(tmp)),
+                        "active_turn": {
+                            "turn_id": "turn_timeout",
+                            "stream_state": "timeout",
+                            "claude_state": "working",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = True
+
+            payload = ctc.build_session_info_payload(session_id, state_dir, root, controller)
+
+            self.assertEqual(
+                payload["active_turn_recovery"],
+                {
+                    "state": "timeout",
+                    "can_attach": True,
+                    "can_cancel": True,
+                    "can_send_new_prompt": False,
+                    "recommended_action": "attach_or_retry",
+                    "description": "completion is unconfirmed; attach or retry with the same session before sending a new prompt",
+                },
+            )
+
+    def test_build_session_info_includes_recovery_actions_for_failed_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "cwd": str(Path(tmp)),
+                        "active_turn": {
+                            "turn_id": "turn_failed",
+                            "stream_state": "failed",
+                            "claude_state": "unknown",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = True
+
+            payload = ctc.build_session_info_payload(session_id, state_dir, root, controller)
+
+            self.assertEqual(payload["active_turn_recovery"]["recommended_action"], "inspect_or_kill")
+            self.assertFalse(payload["active_turn_recovery"]["can_attach"])
+            self.assertFalse(payload["active_turn_recovery"]["can_send_new_prompt"])
+
+    def test_build_stats_payload_reads_model_usage_and_context_from_transcript(self):
+        transcript = FIXTURES_DIR / "transcripts" / "basic_tool_flow.jsonl"
+
+        payload = ctc.build_stats_payload(transcript, session_id="550e8400-e29b-41d4-a716-446655440000")
+
+        self.assertEqual(payload["event"], "stats")
+        self.assertEqual(payload["session_id"], "550e8400-e29b-41d4-a716-446655440000")
+        self.assertEqual(payload["transcript_path"], str(transcript))
+        self.assertEqual(payload["model"], "claude-sonnet-4-6")
+        self.assertEqual(
+            payload["usage"],
+            {
+                "input_tokens": 10,
+                "cache_read_tokens": 20,
+                "cache_write_tokens": 30,
+                "output_tokens": 40,
+            },
+        )
+        self.assertEqual(payload["event_count"], 5)
+        self.assertEqual(payload["read_offset"], transcript.stat().st_size)
+
+    def test_run_stats_with_explicit_transcript_prints_json(self):
+        transcript = FIXTURES_DIR / "transcripts" / "basic_tool_flow.jsonl"
+        args = ctc.parse_args(["stats", "--transcript", str(transcript), "--json"])
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout):
+            exit_code = ctc._run_command(args, Mock())
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["event"], "stats")
+        self.assertEqual(payload["model"], "claude-sonnet-4-6")
+
+    def test_run_stats_with_session_id_resolves_state_transcript_and_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            cwd.mkdir()
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / f"{session_id}.jsonl"
+            transcript.parent.mkdir(parents=True)
+            transcript.write_text(
+                json_line({"sessionId": session_id, "type": "user", "message": {"content": "stats context"}})
+                + json_line(
+                    {
+                        "sessionId": session_id,
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": "done"}]},
+                        "usage": {"input_tokens": 11, "cache_read_input_tokens": 22, "output_tokens": 33},
+                        "context_window": {"remaining": 12345, "used": "678"},
+                        "model": "claude-sonnet-4-6",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "cwd": str(cwd),
+                        "transcript": ctc.transcript_file_state(transcript, transcript.stat().st_size),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = ctc.parse_args(["stats", session_id, "--state-dir", str(state_dir), "--root", str(root), "--json"])
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = ctc._run_command(args, Mock())
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload["session_id"], session_id)
+            self.assertEqual(payload["transcript_path"], str(transcript))
+            self.assertEqual(payload["usage"]["input_tokens"], 11)
+            self.assertEqual(payload["context"], {"remaining": 12345, "used": "678"})
 
     def test_build_session_list_includes_state_and_tmux_only_sessions(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2376,7 +2671,7 @@ class HighLevelReplayTest(unittest.TestCase):
             cwd = Path(tmp) / "project"
             cwd.mkdir()
             session_id = "550e8400-e29b-41d4-a716-446655440000"
-            transcript = ctc.project_transcript_dir(root, cwd) / f"{session_id}.jsonl"
+            transcript = ctc.project_transcript_dir(root, cwd.resolve()) / f"{session_id}.jsonl"
             transcript.parent.mkdir(parents=True)
 
             q1 = json_line({"sessionId": session_id, "type": "user", "message": {"content": "q1"}})
@@ -3410,6 +3705,17 @@ class TranscriptTest(unittest.TestCase):
             "\n\n--- turn 2/2 ---\n\n[user]\nthird\n\n[assistant]\nanswer three",
         )
 
+    def test_latest_turn_helpers_keep_minimum_count_of_one(self):
+        events = [
+            {"type": "user", "message": {"content": "first"}},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "answer one"}]}},
+            {"type": "user", "message": {"content": "second"}},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "answer two"}]}},
+        ]
+
+        self.assertEqual(ctc.extract_answer_texts(events, count=0), ["answer two"])
+        self.assertEqual(ctc.format_latest_turns(events, count=0), "[user]\nsecond\n\n[assistant]\nanswer two")
+
     def test_format_latest_turn_ignores_internal_session_summary_prompt(self):
         events = [
             {"type": "user", "message": {"content": "real question"}},
@@ -3422,6 +3728,32 @@ class TranscriptTest(unittest.TestCase):
 
 
 class StreamTest(unittest.TestCase):
+    def test_transcript_event_module_is_public(self):
+        import transcript_events
+
+        self.assertIs(ctc.normalize_stream_events, transcript_events.normalize_stream_events)
+        self.assertIs(ctc.analyze_turn_status, transcript_events.analyze_turn_status)
+
+    def test_transcript_compatibility_fixtures_match_normalized_contract(self):
+        fixture_dir = FIXTURES_DIR / "transcripts"
+        cases = [
+            "basic_tool_flow",
+            "signature_thinking",
+            "top_level_tool_events",
+            "interrupted_turn",
+        ]
+        for case in cases:
+            with self.subTest(case=case):
+                transcript = fixture_dir / f"{case}.jsonl"
+                expected = json.loads((fixture_dir / f"{case}.normalized.json").read_text(encoding="utf-8"))
+                records, offset = ctc.read_transcript_records(transcript)
+
+                self.assertEqual(offset, transcript.stat().st_size)
+                self.assertEqual(
+                    [payload for record in records for payload in ctc.normalize_stream_events([record.event])],
+                    expected,
+                )
+
     def test_normalize_stream_events_includes_thinking_tool_result_and_text(self):
         events = [
             {"type": "user", "timestamp": "t0", "message": {"content": "new"}},
@@ -4261,6 +4593,66 @@ class StreamTest(unittest.TestCase):
 
 
 class CliIntegrationTest(unittest.TestCase):
+    def test_cli_stream_new_session_preseeds_trust_and_streams_done(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_bin = Path(tmp) / "bin"
+            fake_log = Path(tmp) / "tmux.log"
+            write_fake_tmux(fake_bin)
+            write_fake_claude(fake_bin)
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            home = Path(tmp) / "home"
+            config = Path(tmp) / "config"
+            cwd = Path(tmp) / "project"
+            cwd.mkdir()
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd.resolve()) / f"{session_id}.jsonl"
+
+            result = run_cli(
+                [
+                    "stream",
+                    "--cwd",
+                    str(cwd),
+                    "--session-id",
+                    session_id,
+                    "--root",
+                    str(root),
+                    "--state-dir",
+                    str(state_dir),
+                    "--timeout",
+                    "1",
+                    "--interval",
+                    "0.01",
+                    "--idle",
+                    "0",
+                    "hello",
+                ],
+                env=fake_tmux_env(
+                    fake_bin,
+                    fake_log,
+                    HOME=home,
+                    CLAUDE_CONFIG_DIR=config,
+                    TMUX_FAKE_HAS_SESSION=1,
+                    TMUX_FAKE_TRANSCRIPT=transcript,
+                    TMUX_FAKE_SESSION_ID=session_id,
+                    TMUX_FAKE_PROMPT="hello",
+                    TMUX_FAKE_ANSWER="streamed answer",
+                ),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payloads = [json.loads(line) for line in result.stdout.splitlines()]
+            self.assertEqual([payload["event"] for payload in payloads], ["user", "assistant_text", "done", "metrics"])
+            self.assertEqual(payloads[2]["answer"], "streamed answer")
+            self.assertEqual(payloads[3]["context"], {"remaining": 12345})
+            state = ctc.read_bridge_state(ctc.web_session_state_path(session_id, state_dir))
+            self.assertIsNone(state["active_turn"])
+            claude_json = json.loads((home / ".claude.json").read_text(encoding="utf-8"))
+            self.assertTrue(claude_json["projects"][str(cwd.resolve())]["hasTrustDialogAccepted"])
+            settings_json = json.loads((config / "settings.json").read_text(encoding="utf-8"))
+            self.assertTrue(settings_json["skipDangerousModePermissionPrompt"])
+            self.assertIn("new-session -d -s " + ctc.web_tmux_session_name(session_id), fake_log.read_text(encoding="utf-8"))
+
     def test_cli_replay_completed_turn_outputs_jsonl(self):
         with tempfile.TemporaryDirectory() as tmp:
             state_dir = Path(tmp) / "state"
@@ -4641,6 +5033,11 @@ echo "$@" >> "$TMUX_FAKE_LOG"
 if [ "$1" = "has-session" ]; then
   exit "${TMUX_FAKE_HAS_SESSION:-0}"
 fi
+if [ "$1" = "new-session" ] && [ -n "$TMUX_FAKE_TRANSCRIPT" ]; then
+  mkdir -p "$(dirname "$TMUX_FAKE_TRANSCRIPT")"
+  printf '{"sessionId":"%s","type":"user","message":{"content":"%s"}}\\n' "$TMUX_FAKE_SESSION_ID" "$TMUX_FAKE_PROMPT" >> "$TMUX_FAKE_TRANSCRIPT"
+  printf '{"sessionId":"%s","type":"assistant","message":{"content":[{"type":"text","text":"%s"}]},"usage":{"input_tokens":1,"output_tokens":2},"context":{"remaining":12345},"model":"claude-sonnet-4-6"}\\n' "$TMUX_FAKE_SESSION_ID" "$TMUX_FAKE_ANSWER" >> "$TMUX_FAKE_TRANSCRIPT"
+fi
 if [ "$1" = "capture-pane" ]; then
   printf 'Done\\nclaude> \\n'
   exit 0
@@ -4655,6 +5052,13 @@ exit 0
 """,
         encoding="utf-8",
     )
+    script.chmod(0o755)
+
+
+def write_fake_claude(bin_dir: Path) -> None:
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    script = bin_dir / "claude"
+    script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     script.chmod(0o755)
 
 

@@ -1,0 +1,7 @@
+[
+  {"event":"user","timestamp":"2026-05-24T00:00:00Z","text":"inspect repo"},
+  {"event":"thinking","timestamp":"2026-05-24T00:00:01Z","text":"Need list files","text_available":true,"has_signature":false},
+  {"event":"tool_use","timestamp":"2026-05-24T00:00:02Z","id":"toolu_1","name":"Bash","input":{"command":"ls"}},
+  {"event":"tool_result","timestamp":"2026-05-24T00:00:03Z","tool_use_id":"toolu_1","text":"README.md\nclaude_tmux_control.py","is_error":false,"result_preview":"{\"stdout\": \"README.md\\nclaude_tmux_control.py\"}","result_preview_truncated":false,"result_preview_full_length":47},
+  {"event":"assistant_text","timestamp":"2026-05-24T00:00:04Z","text":"Found the main files."}
+]

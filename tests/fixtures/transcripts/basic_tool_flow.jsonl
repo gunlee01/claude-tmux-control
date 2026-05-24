@@ -1,0 +1,5 @@
+{"sessionId":"550e8400-e29b-41d4-a716-446655440000","type":"user","timestamp":"2026-05-24T00:00:00Z","message":{"content":"inspect repo"}}
+{"sessionId":"550e8400-e29b-41d4-a716-446655440000","type":"assistant","timestamp":"2026-05-24T00:00:01Z","message":{"content":[{"type":"thinking","thinking":"Need list files"}]}}
+{"sessionId":"550e8400-e29b-41d4-a716-446655440000","type":"assistant","timestamp":"2026-05-24T00:00:02Z","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}]}}
+{"sessionId":"550e8400-e29b-41d4-a716-446655440000","type":"user","timestamp":"2026-05-24T00:00:03Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","is_error":false,"content":"README.md\nclaude_tmux_control.py"}]},"toolUseResult":{"stdout":"README.md\nclaude_tmux_control.py"}}
+{"sessionId":"550e8400-e29b-41d4-a716-446655440000","type":"assistant","timestamp":"2026-05-24T00:00:04Z","message":{"content":[{"type":"text","text":"Found the main files."}]},"usage":{"input_tokens":10,"cache_read_input_tokens":20,"cache_creation_input_tokens":30,"output_tokens":40},"model":"claude-sonnet-4-6"}

@@ -35,6 +35,8 @@
 
 - [x] Store bridge state under `~/.cache/claude-tmux-control/`.
 - [x] Capture transcript baseline before send/start/resume.
+- [x] Use a short send lock for start/resume/send.
+- [x] Use a state-write lock with generation compare/update for state writes.
 - [x] Track active turn state and heartbeat.
 - [x] Track transcript offsets for replay and deduplication.
 - [x] Recover stale active turns conservatively.
@@ -55,6 +57,7 @@
 - [x] Default Claude Code launch to `--dangerously-skip-permissions`.
 - [x] Avoid duplicating permission override flags.
 - [x] Keep Claude Code executable fixed to `claude` and pass trusted launch options through `--model` / `--claude-args`.
+- [x] Preseed high-level `--cwd` as a Claude Code trusted project before launching a new Claude Code process.
 
 ## 8. Docker
 
@@ -67,12 +70,16 @@
 ## 9. Testing
 
 - [x] Unit tests for core CLI behavior.
-- [x] Docker smoke for managed settings preflight and `ctc stream`.
+- [x] Docker image build and CLI smoke in CI.
 - [x] Scenario harness for stream/replay/cancel/kill/reap behavior.
+- [x] Regression test for stale state writes not resurrecting a completed active turn.
+- [x] Transcript compatibility fixtures for normalized stream event contracts.
+- [x] Integration test for high-level trusted project preseed using an isolated temp Claude home/config.
 
 ## 10. Future Work
 
 - [ ] Add explicit client acknowledgement protocol for exactly-once delivery.
-- [ ] Add machine-readable stats command.
-- [ ] Improve failed/timeout recovery UX.
-- [ ] Track Claude Code transcript schema changes across versions.
+- [x] Add machine-readable stats command.
+- [x] Improve failed/timeout recovery UX with `active_turn_recovery` guidance.
+- [x] Add transcript compatibility fixtures to track Claude Code transcript schema changes across versions.
+- [ ] Add optional authenticated Docker stream smoke for managed-settings preflight and `ctc stream`.

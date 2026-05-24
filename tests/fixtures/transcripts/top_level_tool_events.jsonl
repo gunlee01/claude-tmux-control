@@ -1,0 +1,4 @@
+{"sessionId":"550e8400-e29b-41d4-a716-446655440000","type":"user","timestamp":"2026-05-24T00:02:00Z","message":{"content":"run external tool"}}
+{"sessionId":"550e8400-e29b-41d4-a716-446655440000","type":"tool_use","timestamp":"2026-05-24T00:02:01Z","tool_name":"Bash","tool_input":{"command":"pwd"}}
+{"sessionId":"550e8400-e29b-41d4-a716-446655440000","type":"tool_result","timestamp":"2026-05-24T00:02:02Z","tool_output":"/tmp/project"}
+{"sessionId":"550e8400-e29b-41d4-a716-446655440000","type":"assistant","timestamp":"2026-05-24T00:02:03Z","message":{"content":[{"type":"text","text":"Printed cwd."}]}}

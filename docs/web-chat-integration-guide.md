@@ -102,6 +102,8 @@ ctc stream \
 
 If your product exposes this to users, expose a safe application-level setting such as `permissionMode=plan` and map it server-side. Do not pass arbitrary browser-provided strings into `--claude-args`.
 
+When starting or resuming a high-level stream session, `ctc` pre-seeds the requested `--cwd` as a Claude Code trusted project before launching Claude Code. It updates `~/.claude.json` and the effective `CLAUDE_CONFIG_DIR/settings.json` without replacing existing unrelated fields.
+
 ## 4. Event Handling
 
 | Event | UI behavior |
@@ -183,6 +185,8 @@ If the last turn is still active, `last`/`replay` attach instead of sending a ne
 | `session_cwd_mismatch` | same session id used with another cwd | reject and create a new conversation |
 | no transcript | Claude Code did not produce transcript before timeout | show processing/retry state |
 | timeout | completion not confirmed | attach/retry; do not assume ready |
+
+`ctc info "$SESSION_ID" --json` includes `active_turn_recovery` when an active turn is present. Treat `active`, `timeout`, and `interrupted` as not ready for a new prompt; attach/retry/cancel first. Treat `failed` as requiring inspect or kill before sending another prompt.
 
 Exit codes:
 

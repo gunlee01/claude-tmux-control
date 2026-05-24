@@ -150,9 +150,18 @@ If the last turn is active, these commands attach to it and stream through compl
 ctc info UUID --json
 ```
 
-Prints state metadata, tmux activity, transcript path, completed turn count, and cumulative usage/cost fields when available.
+Prints state metadata, tmux activity, transcript path, completed turn count, cumulative usage/cost fields, and `active_turn_recovery` guidance when an active turn is present.
 
 ### `list`
+
+### `stats`
+
+```bash
+ctc stats UUID --json
+ctc stats --transcript PATH --json
+```
+
+Prints machine-readable transcript statistics: model, normalized usage, context when present, event count, read offset, and estimated cost when usage/model pricing is available.
 
 ```bash
 ctc list --json
@@ -308,6 +317,14 @@ ctc stream --attach --session-id "$SESSION_ID"
 ctc last "$SESSION_ID" --last 1
 ctc cancel "$SESSION_ID"
 ```
+
+Use `ctc info "$SESSION_ID" --json` to inspect `active_turn_recovery`:
+
+| State | Recommended action |
+| --- | --- |
+| `active` | wait, attach, queue, or cancel |
+| `timeout` / `interrupted` | attach or retry with the same session before sending a new prompt |
+| `failed` | inspect or kill before sending a new prompt |
 
 ### Events look like another session
 

@@ -1,0 +1,6 @@
+[
+  {"event":"user","timestamp":"2026-05-24T00:02:00Z","text":"run external tool"},
+  {"event":"tool_use","timestamp":"2026-05-24T00:02:01Z","name":"Bash","input":{"command":"pwd"}},
+  {"event":"tool_result","timestamp":"2026-05-24T00:02:02Z","text":"/tmp/project"},
+  {"event":"assistant_text","timestamp":"2026-05-24T00:02:03Z","text":"Printed cwd."}
+]

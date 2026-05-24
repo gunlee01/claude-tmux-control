@@ -1,0 +1,5 @@
+[
+  {"event":"user","timestamp":"2026-05-24T00:01:00Z","text":"think silently"},
+  {"event":"thinking","timestamp":"2026-05-24T00:01:01Z","text":"","text_available":false,"has_signature":true,"note":"thinking text unavailable; signature present"},
+  {"event":"assistant_text","timestamp":"2026-05-24T00:01:02Z","text":"Done."}
+]

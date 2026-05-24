@@ -28,7 +28,7 @@ jobs:
         run: python -m pip wheel . -w /tmp/ctc-wheel-test --no-deps
 
   docker:
-    name: Docker build smoke test
+    name: Docker build and CLI smoke
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
