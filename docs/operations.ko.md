@@ -63,7 +63,9 @@ web session만 정리하려면 `--prefix ctc-csess-`를 권장합니다.
 
 high-level `ctc-csess-<SESSION_ID>` session은 `~/.cache/claude-tmux-control/sessions/<SESSION_ID>.json` state file의 mtime을 idle 기준으로 사용합니다.
 
-오래됐어도 high-level `active_turn`이 남아 있고 `ready`가 아니면 종료하지 않습니다.
+high-level session에서 오래된 `active_turn`이 남아 있으면 `reap`은 먼저 ready transcript와 ready tmux 화면으로 해당 turn을 완료 처리할 수 있는지 확인합니다. 실제 reap에서는 가능할 때 turn을 finalize한 뒤 idle 종료 판단을 계속합니다. `--dry-run`은 이 확인만 시뮬레이션하고 state를 쓰거나 session을 종료하지 않습니다.
+
+완료 처리할 수 없는 high-level `active_turn`이 남아 있고 `ready`가 아니면 오래됐어도 종료하지 않습니다.
 
 `timeout`이나 `interrupted`도 입력 가능 또는 정리 가능 신호가 아닙니다. 이런 session은 `stream --attach`, 같은 `session_id` 재시도, 또는 운영자 판단에 따른 `kill`로 별도 처리합니다.
 

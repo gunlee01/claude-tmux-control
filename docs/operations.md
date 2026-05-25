@@ -57,6 +57,8 @@ Use `--prefix ctc-csess-` for web sessions. `--prefix ctc-` is broader and can i
 | no active work | high-level `active_turn` is absent or `ready` |
 | not working | transcript/screen does not indicate active work |
 
+For high-level sessions, `reap` first checks whether a stale `active_turn` can be finalized from a ready transcript and ready tmux screen. If it can, a real reap finalizes the turn before applying the idle kill decision. `--dry-run` only simulates this check and does not write state or kill sessions.
+
 `timeout` and `interrupted` do not automatically mean ready. Use `stream --attach`, retry with the same `session_id`, or explicitly `kill` after inspection.
 
 ## 5. Manual Stop

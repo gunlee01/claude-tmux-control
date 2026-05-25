@@ -2323,7 +2323,20 @@ def reap_idle_sessions(
         if idle < idle_seconds:
             continue
         if active_working:
-            continue
+            recovered = (
+                high_level_reap_active_turn_is_recoverable(controller, session, state_path, root)
+                if dry_run
+                else recover_high_level_reap_active_turn(controller, session, state_path, state_dir, root)
+            )
+            if recovered and dry_run:
+                active_working = False
+            elif recovered:
+                refreshed = resolve_reap_session_state(session, state_dir)
+                if refreshed is None:
+                    continue
+                state_path, state, active_working = refreshed
+            if active_working:
+                continue
         if session_is_working(controller, session, state, root):
             continue
 
@@ -2332,6 +2345,84 @@ def reap_idle_sessions(
             controller.kill_session(session)
         results.append({"session": session, "idle_seconds": idle, "action": action})
     return results
+
+
+def high_level_reap_active_turn_is_recoverable(
+    controller: TmuxController,
+    session: str,
+    state_path: Path,
+    root: Path = DEFAULT_TRANSCRIPT_ROOT,
+) -> bool:
+    if not session.startswith(DEFAULT_WEB_SESSION_PREFIX):
+        return False
+
+    session_id = session[len(DEFAULT_WEB_SESSION_PREFIX) :]
+    try:
+        validate_or_create_session_id(session_id)
+    except ValueError:
+        return False
+
+    state = read_bridge_state(state_path)
+    if state is None:
+        return False
+    active = state.get("active_turn")
+    if not isinstance(active, dict) or active.get("claude_state") in {None, "ready"}:
+        return False
+
+    try:
+        screen_status = analyze_screen_status(controller.capture_screen(session, height=80))
+    except subprocess.CalledProcessError:
+        return False
+    if screen_status.state != "ready":
+        return False
+
+    cwd_value = state.get("cwd")
+    cwd = Path(cwd_value) if isinstance(cwd_value, str) else Path(".")
+    return collect_recoverable_active_turn(state, root, cwd, session_id) is not None
+
+
+def recover_high_level_reap_active_turn(
+    controller: TmuxController,
+    session: str,
+    state_path: Path,
+    state_dir: Path = DEFAULT_STATE_DIR,
+    root: Path = DEFAULT_TRANSCRIPT_ROOT,
+) -> bool:
+    if not session.startswith(DEFAULT_WEB_SESSION_PREFIX):
+        return False
+
+    session_id = session[len(DEFAULT_WEB_SESSION_PREFIX) :]
+    try:
+        validate_or_create_session_id(session_id)
+    except ValueError:
+        return False
+
+    state = read_bridge_state(state_path)
+    if state is None:
+        return False
+    active = state.get("active_turn")
+    if not isinstance(active, dict) or active.get("claude_state") in {None, "ready"}:
+        return False
+
+    try:
+        screen_status = analyze_screen_status(controller.capture_screen(session, height=80))
+    except subprocess.CalledProcessError:
+        return False
+    if screen_status.state != "ready":
+        return False
+
+    cwd_value = state.get("cwd")
+    cwd = Path(cwd_value) if isinstance(cwd_value, str) else None
+    return finalize_recoverable_active_turn(
+        state_path=state_path,
+        state=state,
+        controller_status=screen_status,
+        root=root,
+        cwd=cwd,
+        state_dir=state_dir,
+        session_id=session_id,
+        tmux_session=session,
+    )
 
 
 def resolve_reap_session_state(session: str, state_dir: Path) -> tuple[Path, SessionState, bool] | None:
@@ -3593,33 +3684,13 @@ def finalize_recoverable_active_turn(
     if not actual_session_id:
         return False
 
-    transcript = _attach_transcript_path(state, active, root, cwd_value, actual_session_id)
-    if transcript is None:
+    recovered = collect_recoverable_active_turn(state, root, cwd_value, actual_session_id)
+    if recovered is None:
         return False
+    transcript, turn_events, completed_offset = recovered
 
     prompt = str(active.get("prompt_preview") or "")
     start_offset = recoverable_turn_start_offset(active)
-    records, read_offset = read_transcript_records(transcript, start_offset)
-    turn_events: list[dict] = []
-    completed_offset = start_offset
-    anchored = start_offset == _int_or_none(active.get("anchor_start_offset"))
-    for record in records:
-        if anchored and turn_events and _is_external_user_record(record):
-            break
-        if not anchored:
-            if not _is_anchor_user_record(record, prompt):
-                continue
-            anchored = True
-        turn_events.append(record.event)
-        completed_offset = record.end_offset
-
-    if not anchored:
-        return False
-    if analyze_turn_status(turn_events).state != "ready":
-        return False
-    if read_offset < transcript.stat().st_size:
-        return False
-
     wall_started = _parse_utc_timestamp(str(active.get("before_send_wall_time_utc") or ""))
     elapsed_ms = int(max(0.0, time.time() - wall_started) * 1000) if wall_started is not None else None
     runtime = StreamRuntime(
@@ -3652,6 +3723,44 @@ def finalize_recoverable_active_turn(
         and latest_state.get("active_turn") is None
         and controller_status.state == "ready"
     )
+
+
+def collect_recoverable_active_turn(
+    state: Mapping[str, object],
+    root: Path,
+    cwd: Path,
+    session_id: str,
+) -> tuple[Path, list[dict], int] | None:
+    active = state.get("active_turn")
+    if not isinstance(active, Mapping):
+        return None
+    transcript = _attach_transcript_path(state, active, root, cwd, session_id)
+    if transcript is None:
+        return None
+
+    prompt = str(active.get("prompt_preview") or "")
+    start_offset = recoverable_turn_start_offset(active)
+    records, read_offset = read_transcript_records(transcript, start_offset)
+    turn_events: list[dict] = []
+    completed_offset = start_offset
+    anchored = start_offset == _int_or_none(active.get("anchor_start_offset"))
+    for record in records:
+        if anchored and turn_events and _is_external_user_record(record):
+            break
+        if not anchored:
+            if not _is_anchor_user_record(record, prompt):
+                continue
+            anchored = True
+        turn_events.append(record.event)
+        completed_offset = record.end_offset
+
+    if not anchored:
+        return None
+    if analyze_turn_status(turn_events).state != "ready":
+        return None
+    if read_offset < transcript.stat().st_size:
+        return None
+    return transcript, turn_events, completed_offset
 
 
 def recoverable_turn_start_offset(active: Mapping[str, object]) -> int:
@@ -3772,7 +3881,7 @@ def _format_user_content(content: object) -> str:
 
 def _is_internal_user_content(content: object) -> bool:
     text = _format_user_content(content)
-    return text.startswith("당신은 Claude Code 세션 활동 요약 작성자입니다.")
+    return text.startswith("당신은 Claude Code 세션 활동 요약 작성자입니다.") or text.startswith("Base directory for this skill:")
 
 
 def _is_interruption_user_content(content: object) -> bool:

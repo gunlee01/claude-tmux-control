@@ -209,6 +209,8 @@ ctc reap --idle-seconds 1800 --prefix ctc-csess-
 
 `reap` kills idle tmux sessions but does not delete the Claude conversation transcript. Later requests can resume when enough state remains.
 
+For high-level sessions, `reap` can repair a stale `active_turn` before killing an idle tmux session when the transcript and tmux screen both show the turn is complete. `--dry-run` only reports this outcome and does not write state.
+
 ## 10. Current Gaps
 
 - stream delivery is at-least-once; clients should deduplicate by `event_id`.

@@ -176,7 +176,7 @@ ctc reap --idle-seconds 1800 --prefix ctc-csess- --dry-run
 ctc reap --idle-seconds 1800 --prefix ctc-csess-
 ```
 
-Kills idle controlled tmux sessions. `--dry-run` is side-effect free.
+Kills idle controlled tmux sessions. For high-level sessions with a stale active turn, `reap` can finalize the turn first when both transcript and tmux screen are ready. `--dry-run` is side-effect free: it reports sessions that would be killed after that recovery check without writing state or killing sessions.
 
 ### `kill`
 

@@ -613,7 +613,9 @@ ctc reap --idle-seconds 1800 --prefix ctc-csess-
 
 한 번 scan하고 종료합니다.
 
-high-level `active_turn`이 남아 있고 `ready`가 아니면 `reap`은 보수적으로 skip합니다.
+high-level `active_turn`이 남아 있으면 `reap`은 transcript와 tmux 화면이 모두 완료 상태인지 먼저 확인합니다. 완료 처리 가능하면 실제 reap에서는 state-only finalize 후 idle 종료 판단을 계속합니다.
+
+완료 처리할 수 없는 `active_turn`이 남아 있고 `ready`가 아니면 `reap`은 보수적으로 skip합니다. `--dry-run`은 이 판단을 보고만 하고 state를 쓰지 않습니다.
 
 `timeout`이나 `interrupted`는 입력 가능 또는 정리 가능 신호가 아닙니다. `attach`, 같은 `session_id` 재시도, 또는 운영자 판단에 따른 `kill`로 별도 처리합니다.
 
