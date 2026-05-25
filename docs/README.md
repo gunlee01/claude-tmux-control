@@ -13,6 +13,7 @@ This directory contains product notes, integration guides, and operational refer
 - [Web Chat App Flow](./web-chat-app-flow.html): HTML flow diagram for browser chat integration
 - [Operations Guide](./operations.md): idle cleanup, `reap`, `kill`, and recovery procedures
 - [Docker Guide](./docker.md): Docker image build, first-run preseed, and managed settings preflight
+- [Claude Code First-run Preseed](./claude-code-first-run-preseed.md): purpose, effects, generated config, and code locations for first-run prompt avoidance
 - [Security Guide](./security.md): token handling, permission mode, transcript/state data, and Docker safety
 - [Release Guide](./release.md): GitHub, PyPI, and Docker registry release checklist
 - [Claude Pricing Table](../claude_pricing.json): USD/MTok pricing table for metrics estimation

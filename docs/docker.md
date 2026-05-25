@@ -58,6 +58,8 @@ Run the next turn with the same `SESSION_ID`.
 
 Fresh Claude Code containers can show first-run prompts. `docker/entrypoint.sh` prepares these files before running `ctc`.
 
+For a fuller explanation of why this exists, what happens without it, and the generated config shape, see [Claude Code First-run Preseed](./claude-code-first-run-preseed.md).
+
 | Target | File | Action |
 | --- | --- | --- |
 | global onboarding | `~/.claude.json` | set `hasCompletedOnboarding: true` |

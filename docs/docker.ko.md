@@ -71,6 +71,8 @@ Claude Code를 fresh container에서 처음 interactive 실행하면 여러 prom
 
 `docker/entrypoint.sh`는 `ctc` 실행 전에 아래 값을 미리 설정합니다.
 
+이 동작의 목적, 적용 효과, 없을 때 현상, 생성되는 config 예시는 [Claude Code First-run Preseed](./claude-code-first-run-preseed.ko.md)에 따로 정리되어 있습니다.
+
 | 대상 | 파일 | 처리 |
 | --- | --- | --- |
 | global onboarding | `~/.claude.json` | `hasCompletedOnboarding: true` |

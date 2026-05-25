@@ -13,6 +13,7 @@
 - [Web Chat App Flow](./web-chat-app-flow.html): 브라우저 채팅앱이 CLI stream을 호출하고 event를 UI에 반영하는 흐름도 HTML
 - [Operations Guide](./operations.ko.md): idle cleanup, reap, kill, 장애 복구 운영 절차
 - [Docker Guide](./docker.ko.md): Docker 이미지 build, first-run preseed, managed settings preflight
+- [Claude Code First-run Preseed](./claude-code-first-run-preseed.ko.md): first-run prompt 회피 목적, 효과, 생성 config, 코드 위치
 - [Security Guide](./security.ko.md): token handling, permission mode, transcript/state data, Docker safety
 - [Release Guide](./release.ko.md): GitHub, PyPI, Docker registry release checklist
 - [Claude Pricing Table](../claude_pricing.json): metrics cost 계산에 쓰는 Claude model별 USD/MTok 단가
