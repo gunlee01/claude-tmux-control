@@ -200,7 +200,10 @@ class TmuxController:
 
     def send_prompt(self, session: str, prompt: str, submit: bool = True) -> None:
         self._run(["tmux", "load-buffer", "-b", DEFAULT_BUFFER_NAME, "-"], input=prompt, text=True, check=True)
-        self._run(["tmux", "paste-buffer", "-p", "-d", "-b", DEFAULT_BUFFER_NAME, "-t", session], check=True)
+        paste_args = ["tmux", "paste-buffer", "-d", "-b", DEFAULT_BUFFER_NAME, "-t", session]
+        if "\n" in prompt or "\r" in prompt:
+            paste_args.insert(2, "-p")
+        self._run(paste_args, check=True)
         if submit:
             self._run(["tmux", "send-keys", "-t", session, "Enter"], check=True)
 

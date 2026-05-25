@@ -298,7 +298,7 @@ input: optional session_id, cwd, prompt
 
 11. if a new tmux session was started:
       wait for the Claude Code prompt
-      submit prompt with tmux bracketed paste+Enter
+      submit prompt with tmux paste+Enter
 
 12. establish turn start:
      wait for user event after before_send_transcript.offset

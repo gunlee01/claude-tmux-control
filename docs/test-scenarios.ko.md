@@ -11,8 +11,8 @@
 | UUID validation | path/tmux target injection | invalid `session_id` fails before state path is built |
 | cwd mismatch | cross-project transcript mixup | existing session with different canonical cwd returns `session_cwd_mismatch` |
 | active turn blocks second prompt | prompt interleaving | second stream returns `turn_in_progress` and does not call tmux send |
-| first launch command | permission prompt / missing session id | tmux starts `claude --session-id <uuid> --dangerously-skip-permissions`, then submits prompt with tmux bracketed paste+Enter |
-| resume command | losing Claude transcript continuity | inactive existing session starts `claude --resume <uuid> --dangerously-skip-permissions`, then submits prompt with tmux bracketed paste+Enter |
+| first launch command | permission prompt / missing session id | tmux starts `claude --session-id <uuid> --dangerously-skip-permissions`, then submits prompt with tmux paste+Enter |
+| resume command | losing Claude transcript continuity | inactive existing session starts `claude --resume <uuid> --dangerously-skip-permissions`, then submits prompt with tmux paste+Enter |
 | repeated prompt anchor | wrong turn selection | stream starts from pre-send offset, not earlier same prompt text |
 | stable event ids | replay dedupe failure | every progress event has `turn_id`, `event_id`, `source_offset`, `source_end_offset`, `block_index` |
 | done then metrics | missing final accounting | `done` is followed by `metrics` with same `turn_id` and deterministic synthetic ids |
@@ -116,7 +116,7 @@ TERM=xterm-256color ./claude_tmux_control.py stream \
 Expected:
 
 - bridge starts `claude --resume <session_id> ...`
-- bridge submits the prompt with tmux bracketed paste+Enter after the Claude Code prompt is ready
+- bridge submits the prompt with tmux paste+Enter after the Claude Code prompt is ready
 - stream still emits `assistant_text`, `done`, and `metrics`
 - transcript selection stays within the same cwd and `session_id`
 

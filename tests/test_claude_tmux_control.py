@@ -179,7 +179,7 @@ class TmuxControllerTest(unittest.TestCase):
                     {"input": "hello Claude", "text": True, "check": True},
                 ),
                 (
-                    ["tmux", "paste-buffer", "-p", "-d", "-b", "claude-tmux-control", "-t", "cc-test"],
+                    ["tmux", "paste-buffer", "-d", "-b", "claude-tmux-control", "-t", "cc-test"],
                     {"check": True},
                 ),
                 (["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}),
@@ -192,12 +192,40 @@ class TmuxControllerTest(unittest.TestCase):
 
         controller.send_prompt("cc-test", "first line\nsecond line")
 
-        self.assertIn(
-            (
-                ["tmux", "paste-buffer", "-p", "-d", "-b", "claude-tmux-control", "-t", "cc-test"],
-                {"check": True},
-            ),
+        self.assertEqual(
             runner.calls,
+            [
+                (
+                    ["tmux", "load-buffer", "-b", "claude-tmux-control", "-"],
+                    {"input": "first line\nsecond line", "text": True, "check": True},
+                ),
+                (
+                    ["tmux", "paste-buffer", "-p", "-d", "-b", "claude-tmux-control", "-t", "cc-test"],
+                    {"check": True},
+                ),
+                (["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}),
+            ],
+        )
+
+    def test_send_prompt_uses_bracketed_paste_for_carriage_return_prompt(self):
+        runner = FakeRunner()
+        controller = ctc.TmuxController(run=runner)
+
+        controller.send_prompt("cc-test", "first line\rsecond line")
+
+        self.assertEqual(
+            runner.calls,
+            [
+                (
+                    ["tmux", "load-buffer", "-b", "claude-tmux-control", "-"],
+                    {"input": "first line\rsecond line", "text": True, "check": True},
+                ),
+                (
+                    ["tmux", "paste-buffer", "-p", "-d", "-b", "claude-tmux-control", "-t", "cc-test"],
+                    {"check": True},
+                ),
+                (["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}),
+            ],
         )
 
     def test_send_prompt_can_leave_text_unsubmitted(self):
@@ -239,7 +267,7 @@ class TmuxControllerTest(unittest.TestCase):
                     {"input": "claude --dangerously-skip-permissions", "text": True, "check": True},
                 ),
                 (
-                    ["tmux", "paste-buffer", "-p", "-d", "-b", "claude-tmux-control", "-t", "cc-test"],
+                    ["tmux", "paste-buffer", "-d", "-b", "claude-tmux-control", "-t", "cc-test"],
                     {"check": True},
                 ),
                 (["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}),
@@ -307,7 +335,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.3.1\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.3.2\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -2008,6 +2036,13 @@ class HighLevelStreamSetupTest(unittest.TestCase):
             capture_index = next(index for index, call in enumerate(runner.calls) if call[0][:2] == ["tmux", "capture-pane"])
             paste_index = next(index for index, call in enumerate(runner.calls) if call[0][:2] == ["tmux", "paste-buffer"])
             enter_index = next(index for index, call in enumerate(runner.calls) if call[0][:2] == ["tmux", "send-keys"])
+            self.assertEqual(
+                runner.calls[paste_index],
+                (
+                    ["tmux", "paste-buffer", "-d", "-b", "claude-tmux-control", "-t", runtime.tmux_session],
+                    {"check": True},
+                ),
+            )
             self.assertLess(start_index, capture_index)
             self.assertLess(capture_index, paste_index)
             self.assertLess(paste_index, enter_index)
