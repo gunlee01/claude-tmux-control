@@ -236,6 +236,29 @@ Keep changes surgical and source-compatible:
 - Preserve transcript schema tolerance. Claude Code JSONL fields may vary by version.
 - Keep stdout/stderr and JSON event contracts stable for external programs.
 
+## Versioning And Commits
+
+`pyproject.toml` is the source of truth for the package version. The runtime
+`ctc --version` output must match that version.
+
+This project is still pre-1.0. Do not bump to `1.0.0` unless the command
+surface, JSONL event contract, and state schema are explicitly declared stable.
+
+For changes in the `0.x` line:
+
+- Patch: compatible fixes, docs corrections, test-only changes, and packaging fixes.
+- Minor: new commands, new flags, new output fields, state schema changes, or behavior changes that clients may notice.
+- Breaking changes still use a `0.x` minor bump until stabilization, for example `0.2.0 -> 0.3.0`.
+
+When a change affects behavior, commands, packaging, or release-facing docs,
+bump `pyproject.toml` in the same change before committing. Update
+`docs/release.md` and `docs/release.ko.md` when policy or release procedure
+changes.
+
+After verification, commit the completed change unless the user explicitly asks
+not to. Commit messages must remain English for this repository and include the
+required AI co-author attribution line.
+
 Update docs when behavior changes:
 
 | Change | Docs to check |

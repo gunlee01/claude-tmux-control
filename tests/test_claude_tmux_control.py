@@ -286,6 +286,15 @@ class TmuxControllerTest(unittest.TestCase):
 
 
 class CliTest(unittest.TestCase):
+    def test_top_level_version_prints_package_version(self):
+        stdout = io.StringIO()
+
+        with self.assertRaises(SystemExit) as context, redirect_stdout(stdout):
+            ctc.parse_args(["--version"])
+
+        self.assertEqual(context.exception.code, 0)
+        self.assertEqual(stdout.getvalue(), "ctc 0.2.0\n")
+
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
 

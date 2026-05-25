@@ -22,6 +22,7 @@ from typing import Callable, Iterator, Mapping, Protocol, Sequence
 
 
 RunFn = Callable[..., subprocess.CompletedProcess[str]]
+PACKAGE_NAME = "claude-tmux-control"
 CLAUDE_OAUTH_TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"
 CLAUDE_DANGEROUS_SKIP_PERMISSIONS_FLAG = "--dangerously-skip-permissions"
 CLAUDE_LAUNCH_COMMANDS = {"start", "launch", "chat"}
@@ -55,6 +56,35 @@ READY_PATTERNS = (
     re.compile(r"(^|\n)\s*>\s*$"),
     re.compile(r"(^|\n)\s*[❯❯›]\s*.*(?:\n|$)"),
 )
+
+
+def package_version() -> str:
+    pyproject_path = Path(__file__).with_name("pyproject.toml")
+    if pyproject_path.exists():
+        in_project_section = False
+        project_name: str | None = None
+        project_version: str | None = None
+        for line in pyproject_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                in_project_section = stripped == "[project]"
+                continue
+            if not in_project_section or "=" not in stripped:
+                continue
+            key, value = [part.strip() for part in stripped.split("=", 1)]
+            if key == "name":
+                project_name = value.strip('"')
+            elif key == "version":
+                project_version = value.strip('"')
+        if project_name == PACKAGE_NAME and project_version:
+            return project_version
+
+    try:
+        from importlib.metadata import version
+
+        return version(PACKAGE_NAME)
+    except Exception:
+        return "0+unknown"
 
 
 class ScreenCaptureController(Protocol):
@@ -238,6 +268,7 @@ Docs:
   docs/cli-manual.md
   docs/operations.md""",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {package_version()}")
     subparsers = parser.add_subparsers(dest="command_name", required=True)
 
     start = subparsers.add_parser("start", help="LOW: create/reuse a named tmux session for manual debugging.")

@@ -52,6 +52,7 @@ TERM=xterm-256color ctc --help
 ```bash
 pipx install git+https://github.com/gunlee01/claude-tmux-control.git
 ctc --help
+ctc --version
 ```
 
 The package installs two console commands.
@@ -68,6 +69,7 @@ python3 -m venv .venv
 . .venv/bin/activate
 pip install git+https://github.com/gunlee01/claude-tmux-control.git
 ctc --help
+ctc --version
 ```
 
 ## Docker

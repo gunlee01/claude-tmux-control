@@ -13,6 +13,7 @@
 ```bash
 pipx install git+https://github.com/gunlee01/claude-tmux-control.git
 ctc --help
+ctc --version
 ```
 
 `pipx`가 없다면 venv 안에 설치합니다.

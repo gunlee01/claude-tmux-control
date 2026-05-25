@@ -11,6 +11,7 @@ This manual describes `ctc`, the command-line bridge for controlling Claude Code
 ```bash
 pipx install git+https://github.com/gunlee01/claude-tmux-control.git
 ctc --help
+ctc --version
 ```
 
 ### Runtime Requirements

@@ -16,14 +16,32 @@ ctc --help
 tag 기준 설치도 가능합니다.
 
 ```bash
-pipx install git+https://github.com/gunlee01/claude-tmux-control.git@v0.1.0
+pipx install git+https://github.com/gunlee01/claude-tmux-control.git@v0.2.0
 ```
+
+## Version Policy
+
+package version의 source of truth는 `pyproject.toml`입니다. Release tag는
+앞에 `v`를 붙여서 맞춥니다. 예를 들어 `version = "0.2.0"`이면 tag는
+`v0.2.0`입니다.
+
+이 프로젝트는 아직 pre-1.0입니다. command surface, JSONL event contract,
+state schema를 안정 contract로 선언하기 전까지 `1.0.0`으로 올리지 않습니다.
+
+`0.x` 단계에서는 다음 기준을 씁니다.
+
+- Patch: 호환되는 bug fix, docs correction, test-only change, packaging fix.
+- Minor: 새 command, 새 flag, 새 output field, state schema 변경, client가 관찰할 수 있는 behavior change.
+
+Breaking change도 안정화 전에는 `0.x` minor line 안에서 처리합니다. 예를 들어
+`0.2.0 -> 0.3.0`을 사용하고, 안정화 선언 없이 `1.0.0`으로 올리지 않습니다.
 
 ## Release Checklist
 
 tag를 만들기 전에 확인합니다.
 
 ```bash
+python claude_tmux_control.py --version
 python scripts/check_docs.py
 PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests
 python -m py_compile claude_tmux_control.py scripts/stream_question.py scripts/web_chat_client.py scripts/check_docs.py
@@ -35,8 +53,8 @@ docker run --rm -e CTC_SKIP_CLAUDE_PREFLIGHT=1 claude-tmux-control ctc --help
 그 다음 tag를 push합니다.
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 GitHub Release에는 다음 내용을 포함합니다.

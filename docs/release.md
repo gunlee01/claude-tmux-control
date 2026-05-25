@@ -16,14 +16,32 @@ ctc --help
 Install from a tag:
 
 ```bash
-pipx install git+https://github.com/gunlee01/claude-tmux-control.git@v0.1.0
+pipx install git+https://github.com/gunlee01/claude-tmux-control.git@v0.2.0
 ```
+
+## Version Policy
+
+`pyproject.toml` is the source of truth for the package version. Release tags
+must match it with a leading `v`, for example `version = "0.2.0"` and tag
+`v0.2.0`.
+
+The project is still pre-1.0. Do not bump to `1.0.0` until the command surface,
+JSONL event contract, and state schema are intentionally declared stable.
+
+While in `0.x`, use:
+
+- Patch: compatible fixes, docs corrections, test-only changes, and packaging fixes.
+- Minor: new commands, new flags, new output fields, state schema changes, or behavior changes that clients may notice.
+
+Breaking changes also stay in the `0.x` minor line until stabilization. For
+example, prefer `0.2.0 -> 0.3.0`, not `1.0.0`.
 
 ## Release Checklist
 
 Before tagging:
 
 ```bash
+python claude_tmux_control.py --version
 python scripts/check_docs.py
 PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests
 python -m py_compile claude_tmux_control.py scripts/stream_question.py scripts/web_chat_client.py scripts/check_docs.py
@@ -35,8 +53,8 @@ docker run --rm -e CTC_SKIP_CLAUDE_PREFLIGHT=1 claude-tmux-control ctc --help
 Then:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 Create a GitHub Release with:
