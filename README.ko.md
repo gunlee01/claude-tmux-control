@@ -2,6 +2,8 @@
 
 [English](./README.md) | [한국어](./README.ko.md)
 
+[![Latest release](https://img.shields.io/github/v/release/gunlee01/claude-tmux-control?sort=semver)](https://github.com/gunlee01/claude-tmux-control/releases/latest)
+
 `claude-tmux-control`은 Claude Code를 `tmux` 안에서 interactive CLI로 실행하고, 외부 프로그램이 한 턴 단위로 입력과 스트림 응답을 주고받게 하는 bridge CLI입니다.
 
 `claude -p`처럼 매번 one-shot process를 새로 호출하는 대신, 같은 Claude Code session을 유지하면서 웹 채팅앱이나 다른 서버 프로그램에서 사용할 수 있게 만드는 것이 목적입니다.
@@ -54,6 +56,7 @@ TERM=xterm-256color ctc --help
 ```bash
 pipx install git+https://github.com/gunlee01/claude-tmux-control.git
 ctc --help
+ctc --version
 ```
 
 같은 패키지는 두 command를 설치합니다.
@@ -70,6 +73,7 @@ python3 -m venv .venv
 . .venv/bin/activate
 pip install git+https://github.com/gunlee01/claude-tmux-control.git
 ctc --help
+ctc --version
 ```
 
 HTTPS 인증이 필요한 환경이면 먼저 git credential 설정을 마친 뒤 설치합니다.

@@ -2,6 +2,8 @@
 
 [English](./README.md) | [한국어](./README.ko.md)
 
+[![Latest release](https://img.shields.io/github/v/release/gunlee01/claude-tmux-control?sort=semver)](https://github.com/gunlee01/claude-tmux-control/releases/latest)
+
 `claude-tmux-control` is a CLI bridge that runs Claude Code inside `tmux` and lets external programs send prompts and consume one-turn JSONL streams.
 
 Instead of starting a new one-shot `claude -p` process for every request, it keeps an interactive Claude Code session alive so a web chat app, backend service, or automation can continue the same conversation.

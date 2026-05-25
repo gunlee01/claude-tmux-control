@@ -255,6 +255,16 @@ bump `pyproject.toml` in the same change before committing. Update
 `docs/release.md` and `docs/release.ko.md` when policy or release procedure
 changes.
 
+For every release, make the version visible from GitHub:
+
+- Keep the latest-release badge in `README.md` and `README.ko.md`.
+- After verification and commit, create an annotated tag matching the package
+  version, for example `git tag -a v0.2.1 -m "v0.2.1"`.
+- Push both `main` and the release tag.
+- Create a normal GitHub Release with `gh release create <tag> --latest`.
+- Do not mark `0.x` releases as GitHub pre-releases only because they are
+  pre-1.0; the repository page should still show the latest version clearly.
+
 After verification, commit the completed change unless the user explicitly asks
 not to. Commit messages must remain English for this repository and include the
 required AI co-author attribution line.

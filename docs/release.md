@@ -16,14 +16,14 @@ ctc --help
 Install from a tag:
 
 ```bash
-pipx install git+https://github.com/gunlee01/claude-tmux-control.git@v0.2.0
+pipx install git+https://github.com/gunlee01/claude-tmux-control.git@v0.2.1
 ```
 
 ## Version Policy
 
 `pyproject.toml` is the source of truth for the package version. Release tags
-must match it with a leading `v`, for example `version = "0.2.0"` and tag
-`v0.2.0`.
+must match it with a leading `v`, for example `version = "0.2.1"` and tag
+`v0.2.1`.
 
 The project is still pre-1.0. Do not bump to `1.0.0` until the command surface,
 JSONL event contract, and state schema are intentionally declared stable.
@@ -35,6 +35,15 @@ While in `0.x`, use:
 
 Breaking changes also stay in the `0.x` minor line until stabilization. For
 example, prefer `0.2.0 -> 0.3.0`, not `1.0.0`.
+
+## Release Visibility
+
+Every release must have both a git tag and a normal GitHub Release. Do not mark
+pre-1.0 releases as GitHub pre-releases only because the version starts with
+`0.`; otherwise the repository page may not show the latest version clearly.
+
+Keep the latest-release badge in `README.md` and `README.ko.md` so users can see
+the current version from the repository landing page.
 
 ## Release Checklist
 
@@ -53,11 +62,19 @@ docker run --rm -e CTC_SKIP_CLAUDE_PREFLIGHT=1 claude-tmux-control ctc --help
 Then:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git commit
+git tag -a v0.2.1 -m "v0.2.1"
+git push origin main
+git push origin v0.2.1
 ```
 
-Create a GitHub Release with:
+Create a GitHub Release and keep it as the latest normal release:
+
+```bash
+gh release create v0.2.1 --title "v0.2.1" --latest --notes-file /tmp/ctc-release-notes.md
+```
+
+GitHub Release notes should include:
 
 - compatibility notes for Claude Code versions tested
 - known limitations around transcript parsing
