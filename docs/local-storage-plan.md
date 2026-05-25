@@ -108,7 +108,7 @@ release send lock
 
 if a new tmux session was started:
   wait for the Claude Code prompt
-  submit the prompt via tmux paste+Enter
+  submit the prompt via tmux bracketed paste+Enter
 
 poll transcript from baseline
   anchor target user turn

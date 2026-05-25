@@ -57,7 +57,7 @@ Input is sent through tmux:
 
 ```text
 tmux load-buffer
-  -> tmux paste-buffer
+  -> tmux paste-buffer -p
   -> tmux send-keys Enter
 ```
 
@@ -74,7 +74,7 @@ High-level session:
 
 If no state exists, `ctc stream` starts Claude Code with `--session-id <session_id>`. If state/transcript exists but tmux is gone, it starts Claude Code with `--resume <session_id>`.
 
-In both cases the prompt is not passed as a Claude Code command argument. The bridge waits for the Claude Code TUI to become ready, then submits the prompt through tmux `load-buffer`, `paste-buffer`, and `send-keys Enter`. Active tmux sessions use the same tmux input path.
+In both cases the prompt is not passed as a Claude Code command argument. The bridge waits for the Claude Code TUI to become ready, then submits the prompt through tmux `load-buffer`, bracketed `paste-buffer -p`, and `send-keys Enter`. Active tmux sessions use the same tmux input path. Bracketed paste preserves embedded newlines as text so a multi-line prompt is submitted as one user turn.
 
 The same `session_id` cannot be reused with a different `cwd`.
 

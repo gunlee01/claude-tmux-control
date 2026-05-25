@@ -194,7 +194,7 @@ if session_id is empty:
   tmux_session = ctc-csess-<uuid>
   start Claude Code with --session-id <uuid>
   wait for Claude Code prompt
-  paste+Enter "<prompt>" through tmux
+  bracketed paste+Enter "<prompt>" through tmux
 
 else if tmux ctc-csess-<session_id> exists:
   send "<prompt>" to the active Claude Code process
@@ -206,7 +206,7 @@ else:
   else:
     start Claude Code with --session-id <session_id>
   wait for Claude Code prompt
-  paste+Enter "<prompt>" through tmux
+  bracketed paste+Enter "<prompt>" through tmux
 ```
 
 stream은 로컬 session state를 사용해서 transcript cursor를 관리합니다.
@@ -262,7 +262,7 @@ POST /conversations/:id/messages
   -> bridge persists active_turn with owner and heartbeat
   -> bridge releases send_lock
   -> bridge waits for ready if it just started/resumed Claude Code
-  -> bridge submits prompt through tmux paste+Enter
+  -> bridge submits prompt through tmux bracketed paste+Enter
   -> stream owner tails transcript from stored offset
   -> bridge streams events until done
   -> include session_id in every client event
