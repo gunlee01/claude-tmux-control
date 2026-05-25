@@ -1000,7 +1000,7 @@
         title: "Collect Metrics",
         desc: "model/token/cost 전달",
         detail: "done 직후 별도 metrics event를 보낸다. 현재 CLI는 elapsed_ms, model, user-turn usage 합계, result.total_cost_usd 우선 turn cost, completed turn records 기준 session_usd를 제공한다. result total이 없으면 claude_pricing.json 기준으로 추정한다. context는 transcript에 실제 context 계열 필드가 있을 때만 포함한다.",
-        command: "{\"event\":\"metrics\",\"turn_id\":\"...\",\"event_id\":\"...:metrics:330\",\"source_offset\":330,\"source_end_offset\":330,\"block_index\":-1,\"scope\":\"turn_final\",\"elapsed_ms\":2500,\"usage\":{\"cache_write_tokens\":500},\"cost\":{\"turn_usd\":0.0624,\"session_usd\":0.2516}}"
+        command: "{\"event\":\"metrics\",\"turn_id\":\"...\",\"event_id\":\"...:metrics:330\",\"source_offset\":330,\"source_end_offset\":330,\"block_index\":-1,\"scope\":\"turn_final\",\"elapsed_ms\":2500,\"usage\":{\"cache_write_tokens\":500,\"api_call_count\":1},\"cost\":{\"turn_usd\":0.0624,\"session_usd\":0.2516}}"
       },
       {
         key: "unlock",
@@ -1051,8 +1051,8 @@
         name: "metrics",
         meta: "turn final metrics",
         badge: "blue",
-        sample: {"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:metrics:330","source_offset":330,"source_end_offset":330,"block_index":-1,"scope":"turn_final","elapsed_ms":2500,"model":"claude-sonnet-4-6","usage":{"input_tokens":12000,"cache_read_tokens":8000,"cache_write_tokens":500,"output_tokens":1400},"cost":{"estimated":false,"currency":"USD","source":"claude_result_total_cost_usd","turn_usd":0.0624,"session_usd":0.2516}},
-        notice: "기본 전달 시점은 done 직후다. usage는 user-visible turn 전체 합계이고, elapsed_ms와 session cumulative cost도 CLI가 함께 전달한다. context는 실제 transcript context 필드가 있을 때만 포함한다."
+        sample: {"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:metrics:330","source_offset":330,"source_end_offset":330,"block_index":-1,"scope":"turn_final","elapsed_ms":2500,"model":"claude-sonnet-4-6","usage":{"input_tokens":12000,"cache_read_tokens":8000,"cache_write_tokens":500,"output_tokens":1400,"api_call_count":2},"cost":{"estimated":false,"currency":"USD","source":"claude_result_total_cost_usd","turn_usd":0.0624,"session_usd":0.2516}},
+        notice: "기본 전달 시점은 done 직후다. usage는 user-visible turn 전체 합계이고 api_call_count는 dedupe된 internal API call 수다. elapsed_ms와 session cumulative cost도 CLI가 함께 전달한다. context는 실제 transcript context 필드가 있을 때만 포함한다."
       },
       {
         name: "timeout",

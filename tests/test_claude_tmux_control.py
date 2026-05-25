@@ -293,7 +293,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.2.5\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.3.0\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -4820,6 +4820,7 @@ class StreamTest(unittest.TestCase):
                     "cache_read_tokens": 10,
                     "cache_write_tokens": 7,
                     "output_tokens": 16,
+                    "api_call_count": 2,
                 },
             )
             self.assertFalse(payload["cost"]["estimated"])
@@ -4907,6 +4908,7 @@ class StreamTest(unittest.TestCase):
                     "cache_read_tokens": 10,
                     "cache_write_tokens": 7,
                     "output_tokens": 16,
+                    "api_call_count": 2,
                 },
             )
 

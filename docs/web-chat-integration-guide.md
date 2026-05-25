@@ -137,7 +137,8 @@ Typical fields:
     "input_tokens": 3,
     "cache_read_tokens": 12030,
     "cache_write_tokens": 5526,
-    "output_tokens": 11
+    "output_tokens": 11,
+    "api_call_count": 2
   },
   "cost": {
     "estimated": true,
@@ -150,7 +151,7 @@ Typical fields:
 
 `context` appears only when Claude Code transcript events provide context fields. The CLI does not fabricate context size from billing tokens.
 
-`usage` is scoped to the user-visible turn. If Claude Code records multiple internal API calls for one prompt, the CLI sums the available input, cache read, cache write, and output token fields across those call events.
+`usage` is scoped to the user-visible turn. If Claude Code records multiple internal API calls for one prompt, the CLI sums the available input, cache read, cache write, and output token fields across those call events. `usage.api_call_count` is the deduplicated count of usage-bearing internal API calls included in that final usage summary.
 
 Cost uses `result.total_cost_usd` from the Claude Code transcript when present. If that field is unavailable, cost is an estimate from `claude_pricing.json` and the aggregated turn usage.
 

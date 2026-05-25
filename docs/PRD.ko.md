@@ -218,7 +218,8 @@ Current final metrics event:
     "input_tokens": 12000,
     "cache_read_tokens": 8000,
     "cache_write_tokens": 500,
-    "output_tokens": 1400
+    "output_tokens": 1400,
+    "api_call_count": 2
   },
   "cost": {
     "estimated": true,

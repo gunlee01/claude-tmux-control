@@ -372,7 +372,7 @@ ctc stream --session-id "$SESSION_ID" --cwd "$PROJECT_DIR" "$USER_PROMPT"
 {"event":"tool_result","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00081-00130:block0:tool_result","source_offset":81,"source_end_offset":130,"block_index":0,"timestamp":"2026-05-16T12:00:02.000Z","tool_use_id":"toolu_...","text":"README.md\nlong output...","text_truncated":true,"text_full_length":2048}
 {"event":"assistant_text","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:dev1-ino2:00131-00220:block0:assistant_text","source_offset":131,"source_end_offset":220,"block_index":0,"timestamp":"2026-05-16T12:00:03.000Z","text":"현재 디렉터리는..."}
 {"event":"done","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:done:220","state":"ready","reason":"prompt visible; transcript ready","answer":"현재 디렉터리는..."}
-{"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:metrics:220","source_offset":220,"source_end_offset":220,"block_index":-1,"scope":"turn_final","usage":{"input_tokens":12000,"cache_read_tokens":8000,"cache_write_tokens":500,"output_tokens":1400}}
+{"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:metrics:220","source_offset":220,"source_end_offset":220,"block_index":-1,"scope":"turn_final","usage":{"input_tokens":12000,"cache_read_tokens":8000,"cache_write_tokens":500,"output_tokens":1400,"api_call_count":2}}
 ```
 
 `tool_result.text`는 기본 100자 preview입니다. 더 길게 보고 싶으면 `stream --tool-result-limit 240`처럼 조정합니다. 음수는 축약을 끕니다.
@@ -410,6 +410,7 @@ Claude Code는 tool result 이후에 최종 assistant text를 이어서 쓸 수 
 | cache write tokens | final `metrics.usage.cache_write_tokens` | 지원 |
 | cache read tokens | final `metrics.usage.cache_read_tokens` | 지원 |
 | output tokens | final `metrics.usage.output_tokens` | 지원 |
+| API call count | final `metrics.usage.api_call_count` | usage가 기록된 internal API call 수. 중복 usage event는 dedupe |
 | context size | final `metrics.context` | transcript에 있으면 지원. 없으면 추정하지 않고 생략 |
 | turn cost | final `metrics.cost.turn_usd` | `result.total_cost_usd` 우선, 없으면 pricing table 기준 추정 |
 | session cumulative cost | final `metrics.cost.session_usd` 또는 `info.cost_totals.session_usd` | completed turn records 기준 |
@@ -476,6 +477,7 @@ model              <- event/message/response model
 - 모든 event에 usage가 있는 것은 아닙니다.
 - final `metrics.usage`는 사용자가 보낸 prompt 하나에 대한 user-visible turn 기준입니다.
 - usage가 여러 internal API call event에 나뉘어 있으면 input, cache read, cache write, output token을 합산합니다.
+- `usage.api_call_count`는 합산에 포함된 usage-bearing internal API call 수입니다. 같은 request/message identity의 중복 usage event는 한 번만 셉니다.
 - transcript에 `result.total_cost_usd`가 있으면 final `metrics.cost.turn_usd`는 그 Claude CLI total을 우선 사용합니다.
 - `result.total_cost_usd`가 없을 때만 `claude_pricing.json`과 합산 usage를 기준으로 turn cost를 추정합니다.
 
@@ -500,7 +502,8 @@ model              <- event/message/response model
     "input_tokens": 12000,
     "cache_read_tokens": 8000,
     "cache_write_tokens": 500,
-    "output_tokens": 1400
+    "output_tokens": 1400,
+    "api_call_count": 2
   },
   "cost": {
     "estimated": true,

@@ -756,11 +756,12 @@ final `metrics`에는 transcript에서 확인 가능한 경우 다음 정보가 
 - `usage.cache_read_tokens`
 - `usage.cache_write_tokens`
 - `usage.output_tokens`
+- `usage.api_call_count`: usage가 기록된 internal API call 수. 같은 request/message identity의 중복 usage event는 한 번만 셈
 - `context`: transcript에 `context`, `context_window`, `context_usage`가 있을 때만 포함. 없으면 추정하지 않고 생략
 - `cost.turn_usd`
 - `cost.session_usd`
 
-final `metrics`는 사용자가 보낸 prompt 하나에 대한 user-visible turn 기준입니다. Claude Code가 한 prompt를 처리하면서 여러 internal API call을 기록하면 `metrics.usage`는 각 call의 input, cache read, cache write, output token을 합산합니다. transcript에 `result.total_cost_usd`가 있으면 `metrics.cost.turn_usd`는 그 Claude CLI total을 우선 사용하고, 없을 때만 합산 usage와 `claude_pricing.json`으로 추정합니다.
+final `metrics`는 사용자가 보낸 prompt 하나에 대한 user-visible turn 기준입니다. Claude Code가 한 prompt를 처리하면서 여러 internal API call을 기록하면 `metrics.usage`는 각 call의 input, cache read, cache write, output token을 합산하고, `api_call_count`는 합산에 포함된 call 개수를 제공합니다. transcript에 `result.total_cost_usd`가 있으면 `metrics.cost.turn_usd`는 그 Claude CLI total을 우선 사용하고, 없을 때만 합산 usage와 `claude_pricing.json`으로 추정합니다.
 
 high-level stream은 다음 안전장치를 둡니다.
 

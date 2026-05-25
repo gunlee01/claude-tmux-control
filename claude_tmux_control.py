@@ -3220,6 +3220,9 @@ def high_level_metrics_payload(
     state: Mapping[str, object] | None = None,
 ) -> dict:
     usage = aggregate_turn_usage(turn_events)
+    api_call_count = count_turn_usage_calls(turn_events)
+    if usage and api_call_count:
+        usage["api_call_count"] = api_call_count
     context = latest_context(turn_events)
     model = latest_model(turn_events)
     normalized_usage = usage or None
@@ -3274,6 +3277,26 @@ def aggregate_turn_usage(events: Sequence[dict]) -> dict:
     if totals:
         return totals
     return normalize_usage(latest_usage(events)) or {}
+
+
+def count_turn_usage_calls(events: Sequence[dict]) -> int:
+    count = 0
+    seen_usage_ids: set[tuple[str, str]] = set()
+    for event in events:
+        if _is_result_event(event):
+            continue
+        raw_usage = _extract_usage(event)
+        if not raw_usage:
+            continue
+        if not normalize_usage(raw_usage):
+            continue
+        usage_id = _usage_event_identity(event)
+        if usage_id is not None:
+            if usage_id in seen_usage_ids:
+                continue
+            seen_usage_ids.add(usage_id)
+        count += 1
+    return count
 
 
 def _usage_event_identity(event: Mapping[str, object]) -> tuple[str, str] | None:

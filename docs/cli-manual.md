@@ -94,7 +94,7 @@ Attach to the active turn without sending a new prompt:
 ctc stream --attach --session-id UUID
 ```
 
-The final `metrics` event is scoped to the user-visible turn. If Claude Code records multiple internal API calls while handling one prompt, `metrics.usage` sums the available input, cache read, cache write, and output token fields across those call events. If a transcript `result.total_cost_usd` is present, `metrics.cost.turn_usd` uses that authoritative Claude CLI total; otherwise the CLI estimates cost from the aggregated usage and `claude_pricing.json`.
+The final `metrics` event is scoped to the user-visible turn. If Claude Code records multiple internal API calls while handling one prompt, `metrics.usage` sums the available input, cache read, cache write, and output token fields across those call events. `metrics.usage.api_call_count` reports the deduplicated number of usage-bearing internal API calls. If a transcript `result.total_cost_usd` is present, `metrics.cost.turn_usd` uses that authoritative Claude CLI total; otherwise the CLI estimates cost from the aggregated usage and `claude_pricing.json`.
 
 Important options:
 
