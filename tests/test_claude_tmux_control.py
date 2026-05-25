@@ -4487,6 +4487,89 @@ class StreamTest(unittest.TestCase):
             self.assertEqual(payload["cost"]["turn_usd"], 0.1234)
             self.assertEqual(payload["cost"]["session_usd"], 1.1234)
 
+    def test_high_level_metrics_deduplicates_repeated_usage_for_one_api_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=f"ctc-csess-{session_id}",
+                state_path=Path(tmp) / "state" / "sessions" / f"{session_id}.json",
+                state_dir=Path(tmp) / "state",
+                cwd=Path(tmp),
+                prompt="question",
+                turn_id="turn_test",
+                before_send_offset=0,
+                replay_start_offset=0,
+            )
+            first_call_usage = {
+                "input_tokens": 10,
+                "cache_read_input_tokens": 3,
+                "cache_creation_input_tokens": 2,
+                "output_tokens": 5,
+            }
+            second_call_usage = {
+                "input_tokens": 20,
+                "cache_read_input_tokens": 7,
+                "cache_creation_input_tokens": 5,
+                "output_tokens": 11,
+            }
+            turn_events = [
+                {"type": "user", "message": {"content": "question"}},
+                {
+                    "type": "assistant",
+                    "requestId": "req_1",
+                    "model": "claude-sonnet-4-6",
+                    "message": {
+                        "id": "msg_1",
+                        "content": [{"type": "thinking", "thinking": "..."}],
+                        "usage": first_call_usage,
+                    },
+                },
+                {
+                    "type": "assistant",
+                    "requestId": "req_1",
+                    "model": "claude-sonnet-4-6",
+                    "message": {
+                        "id": "msg_1",
+                        "content": [{"type": "tool_use", "name": "Bash"}],
+                        "usage": first_call_usage,
+                    },
+                },
+                {"type": "user", "message": {"content": [{"type": "tool_result", "content": "done"}]}},
+                {
+                    "type": "assistant",
+                    "requestId": "req_2",
+                    "model": "claude-sonnet-4-6",
+                    "message": {
+                        "id": "msg_2",
+                        "content": [{"type": "thinking", "thinking": "..."}],
+                        "usage": second_call_usage,
+                    },
+                },
+                {
+                    "type": "assistant",
+                    "requestId": "req_2",
+                    "model": "claude-sonnet-4-6",
+                    "message": {
+                        "id": "msg_2",
+                        "content": [{"type": "text", "text": "final answer"}],
+                        "usage": second_call_usage,
+                    },
+                },
+            ]
+
+            payload = ctc.high_level_metrics_payload(runtime, turn_events, completed_offset=123)
+
+            self.assertEqual(
+                payload["usage"],
+                {
+                    "input_tokens": 30,
+                    "cache_read_tokens": 10,
+                    "cache_write_tokens": 7,
+                    "output_tokens": 16,
+                },
+            )
+
     def test_completed_turn_totals_deduplicate_by_turn_id(self):
         first = {
             "turn_id": "turn_a",

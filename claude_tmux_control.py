@@ -3223,10 +3223,19 @@ def latest_usage(events: Sequence[dict]) -> dict:
 
 def aggregate_turn_usage(events: Sequence[dict]) -> dict:
     totals: dict[str, int | float] = {}
+    seen_usage_ids: set[tuple[str, str]] = set()
     for event in events:
         if _is_result_event(event):
             continue
-        usage = normalize_usage(_extract_usage(event))
+        raw_usage = _extract_usage(event)
+        if not raw_usage:
+            continue
+        usage_id = _usage_event_identity(event)
+        if usage_id is not None:
+            if usage_id in seen_usage_ids:
+                continue
+            seen_usage_ids.add(usage_id)
+        usage = normalize_usage(raw_usage)
         if not usage:
             continue
         for key, value in usage.items():
@@ -3234,6 +3243,14 @@ def aggregate_turn_usage(events: Sequence[dict]) -> dict:
     if totals:
         return totals
     return normalize_usage(latest_usage(events)) or {}
+
+
+def _usage_event_identity(event: Mapping[str, object]) -> tuple[str, str] | None:
+    request_id = event.get("requestId") or event.get("request_id")
+    message_id = _nested_value(event, "message", "id") or _nested_value(event, "response", "id")
+    if request_id is None and message_id is None:
+        return None
+    return (str(request_id or ""), str(message_id or ""))
 
 
 def normalize_usage(usage: Mapping[str, object]) -> dict | None:
