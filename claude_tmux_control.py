@@ -2666,6 +2666,11 @@ def analyze_turn_status(turn_events: Sequence[dict]) -> ScreenStatus:
         return ScreenStatus("working", f"latest transcript event after user is {latest_type}")
 
     if latest_type == "assistant":
+        stop_reason = _assistant_stop_reason(latest_event)
+        if stop_reason == "tool_use":
+            return ScreenStatus("working", "latest assistant transcript stopped for tool_use")
+        if stop_reason == "pause_turn":
+            return ScreenStatus("working", "latest assistant transcript paused turn")
         content_types = _content_types(_event_content(latest_event))
         if "tool_use" in content_types:
             return ScreenStatus("working", "latest assistant transcript requested tool_use")
@@ -4050,6 +4055,16 @@ def _event_content(event: dict) -> object:
     if isinstance(message, dict) and "content" in message:
         return message.get("content")
     return event.get("content")
+
+
+def _assistant_stop_reason(event: dict) -> str:
+    message = event.get("message")
+    if isinstance(message, dict):
+        value = message.get("stop_reason")
+        if isinstance(value, str):
+            return value
+    value = event.get("stop_reason")
+    return value if isinstance(value, str) else ""
 
 
 def _bottom_screen_area(screen: str, lines: int = 10) -> str:

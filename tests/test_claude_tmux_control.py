@@ -293,7 +293,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.2.2\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.2.3\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -3744,6 +3744,83 @@ class TranscriptTest(unittest.TestCase):
 
         self.assertEqual(status.state, "ready")
 
+    def test_transcript_status_stays_working_when_assistant_text_has_tool_use_stop_reason(self):
+        status = ctc.analyze_transcript_status(
+            [
+                {"type": "user", "message": {"content": "inspect files"}},
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [{"type": "text", "text": "I will inspect it."}],
+                        "stop_reason": "tool_use",
+                    },
+                },
+            ]
+        )
+
+        self.assertEqual(status.state, "working")
+
+    def test_transcript_status_is_ready_when_assistant_text_has_end_turn_stop_reason(self):
+        status = ctc.analyze_transcript_status(
+            [
+                {"type": "user", "message": {"content": "answer"}},
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [{"type": "text", "text": "final answer"}],
+                        "stop_reason": "end_turn",
+                    },
+                },
+            ]
+        )
+
+        self.assertEqual(status.state, "ready")
+
+    def test_transcript_status_stays_working_when_assistant_text_has_pause_turn_stop_reason(self):
+        status = ctc.analyze_transcript_status(
+            [
+                {"type": "user", "message": {"content": "continue later"}},
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [{"type": "text", "text": "I need to pause."}],
+                        "stop_reason": "pause_turn",
+                    },
+                },
+            ]
+        )
+
+        self.assertEqual(status.state, "working")
+
+    def test_transcript_status_keeps_legacy_ready_when_assistant_text_has_no_stop_reason(self):
+        status = ctc.analyze_transcript_status(
+            [
+                {"type": "user", "message": {"content": "answer"}},
+                {"type": "assistant", "message": {"content": [{"type": "text", "text": "final answer"}]}},
+            ]
+        )
+
+        self.assertEqual(status.state, "ready")
+
+    def test_transcript_status_prioritizes_tool_use_content_over_terminal_stop_reason(self):
+        status = ctc.analyze_transcript_status(
+            [
+                {"type": "user", "message": {"content": "inspect files"}},
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {"type": "text", "text": "I will inspect it."},
+                            {"type": "tool_use", "name": "Bash", "input": {"command": "pwd"}},
+                        ],
+                        "stop_reason": "end_turn",
+                    },
+                },
+            ]
+        )
+
+        self.assertEqual(status.state, "working")
+
     def test_transcript_status_stays_working_when_assistant_text_also_requests_tool(self):
         status = ctc.analyze_transcript_status(
             [
@@ -4198,6 +4275,52 @@ class StreamTest(unittest.TestCase):
                         "type": "user",
                         "timestamp": "t2",
                         "message": {"content": [{"type": "tool_result", "content": "subagent done"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.capture_screen.return_value = "Looks idle\nclaude> "
+            writes = []
+            current_time = 0.0
+
+            def fake_now():
+                return current_time
+
+            def fake_sleep(seconds):
+                nonlocal current_time
+                current_time += seconds
+
+            status = ctc.stream_transcript_until_done(
+                transcript,
+                ctc.SessionState(session="work", last_prompt="question", cwd=None),
+                controller,
+                "work",
+                interval=1.0,
+                timeout=3.0,
+                idle_seconds=1.0,
+                write=writes.append,
+                sleep=fake_sleep,
+                now=fake_now,
+            )
+
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            self.assertEqual(status.state, "timeout")
+            self.assertNotIn("done", [payload["event"] for payload in payloads])
+
+    def test_stream_transcript_until_done_does_not_finish_when_assistant_text_stops_for_tool_use(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "session.jsonl"
+            transcript.write_text(
+                json_line({"type": "user", "timestamp": "t0", "message": {"content": "question"}})
+                + json_line(
+                    {
+                        "type": "assistant",
+                        "timestamp": "t1",
+                        "message": {
+                            "content": [{"type": "text", "text": "I will inspect it."}],
+                            "stop_reason": "tool_use",
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -5150,6 +5273,85 @@ class CliIntegrationTest(unittest.TestCase):
             self.assertTrue(all(payload["turn_id"] == "turn_active_cli" for payload in payloads))
             self.assertIn("has-session -t " + ctc.web_tmux_session_name(session_id), fake_log.read_text(encoding="utf-8"))
             self.assertIsNone(ctc.read_bridge_state(state_path)["active_turn"])
+
+    def test_cli_last_active_turn_does_not_finish_when_assistant_text_stops_for_tool_use(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_bin = Path(tmp) / "bin"
+            fake_log = Path(tmp) / "tmux.log"
+            write_fake_tmux(fake_bin)
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            cwd.mkdir()
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            transcript = ctc.project_transcript_dir(root, cwd) / f"{session_id}.jsonl"
+            transcript.parent.mkdir(parents=True)
+            user_line = json_line({"sessionId": session_id, "type": "user", "message": {"content": "active q"}})
+            transcript.write_text(
+                user_line
+                + json_line(
+                    {
+                        "sessionId": session_id,
+                        "type": "assistant",
+                        "message": {
+                            "content": [{"type": "text", "text": "I will inspect it."}],
+                            "stop_reason": "tool_use",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "cwd": str(cwd),
+                        "transcript": ctc.transcript_file_state(transcript, 0),
+                        "active_turn": {
+                            "turn_id": "turn_active_cli_tool_use_stop",
+                            "stream_state": "active",
+                            "claude_state": "working",
+                            "prompt_preview": "active q",
+                            "before_send_wall_time_utc": "2026-05-18T00:00:00Z",
+                            "before_send_transcript": ctc.transcript_file_state(transcript, 0),
+                            "anchor_start_offset": 0,
+                            "anchor_end_offset": len(user_line.encode("utf-8")),
+                            "replay_start_offset": 0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_cli(
+                [
+                    "last",
+                    session_id,
+                    "--state-dir",
+                    str(state_dir),
+                    "--root",
+                    str(root),
+                    "--interval",
+                    "0.01",
+                    "--idle",
+                    "0",
+                    "--timeout",
+                    "0.05",
+                ],
+                env=fake_tmux_env(fake_bin, fake_log),
+            )
+
+            self.assertEqual(result.returncode, 3, result.stderr)
+            payloads = [json.loads(line) for line in result.stdout.splitlines()]
+            self.assertEqual([payload["event"] for payload in payloads], ["user", "assistant_text", "timeout"])
+            self.assertEqual(payloads[-1]["state"], "timeout")
+            self.assertNotIn("done", [payload["event"] for payload in payloads])
+            state = ctc.read_bridge_state(state_path)
+            self.assertEqual(state["active_turn"]["stream_state"], "timeout")
 
     def test_cli_cancel_sends_escape_without_updating_active_turn(self):
         with tempfile.TemporaryDirectory() as tmp:
