@@ -150,6 +150,8 @@ Typical fields:
 
 Cost uses `result.total_cost_usd` from the Claude Code transcript when present. If that field is unavailable, cost is an estimate from `claude_pricing.json` and the aggregated turn usage.
 
+`session_usd` is based on completed turn records retained in bridge state. The CLI keeps the latest 200 completed turn records, so long-running sessions should treat `metrics.cost.session_usd` and `info.cost_totals` as the retained-window cumulative total.
+
 ## 6. Session Ownership
 
 The client owns the web-facing `session_id`.

@@ -230,6 +230,8 @@ Do not synthesize `before_send_transcript.path` or `offset` from a transcript di
 - estimated session cumulative cost recomputed from completed turn metrics
 - pricing version used by calculation
 
+`completed_turns`는 bounded state history입니다. CLI는 최신 completed turn record를 최대 200개만 보관하고, `usage_totals` / `cost_totals`는 전체 transcript JSONL을 다시 읽지 않고 이 보관 window에서 재계산합니다.
+
 Do not increment cumulative usage blindly while streaming.
 
 If a stream reconnects or replays events, metrics must be idempotent by `turn_id` plus source offset/event identity.
@@ -551,7 +553,8 @@ Rules:
 - derive turn metrics from events within the anchored turn only
 - store completed turn metrics keyed by `turn_id`
 - store source event offsets or stable event ids when available
-- recompute session cumulative totals from completed turn records
+- recompute session cumulative totals from the retained completed turn records
+- retain at most the latest 200 completed turn records in state
 - never add the same completed turn twice after reconnect/replay
 - if usage semantics are ambiguous, mark metrics as estimated or incomplete
 - pricing table/version should be injected by caller or configured externally; do not hardcode long-lived prices

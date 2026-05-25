@@ -524,9 +524,11 @@ final `metrics`는 replay될 수 있으므로 `turn_id`와 deterministic `event_
 
 ### Cost
 
-turn cost는 CLI가 `claude_pricing.json`으로 계산합니다.
+turn cost는 transcript의 `result.total_cost_usd`를 우선 사용합니다. 이 값이 없으면 CLI가 `claude_pricing.json`과 합산 usage로 추정합니다.
 
 session cumulative cost는 CLI가 completed turn records에서 재계산해 final `metrics.cost.session_usd`와 `info.cost_totals.session_usd`로 제공합니다.
+
+completed turn state는 최신 완료 turn 최대 200개만 보관합니다. 따라서 긴 세션에서 `metrics.cost.session_usd`와 `info.cost_totals`는 전체 transcript lifetime이 아니라 보관 중인 200-turn window 기준 누적값입니다.
 
 필요한 값:
 

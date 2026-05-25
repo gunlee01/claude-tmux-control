@@ -88,9 +88,11 @@ If no transcript exists before first launch, store an explicit no-transcript bas
 ### Usage State
 
 - per-turn usage
-- cumulative token totals
-- estimated turn/session cost
+- cumulative token totals from retained completed turn records
+- estimated turn/session cost from retained completed turn records
 - pricing table version/source
+
+`completed_turns` is a bounded state history. The CLI keeps at most the latest 200 completed turn records, and `usage_totals` / `cost_totals` are recomputed from that retained window rather than by rereading the entire transcript JSONL.
 
 ## 5. High-level Stream Algorithm
 

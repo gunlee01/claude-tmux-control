@@ -948,7 +948,7 @@
         </div>
         <div class="card">
           <h3>local cursor storage</h3>
-          <p>`~/.cache/claude-tmux-control/sessions/&lt;session_id&gt;.json`에 transcript offset, turn cursor, active owner, event id, usage totals를 저장해서 전체 JSONL 재읽기를 피한다.</p>
+          <p>`~/.cache/claude-tmux-control/sessions/&lt;session_id&gt;.json`에 transcript offset, turn cursor, active owner, event id, usage totals를 저장해서 전체 JSONL 재읽기를 피한다. completed turn state는 최신 200개만 보관하므로 `session_usd`와 totals는 이 retained window 기준이다.</p>
         </div>
       </div>
     </section>

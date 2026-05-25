@@ -155,6 +155,8 @@ ctc info UUID --json
 
 Prints state metadata, tmux activity, transcript path, completed turn count, cumulative usage/cost fields, and `active_turn_recovery` guidance when an active turn is present.
 
+Completed turn state is bounded to the latest 200 completed turns. The reported `usage_totals` and `cost_totals` are recomputed from that retained state window, not by rereading the full transcript JSONL.
+
 ### `list`
 
 ### `stats`

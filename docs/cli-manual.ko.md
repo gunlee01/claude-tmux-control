@@ -562,6 +562,8 @@ ctc info "$SESSION_ID" --json
 | `usage_totals` | completed turn 기반 token 합계 |
 | `cost_totals` | completed turn 기반 session USD 합계 |
 
+completed turn state는 최신 완료 turn 최대 200개만 보관합니다. `usage_totals`와 `cost_totals`는 전체 transcript JSONL을 다시 읽지 않고, 이 보관 window의 completed turn records에서 재계산합니다.
+
 ### `list`
 
 local state와 active tmux session을 합쳐 high-level controlled session 목록을 출력합니다.
