@@ -59,7 +59,9 @@ def analyze_turn_status(turn_events: Sequence[dict]) -> ScreenStatus:
         return ScreenStatus("working", f"latest transcript event after user is {latest_type}")
 
     if latest_type == "assistant":
-        stop_reason = _assistant_stop_reason(latest_event)
+        has_stop_reason, stop_reason = _assistant_stop_reason(latest_event)
+        if has_stop_reason and stop_reason is None:
+            return ScreenStatus("working", "latest assistant transcript has pending stop_reason")
         if stop_reason == "tool_use":
             return ScreenStatus("working", "latest assistant transcript stopped for tool_use")
         if stop_reason == "pause_turn":
@@ -516,14 +518,15 @@ def _event_content(event: dict) -> object:
     return event.get("content")
 
 
-def _assistant_stop_reason(event: dict) -> str:
+def _assistant_stop_reason(event: dict) -> tuple[bool, str | None]:
     message = event.get("message")
-    if isinstance(message, dict):
+    if isinstance(message, dict) and "stop_reason" in message:
         value = message.get("stop_reason")
-        if isinstance(value, str):
-            return value
-    value = event.get("stop_reason")
-    return value if isinstance(value, str) else ""
+        return True, value if isinstance(value, str) else None
+    if "stop_reason" in event:
+        value = event.get("stop_reason")
+        return True, value if isinstance(value, str) else None
+    return False, None
 
 
 def _extract_usage(event: dict) -> dict:
