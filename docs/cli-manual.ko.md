@@ -758,6 +758,8 @@ final `metrics`에는 transcript에서 확인 가능한 경우 다음 정보가 
 - `cost.turn_usd`
 - `cost.session_usd`
 
+final `metrics`는 사용자가 보낸 prompt 하나에 대한 user-visible turn 기준입니다. Claude Code가 한 prompt를 처리하면서 여러 internal API call을 기록하면 `metrics.usage`는 각 call의 input, cache read, cache write, output token을 합산합니다. transcript에 `result.total_cost_usd`가 있으면 `metrics.cost.turn_usd`는 그 Claude CLI total을 우선 사용하고, 없을 때만 합산 usage와 `claude_pricing.json`으로 추정합니다.
+
 high-level stream은 다음 안전장치를 둡니다.
 
 - client-provided `session_id`는 UUID만 허용합니다.

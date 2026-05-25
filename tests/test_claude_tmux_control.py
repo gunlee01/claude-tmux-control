@@ -293,7 +293,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.2.1\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.2.2\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -4423,6 +4423,69 @@ class StreamTest(unittest.TestCase):
             self.assertEqual(state["usage_totals"]["output_tokens"], 5)
             self.assertEqual(state["cost_totals"]["currency"], "USD")
             self.assertEqual(state["cost_totals"]["session_usd"], 0.0001179)
+
+    def test_high_level_metrics_aggregates_turn_usage_and_prefers_result_cost(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=f"ctc-csess-{session_id}",
+                state_path=Path(tmp) / "state" / "sessions" / f"{session_id}.json",
+                state_dir=Path(tmp) / "state",
+                cwd=Path(tmp),
+                prompt="question",
+                turn_id="turn_test",
+                before_send_offset=0,
+                replay_start_offset=0,
+            )
+            turn_events = [
+                {"type": "user", "message": {"content": "question"}},
+                {
+                    "type": "assistant",
+                    "model": "claude-sonnet-4-6",
+                    "message": {"content": [{"type": "tool_use", "name": "Bash"}]},
+                    "usage": {
+                        "input_tokens": 10,
+                        "cache_read_input_tokens": 3,
+                        "cache_creation_input_tokens": 2,
+                        "output_tokens": 5,
+                    },
+                },
+                {"type": "user", "message": {"content": [{"type": "tool_result", "content": "done"}]}},
+                {
+                    "type": "assistant",
+                    "model": "claude-sonnet-4-6",
+                    "message": {"content": [{"type": "text", "text": "final answer"}]},
+                    "usage": {
+                        "input_tokens": 20,
+                        "cache_read_input_tokens": 7,
+                        "cache_creation_input_tokens": 5,
+                        "output_tokens": 11,
+                    },
+                },
+                {"type": "result", "total_cost_usd": 0.1234},
+            ]
+
+            payload = ctc.high_level_metrics_payload(
+                runtime,
+                turn_events,
+                completed_offset=123,
+                state={"cost_totals": {"currency": "USD", "session_usd": 1.0}},
+            )
+
+            self.assertEqual(
+                payload["usage"],
+                {
+                    "input_tokens": 30,
+                    "cache_read_tokens": 10,
+                    "cache_write_tokens": 7,
+                    "output_tokens": 16,
+                },
+            )
+            self.assertFalse(payload["cost"]["estimated"])
+            self.assertEqual(payload["cost"]["source"], "claude_result_total_cost_usd")
+            self.assertEqual(payload["cost"]["turn_usd"], 0.1234)
+            self.assertEqual(payload["cost"]["session_usd"], 1.1234)
 
     def test_completed_turn_totals_deduplicate_by_turn_id(self):
         first = {

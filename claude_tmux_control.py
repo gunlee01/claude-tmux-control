@@ -3188,11 +3188,11 @@ def high_level_metrics_payload(
     elapsed_ms: int | None = None,
     state: Mapping[str, object] | None = None,
 ) -> dict:
-    usage = latest_usage(turn_events)
+    usage = aggregate_turn_usage(turn_events)
     context = latest_context(turn_events)
     model = latest_model(turn_events)
-    normalized_usage = normalize_usage(usage)
-    cost = estimate_turn_cost(model, normalized_usage)
+    normalized_usage = usage or None
+    cost = result_total_cost(turn_events) or estimate_turn_cost(model, normalized_usage)
     cost = add_session_cost_to_turn_cost(cost, state)
     return _compact_payload(
         {
@@ -3219,6 +3219,21 @@ def latest_usage(events: Sequence[dict]) -> dict:
         if usage:
             return usage
     return {}
+
+
+def aggregate_turn_usage(events: Sequence[dict]) -> dict:
+    totals: dict[str, int | float] = {}
+    for event in events:
+        if _is_result_event(event):
+            continue
+        usage = normalize_usage(_extract_usage(event))
+        if not usage:
+            continue
+        for key, value in usage.items():
+            totals[key] = totals.get(key, 0) + value
+    if totals:
+        return totals
+    return normalize_usage(latest_usage(events)) or {}
 
 
 def normalize_usage(usage: Mapping[str, object]) -> dict | None:
@@ -3251,6 +3266,25 @@ def latest_model(events: Sequence[dict]) -> str | None:
             if isinstance(value, str) and value:
                 return value
     return None
+
+
+def result_total_cost(events: Sequence[dict]) -> dict | None:
+    for event in reversed(events):
+        if not _is_result_event(event):
+            continue
+        total_cost_usd = _numeric_value(event, "total_cost_usd")
+        if total_cost_usd is not None:
+            return {
+                "estimated": False,
+                "currency": "USD",
+                "source": "claude_result_total_cost_usd",
+                "turn_usd": round(float(total_cost_usd), 8),
+            }
+    return None
+
+
+def _is_result_event(event: Mapping[str, object]) -> bool:
+    return str(event.get("type") or event.get("event") or "") == "result"
 
 
 def estimate_turn_cost(
@@ -3311,8 +3345,6 @@ def estimate_turn_cost(
 
 def add_session_cost_to_turn_cost(cost: Mapping[str, object], state: Mapping[str, object] | None) -> dict:
     enriched = dict(cost)
-    if not enriched.get("estimated"):
-        return enriched
     turn_usd = _numeric_value(enriched, "turn_usd")
     if turn_usd is None:
         return enriched

@@ -810,9 +810,9 @@
       <div class="section-head">
         <div>
           <h2>Turn Metrics</h2>
-          <p class="section-note">CLI final `metrics`는 elapsed_ms, token, turn cost, session cumulative cost를 전달한다. context는 transcript에 있을 때만 전달한다.</p>
+          <p class="section-note">CLI final `metrics`는 elapsed_ms, user-turn token 합계, turn cost, session cumulative cost를 전달한다. context는 transcript에 있을 때만 전달한다.</p>
         </div>
-        <span class="badge blue">estimated</span>
+        <span class="badge blue">turn final</span>
       </div>
 
       <div class="form-grid">
@@ -884,7 +884,7 @@
       </div>
 
       <div class="notice">
-        기본 계약은 `done` 직후 별도 `metrics` event를 보내는 것이다. context는 transcript에 실제 필드가 있을 때만 포함하고, usage 기반 추정 context는 넣지 않는다. 중간 metrics는 transcript event에 usage/context/model이 먼저 기록될 때만 best-effort로 가능하다.
+        기본 계약은 `done` 직후 별도 `metrics` event를 보내는 것이다. usage는 한 user-visible turn 안의 internal API call token을 cache read/write 포함 합산한다. cost는 transcript의 `result.total_cost_usd`를 우선 쓰고, 없을 때만 pricing table로 추정한다. context는 transcript에 실제 필드가 있을 때만 포함한다.
       </div>
     </section>
 
@@ -999,7 +999,7 @@
         key: "metrics",
         title: "Collect Metrics",
         desc: "model/token/cost 전달",
-        detail: "done 직후 별도 metrics event를 보낸다. 현재 CLI는 elapsed_ms, model, usage, claude_pricing.json 기준 estimated turn cost와 completed turn records 기준 session_usd를 제공한다. context는 transcript에 실제 context 계열 필드가 있을 때만 포함한다.",
+        detail: "done 직후 별도 metrics event를 보낸다. 현재 CLI는 elapsed_ms, model, user-turn usage 합계, result.total_cost_usd 우선 turn cost, completed turn records 기준 session_usd를 제공한다. result total이 없으면 claude_pricing.json 기준으로 추정한다. context는 transcript에 실제 context 계열 필드가 있을 때만 포함한다.",
         command: "{\"event\":\"metrics\",\"turn_id\":\"...\",\"event_id\":\"...:metrics:330\",\"source_offset\":330,\"source_end_offset\":330,\"block_index\":-1,\"scope\":\"turn_final\",\"elapsed_ms\":2500,\"usage\":{\"cache_write_tokens\":500},\"cost\":{\"turn_usd\":0.0624,\"session_usd\":0.2516}}"
       },
       {
@@ -1051,8 +1051,8 @@
         name: "metrics",
         meta: "turn final metrics",
         badge: "blue",
-        sample: {"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:metrics:330","source_offset":330,"source_end_offset":330,"block_index":-1,"scope":"turn_final","elapsed_ms":2500,"model":"claude-sonnet-4-6","usage":{"input_tokens":12000,"cache_read_tokens":8000,"cache_write_tokens":500,"output_tokens":1400},"cost":{"estimated":true,"currency":"USD","pricing_version":"anthropic-2026-05-18","model":"claude-sonnet-4.6","model_match":"exact","cache_write_ttl":"1h","turn_usd":0.0624,"session_usd":0.2516}},
-        notice: "기본 전달 시점은 done 직후다. elapsed_ms와 session cumulative cost도 CLI가 함께 전달한다. context는 실제 transcript context 필드가 있을 때만 포함한다."
+        sample: {"event":"metrics","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:metrics:330","source_offset":330,"source_end_offset":330,"block_index":-1,"scope":"turn_final","elapsed_ms":2500,"model":"claude-sonnet-4-6","usage":{"input_tokens":12000,"cache_read_tokens":8000,"cache_write_tokens":500,"output_tokens":1400},"cost":{"estimated":false,"currency":"USD","source":"claude_result_total_cost_usd","turn_usd":0.0624,"session_usd":0.2516}},
+        notice: "기본 전달 시점은 done 직후다. usage는 user-visible turn 전체 합계이고, elapsed_ms와 session cumulative cost도 CLI가 함께 전달한다. context는 실제 transcript context 필드가 있을 때만 포함한다."
       },
       {
         name: "timeout",
@@ -1144,10 +1144,11 @@ tmux load-buffer + paste-buffer + send-keys Enter`
         render: s => `<span class="highlight"># high-level stream emits this after done</span>
 {"event":"metrics","session_id":"${escapeHtml(s.sessionId)}","turn_id":"turn_20260516_0001","event_id":"turn_20260516_0001:metrics:330","source_offset":330,"source_end_offset":330,"block_index":-1,"scope":"turn_final",...}
 
-# 앱 서버에서 latest user turn 이후 raw event를 보고 추출
+# 앱 서버에서 latest user turn 이후 raw event를 보고 합산
 # event.usage / event.message.usage / event.response.usage
 # event.model / event.message.model / event.response.model
 # event.context / event.context_window / event.context_usage
+# result.total_cost_usd -> cost.turn_usd 우선 사용
 #
 # cache_read_tokens  <- cache_read_input_tokens
 # cache_write_tokens <- cache_creation_input_tokens`

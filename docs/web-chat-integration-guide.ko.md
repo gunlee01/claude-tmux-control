@@ -406,7 +406,7 @@ Claude Code는 tool result 이후에 최종 assistant text를 이어서 쓸 수 
 | cache read tokens | final `metrics.usage.cache_read_tokens` | 지원 |
 | output tokens | final `metrics.usage.output_tokens` | 지원 |
 | context size | final `metrics.context` | transcript에 있으면 지원. 없으면 추정하지 않고 생략 |
-| turn cost | final `metrics.cost.turn_usd` | pricing table 기준 추정 |
+| turn cost | final `metrics.cost.turn_usd` | `result.total_cost_usd` 우선, 없으면 pricing table 기준 추정 |
 | session cumulative cost | final `metrics.cost.session_usd` 또는 `info.cost_totals.session_usd` | completed turn records 기준 |
 
 ### Elapsed Time
@@ -469,8 +469,10 @@ model              <- event/message/response model
 
 - Claude Code 버전별로 transcript schema가 바뀔 수 있습니다.
 - 모든 event에 usage가 있는 것은 아닙니다.
-- usage가 여러 event에 나뉘어 있으면 최신 assistant/result event의 값을 우선 사용하거나, 앱 정책에 맞게 합산합니다.
-- 현재 CLI는 `claude_pricing.json`을 기준으로 turn cost를 계산합니다.
+- final `metrics.usage`는 사용자가 보낸 prompt 하나에 대한 user-visible turn 기준입니다.
+- usage가 여러 internal API call event에 나뉘어 있으면 input, cache read, cache write, output token을 합산합니다.
+- transcript에 `result.total_cost_usd`가 있으면 final `metrics.cost.turn_usd`는 그 Claude CLI total을 우선 사용합니다.
+- `result.total_cost_usd`가 없을 때만 `claude_pricing.json`과 합산 usage를 기준으로 turn cost를 추정합니다.
 
 ### Metrics Delivery Timing
 

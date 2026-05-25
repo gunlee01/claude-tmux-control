@@ -114,7 +114,7 @@ When starting or resuming a high-level stream session, `ctc` pre-seeds the reque
 | `tool_result` | show truncated tool result preview |
 | `assistant_text` | append answer text |
 | `done` | mark answer complete; use `done.answer` as final text when present |
-| `metrics` | display elapsed time, model, token usage, cost estimate |
+| `metrics` | display elapsed time, model, user-turn token usage, and cost |
 
 Events include stable metadata such as `session_id`, `turn_id`, `event_id`, source offsets, and block index. Clients should deduplicate by `event_id` when replaying after reconnect.
 
@@ -146,7 +146,9 @@ Typical fields:
 
 `context` appears only when Claude Code transcript events provide context fields. The CLI does not fabricate context size from billing tokens.
 
-Cost is an estimate from `claude_pricing.json` and the model/usage data present in the transcript.
+`usage` is scoped to the user-visible turn. If Claude Code records multiple internal API calls for one prompt, the CLI sums the available input, cache read, cache write, and output token fields across those call events.
+
+Cost uses `result.total_cost_usd` from the Claude Code transcript when present. If that field is unavailable, cost is an estimate from `claude_pricing.json` and the aggregated turn usage.
 
 ## 6. Session Ownership
 
