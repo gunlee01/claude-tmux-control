@@ -734,9 +734,9 @@ ctc stream --session-id "$SESSION_ID" --cwd "$PROJECT_DIR" "$USER_PROMPT"
 
 `--session-id`를 생략하면 CLI가 UUID를 생성합니다. 이 경우 클라이언트는 첫 stream event의 `session_id`를 저장해서 이후 turn에 다시 넘깁니다.
 
-새 session은 `claude --session-id <uuid> --dangerously-skip-permissions "<prompt>"`로 시작합니다.
+새 session은 `claude --session-id <uuid> --dangerously-skip-permissions`로 Claude Code를 먼저 시작한 뒤, tmux `load-buffer`/`paste-buffer`/`send-keys Enter`로 prompt를 전송합니다.
 
-기존 state 또는 matching transcript가 있고 tmux session이 없으면 `claude --resume <uuid> --dangerously-skip-permissions "<prompt>"`로 시작합니다.
+기존 state 또는 matching transcript가 있고 tmux session이 없으면 `claude --resume <uuid> --dangerously-skip-permissions`로 복구한 뒤, 같은 tmux 입력 경로로 prompt를 전송합니다.
 
 tmux session이 이미 active이면 ready 화면인지 확인한 뒤 prompt를 전송합니다.
 

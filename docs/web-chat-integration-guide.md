@@ -41,6 +41,8 @@ browser
   -> POST /chat/:conversation/messages
 backend
   -> spawn ctc stream --cwd <project> --session-id <uuid> <prompt>
+  -> ctc starts/resumes Claude Code without prompt argv when tmux is missing
+  -> ctc submits the prompt through tmux paste+Enter after the TUI is ready
   -> read stdout JSONL
   -> relay events to browser
   -> wait for done and metrics
@@ -82,6 +84,8 @@ ctc stream \
 ```
 
 These options apply only when the bridge creates or resumes a Claude Code process. If the tmux session already exists, the running process keeps its original model and arguments.
+
+When creating or resuming a tmux session, the bridge launches Claude Code with only the launch/session arguments, such as `--session-id <uuid>` or `--resume <uuid>`. It does not pass the user prompt as a Claude Code argv value. After the TUI is ready, it submits the prompt through tmux `load-buffer`, `paste-buffer`, and `send-keys Enter`.
 
 Keep `--claude-args` operator-controlled. Do not expose arbitrary raw arguments to untrusted browser clients.
 
@@ -162,7 +166,7 @@ Rules:
 - use the same UUID for one chat conversation.
 - reject reuse with a different `cwd`.
 - do not expose low-level tmux session names to normal clients.
-- if tmux is missing but state/transcript remains, the bridge can resume with the same session id.
+- if tmux is missing but state/transcript remains, the bridge can resume with the same session id and then submit the new prompt through tmux input.
 
 ## 7. Reconnect And Replay
 
@@ -211,7 +215,7 @@ ctc reap --idle-seconds 1800 --prefix ctc-csess- --dry-run
 ctc reap --idle-seconds 1800 --prefix ctc-csess-
 ```
 
-`reap` kills idle tmux sessions but does not delete the Claude conversation transcript. Later requests can resume when enough state remains.
+`reap` kills idle tmux sessions but does not delete the Claude conversation transcript. Later requests can resume when enough state remains. On resume, `ctc` starts Claude Code with `--resume <session_id>` without a prompt argv, waits for the TUI prompt, and then submits the new user prompt through tmux paste+Enter.
 
 For high-level sessions, `reap` can repair a stale `active_turn` before killing an idle tmux session when the transcript and tmux screen both show the turn is complete. `--dry-run` only reports this outcome and does not write state.
 

@@ -103,8 +103,12 @@ acquire send lock
   resolve transcript baseline
   create active_turn
   start/reuse/resume tmux session
-  send prompt or launch Claude with initial prompt
+  send prompt to an active session or start Claude without prompt argv
 release send lock
+
+if a new tmux session was started:
+  wait for the Claude Code prompt
+  submit the prompt via tmux paste+Enter
 
 poll transcript from baseline
   anchor target user turn

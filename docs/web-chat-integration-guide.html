@@ -977,9 +977,9 @@
       {
         key: "ready",
         title: "Send Prompt",
-        desc: "초기 인자 또는 tmux 입력",
+        desc: "tmux 입력",
         detail: "전송 전 이전 active_turn이 있으면 먼저 검사한다. tmux ready + transcript ready이면 이전 turn을 state-only finalize하고, 아니면 turn_in_progress로 막는다. 이후 transcript baseline과 active_turn owner/heartbeat를 state에 저장한다.",
-        command: "claude --session-id \"$SESSION_ID\" \"$USER_PROMPT\"\nclaude --resume \"$SESSION_ID\" \"$USER_PROMPT\""
+        command: "claude --session-id \"$SESSION_ID\"\nclaude --resume \"$SESSION_ID\"\ntmux load-buffer + paste-buffer + send-keys Enter"
       },
       {
         key: "send",
@@ -1131,10 +1131,12 @@ SESSION_ID="${escapeHtml(s.sessionId)}"
 TMUX_SESSION="ctc-csess-$SESSION_ID"
 
 # new session:
-claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --session-id "$SESSION_ID"${defaultPermissionArg(s)} "${escapeHtml(s.userPrompt)}"
+claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --session-id "$SESSION_ID"${defaultPermissionArg(s)}
+tmux load-buffer + paste-buffer + send-keys Enter
 
 # resume inactive session:
-claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --resume "$SESSION_ID"${defaultPermissionArg(s)} "${escapeHtml(s.userPrompt)}"
+claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --resume "$SESSION_ID"${defaultPermissionArg(s)}
+tmux load-buffer + paste-buffer + send-keys Enter
 
 # active tmux session:
 tmux load-buffer + paste-buffer + send-keys Enter`

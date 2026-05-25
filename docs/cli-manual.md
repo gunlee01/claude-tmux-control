@@ -74,6 +74,8 @@ High-level session:
 
 If no state exists, `ctc stream` starts Claude Code with `--session-id <session_id>`. If state/transcript exists but tmux is gone, it starts Claude Code with `--resume <session_id>`.
 
+In both cases the prompt is not passed as a Claude Code command argument. The bridge waits for the Claude Code TUI to become ready, then submits the prompt through tmux `load-buffer`, `paste-buffer`, and `send-keys Enter`. Active tmux sessions use the same tmux input path.
+
 The same `session_id` cannot be reused with a different `cwd`.
 
 ## 4. Command Reference

@@ -139,8 +139,8 @@ High-level `stream [--session-id <id>] --cwd <path> <prompt...>` contract:
 - Accepts the user prompt for one conversation turn.
 - Generates a UUID `session_id` when omitted.
 - Uses tmux session name `ctc-csess-<session_id>` internally.
-- If tmux session is inactive and this is a new session, launches Claude Code with `--session-id <session_id> <prompt>`.
-- If tmux session is inactive and known state or a matching transcript exists, launches Claude Code with `--resume <session_id> <prompt>`.
+- If tmux session is inactive and this is a new session, launches Claude Code with `--session-id <session_id>`, waits for the Claude Code prompt, then submits the user prompt through tmux paste+Enter.
+- If tmux session is inactive and known state or a matching transcript exists, launches Claude Code with `--resume <session_id>`, waits for the Claude Code prompt, then submits the user prompt through tmux paste+Enter.
 - If tmux session is active, sends the prompt to the existing Claude Code process.
 - Emits normalized events: `user`, `thinking`, `tool_use`, `tool_result`, `assistant_text`.
 - Emits `done` and exits `0` only after the target turn is complete.
