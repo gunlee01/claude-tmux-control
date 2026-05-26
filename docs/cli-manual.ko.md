@@ -738,7 +738,7 @@ ctc stream --session-id "$SESSION_ID" --cwd "$PROJECT_DIR" "$USER_PROMPT"
 
 기존 state 또는 matching transcript가 있고 tmux session이 없으면 `claude --resume <uuid> --dangerously-skip-permissions`로 복구한 뒤, 같은 tmux 입력 경로로 prompt를 전송합니다.
 
-prompt에 newline이 포함된 경우에만 `paste-buffer -p`를 사용합니다. Claude Code TUI가 bracketed paste mode를 요청한 경우 prompt를 bracketed paste sequence로 감싸 전송해서, multi-line prompt 안의 newline이 여러 Enter key로 해석되어 turn이 쪼개지는 것을 막습니다. Single-line prompt는 기본 `paste-buffer` 경로를 유지합니다. 두 경로 모두 paste 직후 아주 짧게 기다린 뒤 `Enter`를 보내 terminal UI가 붙여넣은 text를 먼저 처리할 시간을 줍니다. high-level stream에서 user turn이 transcript에 전혀 기록되지 않고 terminal이 계속 ready로 보이면 `Enter`를 한 번 더 보내 submit을 재시도합니다.
+prompt에 newline이 포함된 경우에만 `paste-buffer -p`를 사용합니다. Claude Code TUI가 bracketed paste mode를 요청한 경우 prompt를 bracketed paste sequence로 감싸 전송해서, multi-line prompt 안의 newline이 여러 Enter key로 해석되어 turn이 쪼개지는 것을 막습니다. Single-line prompt는 기본 `paste-buffer` 경로를 유지합니다. 두 경로 모두 paste 직후 아주 짧게 기다린 뒤 `Enter`를 보내 terminal UI가 붙여넣은 text를 먼저 처리할 시간을 줍니다. high-level stream에서 transcript가 아직 없거나 target user turn이 transcript에 기록되지 않았고 terminal이 작업 중/확인 대기 상태가 아니면 `Enter`를 한 번 더 보내 submit을 재시도합니다.
 
 tmux session이 이미 active이면 ready 화면인지 확인한 뒤 prompt를 전송합니다.
 

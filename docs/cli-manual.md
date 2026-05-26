@@ -63,7 +63,7 @@ tmux load-buffer
   -> retry Enter once if no user turn is recorded
 ```
 
-`ctc` waits briefly between paste and submit so terminal UIs have time to finish accepting the pasted text before `Enter` is sent. If a high-level stream sees no new user turn in the transcript while the terminal remains ready, it sends one extra `Enter` as a submit retry. For prompts that contain embedded newlines, `ctc` uses bracketed `tmux paste-buffer -p` so the newline bytes remain input text instead of separate Enter key presses. Structured output comes from Claude Code transcript JSONL. The terminal screen is used only for readiness and fallback checks.
+`ctc` waits briefly between paste and submit so terminal UIs have time to finish accepting the pasted text before `Enter` is sent. If a high-level stream still cannot find the transcript, or sees no target user turn in the transcript while the terminal is not working, it sends one extra `Enter` as a submit retry. For prompts that contain embedded newlines, `ctc` uses bracketed `tmux paste-buffer -p` so the newline bytes remain input text instead of separate Enter key presses. Structured output comes from Claude Code transcript JSONL. The terminal screen is used only for readiness and fallback checks.
 
 ## 3. Session Rules
 
@@ -76,7 +76,7 @@ High-level session:
 
 If no state exists, `ctc stream` starts Claude Code with `--session-id <session_id>`. If state/transcript exists but tmux is gone, it starts Claude Code with `--resume <session_id>`.
 
-In both cases the prompt is not passed as a Claude Code command argument. The bridge waits for the Claude Code TUI to become ready, then submits the prompt through tmux `load-buffer`, `paste-buffer`, a short submit delay, and `send-keys Enter`. Active tmux sessions use the same tmux input path. Multi-line prompts use bracketed `paste-buffer -p` so embedded newlines are submitted as one user turn. If the prompt never anchors in the transcript and the terminal still looks ready, high-level streams retry submit once with another `Enter`.
+In both cases the prompt is not passed as a Claude Code command argument. The bridge waits for the Claude Code TUI to become ready, then submits the prompt through tmux `load-buffer`, `paste-buffer`, a short submit delay, and `send-keys Enter`. Active tmux sessions use the same tmux input path. Multi-line prompts use bracketed `paste-buffer -p` so embedded newlines are submitted as one user turn. If the prompt never anchors in the transcript, or the transcript does not appear, and the terminal is not working or waiting for confirmation, high-level streams retry submit once with another `Enter`.
 
 The same `session_id` cannot be reused with a different `cwd`.
 

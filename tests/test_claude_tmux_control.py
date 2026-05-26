@@ -341,7 +341,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.3.4\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.3.5\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -5273,6 +5273,99 @@ class StreamTest(unittest.TestCase):
             self.assertEqual(status.state, "timeout")
             controller.send_enter.assert_called_once_with(runtime.tmux_session)
 
+    def test_high_level_stream_retries_submit_when_only_non_anchor_records_arrive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "session.jsonl"
+            transcript.write_text(
+                json_line({"type": "system", "timestamp": "t0", "cwd": str(Path(tmp))}),
+                encoding="utf-8",
+            )
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=f"ctc-csess-{session_id}",
+                state_path=Path(tmp) / "state" / "sessions" / f"{session_id}.json",
+                state_dir=Path(tmp) / "state",
+                cwd=Path(tmp),
+                prompt="target prompt",
+                turn_id="turn_anchor",
+                before_send_offset=0,
+                replay_start_offset=0,
+            )
+            ctc._write_high_level_state(
+                runtime.state_path,
+                ctc.build_pending_turn_state({}, runtime, transcript, wall_time=1000.0),
+            )
+            controller = Mock()
+            controller.capture_screen.return_value = "Done\nclaude> "
+            current_time = 0.0
+
+            def fake_now():
+                return current_time
+
+            def fake_sleep(seconds):
+                nonlocal current_time
+                current_time += seconds
+
+            ctc.stream_high_level_transcript_until_done(
+                transcript,
+                runtime,
+                controller,
+                interval=0.5,
+                timeout=2.0,
+                idle_seconds=1.0,
+                write=lambda _line: None,
+                sleep=fake_sleep,
+                now=fake_now,
+            )
+
+            controller.send_enter.assert_called_once_with(runtime.tmux_session)
+
+    def test_high_level_stream_retries_submit_when_unanchored_screen_is_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "session.jsonl"
+            transcript.write_text("", encoding="utf-8")
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=f"ctc-csess-{session_id}",
+                state_path=Path(tmp) / "state" / "sessions" / f"{session_id}.json",
+                state_dir=Path(tmp) / "state",
+                cwd=Path(tmp),
+                prompt="target prompt",
+                turn_id="turn_anchor",
+                before_send_offset=0,
+                replay_start_offset=0,
+            )
+            ctc._write_high_level_state(
+                runtime.state_path,
+                ctc.build_pending_turn_state({}, runtime, transcript, wall_time=1000.0),
+            )
+            controller = Mock()
+            controller.capture_screen.return_value = "pasted text without prompt marker"
+            current_time = 0.0
+
+            def fake_now():
+                return current_time
+
+            def fake_sleep(seconds):
+                nonlocal current_time
+                current_time += seconds
+
+            ctc.stream_high_level_transcript_until_done(
+                transcript,
+                runtime,
+                controller,
+                interval=0.5,
+                timeout=2.0,
+                idle_seconds=1.0,
+                write=lambda _line: None,
+                sleep=fake_sleep,
+                now=fake_now,
+            )
+
+            controller.send_enter.assert_called_once_with(runtime.tmux_session)
+
     def test_high_level_transcript_resolution_never_falls_back_to_global_latest(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "claude"
@@ -5341,6 +5434,46 @@ class StreamTest(unittest.TestCase):
             )
 
             self.assertEqual(ctc.wait_for_high_level_transcript(root, runtime, timeout=0.1, interval=0.0), transcript)
+
+    def test_wait_for_high_level_transcript_retries_submit_when_no_transcript_appears(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            root = Path(tmp) / "claude"
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=f"ctc-csess-{session_id}",
+                state_path=Path(tmp) / "state" / "sessions" / f"{session_id}.json",
+                state_dir=Path(tmp) / "state",
+                cwd=Path(tmp) / "project",
+                prompt="target prompt",
+                turn_id="turn_missing_transcript",
+                before_send_offset=0,
+                replay_start_offset=0,
+                started_at_monotonic=0.0,
+            )
+            controller = Mock()
+            controller.capture_screen.return_value = "pasted text without prompt marker"
+            current_time = 0.0
+
+            def fake_now():
+                return current_time
+
+            def fake_sleep(seconds):
+                nonlocal current_time
+                current_time += seconds
+
+            self.assertIsNone(
+                ctc.wait_for_high_level_transcript(
+                    root,
+                    runtime,
+                    timeout=2.0,
+                    interval=0.5,
+                    controller=controller,
+                    sleep=fake_sleep,
+                    now=fake_now,
+                )
+            )
+            controller.send_enter.assert_called_once_with(runtime.tmux_session)
 
     def test_wait_for_high_level_transcript_switches_to_new_resume_file(self):
         with tempfile.TemporaryDirectory() as tmp:
