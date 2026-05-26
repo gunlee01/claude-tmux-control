@@ -58,10 +58,11 @@ Input is sent through tmux:
 ```text
 tmux load-buffer
   -> tmux paste-buffer
+  -> short submit delay
   -> tmux send-keys Enter
 ```
 
-For prompts that contain embedded newlines, `ctc` uses bracketed `tmux paste-buffer -p` so the newline bytes remain input text instead of separate Enter key presses. Structured output comes from Claude Code transcript JSONL. The terminal screen is used only for readiness and fallback checks.
+`ctc` waits briefly between paste and submit so terminal UIs have time to finish accepting the pasted text before `Enter` is sent. For prompts that contain embedded newlines, `ctc` uses bracketed `tmux paste-buffer -p` so the newline bytes remain input text instead of separate Enter key presses. Structured output comes from Claude Code transcript JSONL. The terminal screen is used only for readiness and fallback checks.
 
 ## 3. Session Rules
 
@@ -74,7 +75,7 @@ High-level session:
 
 If no state exists, `ctc stream` starts Claude Code with `--session-id <session_id>`. If state/transcript exists but tmux is gone, it starts Claude Code with `--resume <session_id>`.
 
-In both cases the prompt is not passed as a Claude Code command argument. The bridge waits for the Claude Code TUI to become ready, then submits the prompt through tmux `load-buffer`, `paste-buffer`, and `send-keys Enter`. Active tmux sessions use the same tmux input path. Multi-line prompts use bracketed `paste-buffer -p` so embedded newlines are submitted as one user turn.
+In both cases the prompt is not passed as a Claude Code command argument. The bridge waits for the Claude Code TUI to become ready, then submits the prompt through tmux `load-buffer`, `paste-buffer`, a short submit delay, and `send-keys Enter`. Active tmux sessions use the same tmux input path. Multi-line prompts use bracketed `paste-buffer -p` so embedded newlines are submitted as one user turn.
 
 The same `session_id` cannot be reused with a different `cwd`.
 

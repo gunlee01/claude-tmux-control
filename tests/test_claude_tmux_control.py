@@ -169,7 +169,8 @@ class TmuxControllerTest(unittest.TestCase):
         runner = FakeRunner()
         controller = ctc.TmuxController(run=runner)
 
-        controller.send_prompt("cc-test", "hello Claude")
+        with patch("claude_tmux_control.time.sleep") as sleep:
+            controller.send_prompt("cc-test", "hello Claude")
 
         self.assertEqual(
             runner.calls,
@@ -185,12 +186,14 @@ class TmuxControllerTest(unittest.TestCase):
                 (["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}),
             ],
         )
+        sleep.assert_called_once_with(ctc.PASTE_SUBMIT_DELAY_SECONDS)
 
     def test_send_prompt_uses_bracketed_paste_for_multiline_prompt(self):
         runner = FakeRunner()
         controller = ctc.TmuxController(run=runner)
 
-        controller.send_prompt("cc-test", "first line\nsecond line")
+        with patch("claude_tmux_control.time.sleep") as sleep:
+            controller.send_prompt("cc-test", "first line\nsecond line")
 
         self.assertEqual(
             runner.calls,
@@ -206,6 +209,7 @@ class TmuxControllerTest(unittest.TestCase):
                 (["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}),
             ],
         )
+        sleep.assert_called_once_with(ctc.PASTE_SUBMIT_DELAY_SECONDS)
 
     def test_send_prompt_uses_bracketed_paste_for_carriage_return_prompt(self):
         runner = FakeRunner()
@@ -232,9 +236,11 @@ class TmuxControllerTest(unittest.TestCase):
         runner = FakeRunner()
         controller = ctc.TmuxController(run=runner)
 
-        controller.send_prompt("cc-test", "draft only", submit=False)
+        with patch("claude_tmux_control.time.sleep") as sleep:
+            controller.send_prompt("cc-test", "draft only", submit=False)
 
         self.assertNotIn((["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}), runner.calls)
+        sleep.assert_not_called()
 
     def test_send_escape_sends_escape_key(self):
         runner = FakeRunner()
@@ -335,7 +341,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.3.2\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.3.3\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()

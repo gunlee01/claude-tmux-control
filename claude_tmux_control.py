@@ -35,6 +35,7 @@ DEFAULT_INSTALLED_PRICING_TABLE = Path(sys.prefix) / "share" / "claude-tmux-cont
 DEFAULT_CONTROLLED_PREFIX = "ctc-"
 DEFAULT_WEB_SESSION_PREFIX = "ctc-csess-"
 DEFAULT_ENV_FILE_NAME = ".ctc.env"
+PASTE_SUBMIT_DELAY_SECONDS = 0.05
 DEFAULT_TOOL_RESULT_TEXT_LIMIT = 100
 STATE_SCHEMA_VERSION = 1
 _PRICING_TABLE_CACHE: dict | None = None
@@ -205,6 +206,7 @@ class TmuxController:
             paste_args.insert(2, "-p")
         self._run(paste_args, check=True)
         if submit:
+            time.sleep(PASTE_SUBMIT_DELAY_SECONDS)
             self._run(["tmux", "send-keys", "-t", session, "Enter"], check=True)
 
     def send_escape(self, session: str) -> None:
