@@ -341,7 +341,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.3.5\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.3.6\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -983,6 +983,54 @@ class ReapTest(unittest.TestCase):
             self.assertEqual(results, [])
             self.assertNotIn((["tmux", "kill-session", "-t", "ctc-old"], {"check": True}), runner.calls)
 
+    def test_reap_idle_sessions_skips_confirmation_screen(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            ctc.write_session_state(ctc.session_state_path("ctc-old", state_dir), "ctc-old", "", "/tmp/project")
+            os.utime(ctc.session_state_path("ctc-old", state_dir), (1000.0, 1000.0))
+            runner = FakeRunner()
+            runner.session_exists = True
+            runner.capture_text = "Allow tool execution?\nYes / No\n"
+            controller = ctc.TmuxController(run=runner)
+
+            results = ctc.reap_idle_sessions(
+                controller,
+                idle_seconds=600,
+                prefix="ctc-",
+                dry_run=False,
+                state_dir=state_dir,
+                root=root,
+                now=lambda: 2000.0,
+            )
+
+            self.assertEqual(results, [])
+            self.assertNotIn((["tmux", "kill-session", "-t", "ctc-old"], {"check": True}), runner.calls)
+
+    def test_reap_idle_sessions_skips_unknown_screen(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            ctc.write_session_state(ctc.session_state_path("ctc-old", state_dir), "ctc-old", "", "/tmp/project")
+            os.utime(ctc.session_state_path("ctc-old", state_dir), (1000.0, 1000.0))
+            runner = FakeRunner()
+            runner.session_exists = True
+            runner.capture_text = "unrecognized pane text\n"
+            controller = ctc.TmuxController(run=runner)
+
+            results = ctc.reap_idle_sessions(
+                controller,
+                idle_seconds=600,
+                prefix="ctc-",
+                dry_run=False,
+                state_dir=state_dir,
+                root=root,
+                now=lambda: 2000.0,
+            )
+
+            self.assertEqual(results, [])
+            self.assertNotIn((["tmux", "kill-session", "-t", "ctc-old"], {"check": True}), runner.calls)
+
     def test_reap_idle_sessions_dry_run_reports_recoverable_high_level_active_turn_without_state_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             state_dir = Path(tmp) / "state"
@@ -1000,6 +1048,8 @@ class ReapTest(unittest.TestCase):
             controller.list_sessions.return_value = [tmux_session]
             controller.session_exists.return_value = True
             controller.capture_screen.return_value = "Done\nclaude> "
+            before_state = state_path.read_text(encoding="utf-8")
+            before_mtime = state_path.stat().st_mtime
 
             results = ctc.reap_idle_sessions(
                 controller,
@@ -1012,7 +1062,9 @@ class ReapTest(unittest.TestCase):
             )
 
             self.assertEqual(results, [{"session": tmux_session, "idle_seconds": 1000.0, "action": "would-kill"}])
-            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(state_path.read_text(encoding="utf-8"), before_state)
+            self.assertEqual(state_path.stat().st_mtime, before_mtime)
+            state = json.loads(before_state)
             self.assertEqual(state["active_turn"]["turn_id"], "turn_550e")
             controller.kill_session.assert_not_called()
 
@@ -1135,6 +1187,190 @@ class ReapTest(unittest.TestCase):
             results = ctc.reap_idle_sessions(
                 controller,
                 idle_seconds=1,
+                prefix="ctc-csess-",
+                dry_run=False,
+                state_dir=state_dir,
+                root=root,
+                now=lambda: 2000.0,
+            )
+
+            self.assertEqual(results, [])
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(state["active_turn"]["turn_id"], "turn_550e")
+            controller.kill_session.assert_not_called()
+
+    def test_reap_idle_sessions_kills_unrecoverable_high_level_active_turn_when_screen_is_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            session_id = "550e8400-e29b-41d4-a716-446655440004"
+            tmux_session, state_path = self._write_high_level_active_reap_fixture(state_dir, root, cwd, session_id)
+            controller = Mock()
+            controller.list_sessions.return_value = [tmux_session]
+            controller.session_exists.return_value = True
+            controller.capture_screen.return_value = "Done\nclaude> "
+
+            results = ctc.reap_idle_sessions(
+                controller,
+                idle_seconds=600,
+                prefix="ctc-csess-",
+                dry_run=False,
+                state_dir=state_dir,
+                root=root,
+                now=lambda: 2000.0,
+            )
+
+            self.assertEqual(results, [{"session": tmux_session, "idle_seconds": 1000.0, "action": "killed"}])
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(state["active_turn"]["turn_id"], "turn_550e")
+            controller.kill_session.assert_called_once_with(tmux_session)
+
+    def test_reap_idle_sessions_dry_run_reports_unrecoverable_high_level_active_turn_when_screen_is_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            session_id = "550e8400-e29b-41d4-a716-446655440006"
+            tmux_session, state_path = self._write_high_level_active_reap_fixture(state_dir, root, cwd, session_id)
+            controller = Mock()
+            controller.list_sessions.return_value = [tmux_session]
+            controller.session_exists.return_value = True
+            controller.capture_screen.return_value = "Done\nclaude> "
+            before_state = state_path.read_text(encoding="utf-8")
+            before_mtime = state_path.stat().st_mtime
+
+            results = ctc.reap_idle_sessions(
+                controller,
+                idle_seconds=600,
+                prefix="ctc-csess-",
+                dry_run=True,
+                state_dir=state_dir,
+                root=root,
+                now=lambda: 2000.0,
+            )
+
+            self.assertEqual(results, [{"session": tmux_session, "idle_seconds": 1000.0, "action": "would-kill"}])
+            self.assertEqual(state_path.read_text(encoding="utf-8"), before_state)
+            self.assertEqual(state_path.stat().st_mtime, before_mtime)
+            state = json.loads(before_state)
+            self.assertEqual(state["active_turn"]["turn_id"], "turn_550e")
+            controller.kill_session.assert_not_called()
+
+    def test_reap_idle_sessions_ignores_other_session_transcript_with_same_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            session_id = "550e8400-e29b-41d4-a716-446655440007"
+            tmux_session, state_path = self._write_high_level_active_reap_fixture(state_dir, root, cwd, session_id)
+            transcript_dir = ctc.project_transcript_dir(root, cwd)
+            transcript_dir.mkdir(parents=True)
+            (transcript_dir / "other-session.jsonl").write_text(
+                json_line(
+                    {
+                        "sessionId": "550e8400-e29b-41d4-a716-446655449999",
+                        "type": "user",
+                        "message": {"content": "old prompt"},
+                    }
+                )
+                + json_line(
+                    {
+                        "sessionId": "550e8400-e29b-41d4-a716-446655449999",
+                        "type": "assistant",
+                        "message": {"content": [{"type": "tool_use", "name": "Task"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.list_sessions.return_value = [tmux_session]
+            controller.session_exists.return_value = True
+            controller.capture_screen.return_value = "Done\nclaude> "
+
+            results = ctc.reap_idle_sessions(
+                controller,
+                idle_seconds=600,
+                prefix="ctc-csess-",
+                dry_run=True,
+                state_dir=state_dir,
+                root=root,
+                now=lambda: 2000.0,
+            )
+
+            self.assertEqual(results, [{"session": tmux_session, "idle_seconds": 1000.0, "action": "would-kill"}])
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(state["active_turn"]["turn_id"], "turn_550e")
+            controller.kill_session.assert_not_called()
+
+    def test_reap_idle_sessions_does_not_recover_from_other_session_explicit_transcript_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            session_id = "550e8400-e29b-41d4-a716-446655440008"
+            tmux_session, state_path = self._write_high_level_active_reap_fixture(state_dir, root, cwd, session_id)
+            transcript_dir = ctc.project_transcript_dir(root, cwd)
+            transcript_dir.mkdir(parents=True)
+            other_transcript = transcript_dir / "other-session.jsonl"
+            other_transcript.write_text(
+                json_line(
+                    {
+                        "sessionId": "550e8400-e29b-41d4-a716-446655449999",
+                        "type": "user",
+                        "message": {"content": "old prompt"},
+                    }
+                )
+                + json_line(
+                    {
+                        "sessionId": "550e8400-e29b-41d4-a716-446655449999",
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": "other answer"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["transcript"] = ctc.transcript_file_state(other_transcript, other_transcript.stat().st_size)
+            state["active_turn"]["before_send_transcript"] = ctc.transcript_file_state(other_transcript, 0)
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+            os.utime(state_path, (1000.0, 1000.0))
+            controller = Mock()
+            controller.list_sessions.return_value = [tmux_session]
+            controller.session_exists.return_value = True
+            controller.capture_screen.return_value = "Done\nclaude> "
+
+            results = ctc.reap_idle_sessions(
+                controller,
+                idle_seconds=600,
+                prefix="ctc-csess-",
+                dry_run=False,
+                state_dir=state_dir,
+                root=root,
+                now=lambda: 2000.0,
+            )
+
+            self.assertEqual(results, [{"session": tmux_session, "idle_seconds": 1000.0, "action": "killed"}])
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(state["active_turn"]["turn_id"], "turn_550e")
+            self.assertNotIn("last_turn", state)
+            controller.kill_session.assert_called_once_with(tmux_session)
+
+    def test_reap_idle_sessions_keeps_unrecoverable_high_level_active_turn_when_screen_is_not_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            cwd = Path(tmp) / "project"
+            session_id = "550e8400-e29b-41d4-a716-446655440005"
+            tmux_session, state_path = self._write_high_level_active_reap_fixture(state_dir, root, cwd, session_id)
+            controller = Mock()
+            controller.list_sessions.return_value = [tmux_session]
+            controller.session_exists.return_value = True
+            controller.capture_screen.return_value = "Thinking...\nEsc to interrupt"
+
+            results = ctc.reap_idle_sessions(
+                controller,
+                idle_seconds=600,
                 prefix="ctc-csess-",
                 dry_run=False,
                 state_dir=state_dir,
@@ -2392,15 +2628,18 @@ class HighLevelSessionInfoTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            os.utime(state_path, (2000.0, 2000.0))
             controller = Mock()
             controller.session_exists.return_value = True
 
-            payload = ctc.build_session_info_payload(session_id, state_dir, root, controller)
+            payload = ctc.build_session_info_payload(session_id, state_dir, root, controller, now=lambda: 2500.0)
 
             self.assertEqual(payload["event"], "info")
             self.assertEqual(payload["session_id"], session_id)
             self.assertEqual(payload["tmux_session"], ctc.web_tmux_session_name(session_id))
             self.assertTrue(payload["tmux_active"])
+            self.assertEqual(payload["state_mtime"], 2000.0)
+            self.assertEqual(payload["idle_seconds"], 500.0)
             self.assertEqual(payload["transcript_path"], str(transcript))
             self.assertEqual(payload["claude_transcript_session_id"], session_id)
             self.assertEqual(payload["active_turn"]["turn_id"], "turn_active")
@@ -2427,6 +2666,21 @@ class HighLevelSessionInfoTest(unittest.TestCase):
 
             self.assertFalse(payload["tmux_active"])
             self.assertTrue(payload["state_exists"])
+
+    def test_build_session_info_omits_state_timing_when_state_file_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            root = Path(tmp) / "claude"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            controller = Mock()
+            controller.session_exists.return_value = True
+
+            payload = ctc.build_session_info_payload(session_id, state_dir, root, controller, now=lambda: 2500.0)
+
+            self.assertTrue(payload["tmux_active"])
+            self.assertFalse(payload["state_exists"])
+            self.assertNotIn("state_mtime", payload)
+            self.assertNotIn("idle_seconds", payload)
 
     def test_build_session_info_includes_recovery_actions_for_timeout_turn(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2593,6 +2847,7 @@ class HighLevelSessionInfoTest(unittest.TestCase):
                 json.dumps({"schema_version": 1, "session_id": state_session, "cwd": str(Path(tmp))}),
                 encoding="utf-8",
             )
+            os.utime(state_path, (2000.0, 2000.0))
             (state_path.parent / "not-a-uuid.json").write_text("{}", encoding="utf-8")
             controller = Mock()
             controller.list_sessions.return_value = [
@@ -2602,7 +2857,7 @@ class HighLevelSessionInfoTest(unittest.TestCase):
             ]
             controller.session_exists.side_effect = lambda name: name == ctc.web_tmux_session_name(tmux_only)
 
-            payload = ctc.build_session_list_payload(state_dir, root, controller)
+            payload = ctc.build_session_list_payload(state_dir, root, controller, now=lambda: 2600.0)
 
             self.assertEqual(payload["event"], "list")
             self.assertEqual(payload["count"], 2)
@@ -2612,7 +2867,11 @@ class HighLevelSessionInfoTest(unittest.TestCase):
             )
             by_id = {item["session_id"]: item for item in payload["sessions"]}
             self.assertFalse(by_id[state_session]["tmux_active"])
+            self.assertEqual(by_id[state_session]["state_mtime"], 2000.0)
+            self.assertEqual(by_id[state_session]["idle_seconds"], 600.0)
             self.assertTrue(by_id[tmux_only]["tmux_active"])
+            self.assertNotIn("state_mtime", by_id[tmux_only])
+            self.assertNotIn("idle_seconds", by_id[tmux_only])
 
 
 class HighLevelAskTest(unittest.TestCase):
@@ -5225,6 +5484,65 @@ class StreamTest(unittest.TestCase):
             payloads = [json.loads(line) for line in "".join(writes).splitlines()]
             self.assertEqual(status.state, "ready")
             self.assertIn("target answer", json.dumps(payloads, ensure_ascii=False))
+
+    def test_high_level_stream_matches_anchor_when_transcript_expands_tab_to_spaces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "session.jsonl"
+            transcript.write_text(
+                json_line({"type": "user", "timestamp": "t0", "message": {"content": "Bestie Bingo)    747,936명"}})
+                + json_line(
+                    {
+                        "type": "assistant",
+                        "timestamp": "t1",
+                        "message": {"content": [{"type": "text", "text": "tab-normalized answer"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=f"ctc-csess-{session_id}",
+                state_path=Path(tmp) / "state" / "sessions" / f"{session_id}.json",
+                state_dir=Path(tmp) / "state",
+                cwd=Path(tmp),
+                prompt="Bestie Bingo)\t747,936명",
+                turn_id="turn_anchor",
+                before_send_offset=0,
+                replay_start_offset=0,
+            )
+            ctc._write_high_level_state(
+                runtime.state_path,
+                ctc.build_pending_turn_state({}, runtime, transcript, wall_time=1000.0),
+            )
+            controller = Mock()
+            controller.capture_screen.return_value = "Done\nclaude> "
+            writes = []
+            current_time = 0.0
+
+            def fake_now():
+                return current_time
+
+            def fake_sleep(seconds):
+                nonlocal current_time
+                current_time += seconds
+
+            status = ctc.stream_high_level_transcript_until_done(
+                transcript,
+                runtime,
+                controller,
+                interval=1.0,
+                timeout=5.0,
+                idle_seconds=1.0,
+                write=writes.append,
+                sleep=fake_sleep,
+                now=fake_now,
+            )
+
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            self.assertEqual(status.state, "ready")
+            self.assertIn("tab-normalized answer", json.dumps(payloads, ensure_ascii=False))
+            controller.send_enter.assert_not_called()
 
     def test_high_level_stream_retries_submit_once_when_prompt_never_anchors(self):
         with tempfile.TemporaryDirectory() as tmp:

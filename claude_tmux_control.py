@@ -113,6 +113,7 @@ class SessionState:
     session: str
     last_prompt: str
     cwd: str | None = None
+    session_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1127,10 +1128,12 @@ def build_session_info_payload(
     state_dir: Path,
     root: Path,
     controller: TmuxController,
+    now: Callable[[], float] = time.time,
 ) -> dict:
     actual_session_id = validate_or_create_session_id(session_id)
     state_path = web_session_state_path(actual_session_id, state_dir)
     state = read_bridge_state(state_path) or {}
+    state_mtime = state_path.stat().st_mtime if state_path.exists() else None
     tmux_session = str(state.get("tmux_session") or web_tmux_session_name(actual_session_id))
     cwd = state.get("cwd")
     transcript = _session_info_transcript_path(state, root, cwd, actual_session_id)
@@ -1147,6 +1150,8 @@ def build_session_info_payload(
             "cwd": cwd if isinstance(cwd, str) else None,
             "state_path": str(state_path),
             "state_exists": state_path.exists(),
+            "state_mtime": state_mtime,
+            "idle_seconds": now() - state_mtime if state_mtime is not None else None,
             "transcript_path": str(transcript) if transcript else None,
             "claude_transcript_session_id": extract_transcript_session_id(transcript) if transcript else None,
             "active_turn": active_turn,
@@ -1200,7 +1205,12 @@ def active_turn_recovery_payload(active_turn: Mapping[str, object] | None) -> di
     }
 
 
-def build_session_list_payload(state_dir: Path, root: Path, controller: TmuxController) -> dict:
+def build_session_list_payload(
+    state_dir: Path,
+    root: Path,
+    controller: TmuxController,
+    now: Callable[[], float] = time.time,
+) -> dict:
     session_ids: set[str] = set()
     sessions_dir = state_dir / "sessions"
     if sessions_dir.is_dir():
@@ -1219,8 +1229,9 @@ def build_session_list_payload(state_dir: Path, root: Path, controller: TmuxCont
         except ValueError:
             continue
 
+    current_time = now()
     sessions = [
-        build_session_info_payload(session_id, state_dir, root, controller)
+        build_session_info_payload(session_id, state_dir, root, controller, now=lambda: current_time)
         for session_id in sorted(session_ids)
     ]
     return {"event": "list", "sessions": sessions, "count": len(sessions)}
@@ -1230,11 +1241,16 @@ def _session_info_transcript_path(state: Mapping[str, object], root: Path, cwd: 
     transcript = state.get("transcript")
     if isinstance(transcript, Mapping) and isinstance(transcript.get("path"), str):
         path = Path(str(transcript["path"]))
-        if path.exists():
+        if path.exists() and transcript_matches_or_omits_session_id(path, session_id):
             return path
     if isinstance(cwd, str) and cwd:
         return resolve_high_level_transcript(root, Path(cwd), dict(state), session_id=session_id)
     return None
+
+
+def transcript_matches_or_omits_session_id(path: Path, session_id: str) -> bool:
+    transcript_session_id = extract_transcript_session_id(path)
+    return transcript_session_id is None or transcript_session_id == session_id
 
 
 def extract_transcript_session_id(path: Path) -> str | None:
@@ -1987,7 +2003,7 @@ def _attach_transcript_path(
     for source in (active.get("before_send_transcript"), state.get("transcript")):
         if isinstance(source, Mapping) and isinstance(source.get("path"), str):
             path = Path(str(source["path"]))
-            if path.exists():
+            if path.exists() and transcript_matches_or_omits_session_id(path, session_id):
                 return path
     return resolve_high_level_transcript(root, cwd, dict(state), session_id=session_id)
 
@@ -2423,8 +2439,6 @@ def reap_idle_sessions(
                 if refreshed is None:
                     continue
                 state_path, state, active_working = refreshed
-            if active_working:
-                continue
         if session_is_working(controller, session, state, root):
             continue
 
@@ -2546,7 +2560,7 @@ def resolve_high_level_reap_session_state(session: str, state_dir: Path) -> tupl
     active_working = isinstance(active, dict) and active.get("claude_state") not in {None, "ready"}
     return (
         state_path,
-        SessionState(session=session, last_prompt=prompt, cwd=cwd if isinstance(cwd, str) else None),
+        SessionState(session=session, last_prompt=prompt, cwd=cwd if isinstance(cwd, str) else None, session_id=session_id),
         active_working,
     )
 
@@ -2563,14 +2577,14 @@ def _bridge_state_reap_prompt(state: Mapping[str, object]) -> str:
 
 def session_is_working(controller: TmuxController, session: str, state: SessionState, root: Path) -> bool:
     transcript_path, pending_prompt = resolve_status_transcript_path(root, state)
-    if pending_prompt:
-        return True
     try:
         screen = controller.capture_screen(session, height=80)
     except subprocess.CalledProcessError:
         screen = ""
+    if pending_prompt:
+        return analyze_screen_status(screen).state != "ready"
     status = analyze_combined_status(screen, transcript_path=transcript_path)
-    return status.state == "working"
+    return status.state in {"working", "needs_confirmation", "unknown"}
 
 
 def _watch(controller: TmuxController, session: str, height: int, interval: float) -> int:
@@ -3247,7 +3261,17 @@ def _is_anchor_user_record(record: TranscriptRecord, prompt: str) -> bool:
     normalized_user_text = user_text.strip()
     if normalized_prompt and normalized_prompt in normalized_user_text:
         return True
-    return prompt in user_text
+    return _text_contains_with_normalized_whitespace(user_text, prompt)
+
+
+def _text_contains_with_normalized_whitespace(text: str, needle: str) -> bool:
+    normalized_text = _normalize_match_whitespace(text)
+    normalized_needle = _normalize_match_whitespace(needle)
+    return bool(normalized_needle) and normalized_needle in normalized_text
+
+
+def _normalize_match_whitespace(value: str) -> str:
+    return re.sub(r"[ \t\f\v]+", " ", value.strip())
 
 
 def _is_external_user_record(record: TranscriptRecord) -> bool:
@@ -4058,7 +4082,10 @@ def _turn_matches_prompt(turn_events: Sequence[dict], prompt: str) -> bool:
         return False
     first = turn_events[0]
     event_type = str(first.get("type") or first.get("event") or first.get("role") or "")
-    return event_type == "user" and prompt in _format_user_content(_event_content(first))
+    if event_type != "user":
+        return False
+    user_text = _format_user_content(_event_content(first))
+    return prompt in user_text or _text_contains_with_normalized_whitespace(user_text, prompt)
 
 
 def _join_numbered_blocks(blocks: Sequence[str], label: str) -> str:
@@ -4297,7 +4324,10 @@ def _iter_state_transcript_paths(
     if state.cwd:
         project_dir = project_transcript_dir(root, Path(state.cwd))
         if project_dir.is_dir():
-            return list(project_dir.rglob("*.jsonl"))
+            paths = list(project_dir.rglob("*.jsonl"))
+            if state.session_id:
+                return [path for path in paths if transcript_matches_session_id(path, state.session_id)]
+            return paths
     if not allow_global_fallback:
         return []
     return _iter_transcript_paths(root)

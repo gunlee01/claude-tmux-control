@@ -157,11 +157,17 @@ If the last turn is active, these commands attach to it and stream through compl
 ctc info UUID --json
 ```
 
-Prints state metadata, tmux activity, transcript path, completed turn count, cumulative usage/cost fields, and `active_turn_recovery` guidance when an active turn is present.
+Prints state metadata, tmux activity, transcript path, completed turn count, cumulative usage/cost fields, `state_mtime`, `idle_seconds`, and `active_turn_recovery` guidance when an active turn is present.
 
 Completed turn state is bounded to the latest 200 completed turns. The reported `usage_totals` and `cost_totals` are recomputed from that retained state window, not by rereading the full transcript JSONL.
 
 ### `list`
+
+```bash
+ctc list --json
+```
+
+Lists controlled high-level sessions from state files and active tmux sessions. Each session item uses the same metadata shape as `info`, including `state_mtime` and `idle_seconds` when a state file exists.
 
 ### `stats`
 
@@ -172,12 +178,6 @@ ctc stats --transcript PATH --json
 
 Prints machine-readable transcript statistics: model, normalized usage, context when present, event count, read offset, and estimated cost when usage/model pricing is available.
 
-```bash
-ctc list --json
-```
-
-Lists controlled high-level sessions from state files and active tmux sessions.
-
 ### `reap`
 
 ```bash
@@ -185,7 +185,7 @@ ctc reap --idle-seconds 1800 --prefix ctc-csess- --dry-run
 ctc reap --idle-seconds 1800 --prefix ctc-csess-
 ```
 
-Kills idle controlled tmux sessions. For high-level sessions with a stale active turn, `reap` can finalize the turn first when both transcript and tmux screen are ready. `--dry-run` is side-effect free: it reports sessions that would be killed after that recovery check without writing state or killing sessions.
+Kills idle controlled tmux sessions. For high-level sessions with a stale active turn, `reap` can finalize the turn first when the matching session transcript and tmux screen are ready. If the turn cannot be finalized but the tmux screen is ready, the idle session can still be reaped. `--dry-run` is side-effect free: it reports sessions that would be killed after that recovery check without writing state or killing sessions.
 
 ### `kill`
 

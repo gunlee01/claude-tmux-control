@@ -279,8 +279,9 @@ cron 예:
 - web session만 정리하려면 `ctc-csess-` prefix를 권장합니다.
 - `ctc-` prefix는 controlled 전체 정리용이며, 사용자가 low-level로 만든 `ctc-*` tmux session도 포함할 수 있습니다.
 - 마지막 입력/상태 기준으로 `--idle-seconds`를 넘은 session만 정리합니다.
-- high-level `active_turn`이 남아 있고 `ready`가 아니면 보수적으로 정리하지 않습니다.
-- 화면/transcript 기준으로 Claude가 아직 working 상태로 보여도 정리하지 않습니다.
+- high-level `active_turn`이 남아 있으면 먼저 같은 session transcript로 완료 처리할 수 있는지 확인합니다.
+- 완료 처리할 수 없어도 tmux 화면이 `ready`이면 idle 기준에 따라 정리할 수 있습니다.
+- tmux 화면이 `ready`가 아니거나 Claude가 아직 working 상태로 보이면 정리하지 않습니다.
 
 `timeout`이나 `interrupted`는 입력 가능 또는 정리 가능 신호가 아닙니다. 이런 session은 `stream --attach`, 같은 `session_id` 재시도, 또는 운영자 판단에 따른 `kill`로 별도 처리합니다.
 

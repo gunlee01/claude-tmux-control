@@ -209,7 +209,7 @@ Exit codes:
 
 ## 9. Cleanup
 
-Run `reap` on a schedule.
+Run `reap` on a schedule. Use `ctc list --json` to show all high-level sessions before cleanup; sessions with a state file include `state_mtime` and `idle_seconds`, using the same state-file mtime basis as `reap`.
 
 ```bash
 ctc reap --idle-seconds 1800 --prefix ctc-csess- --dry-run
@@ -218,7 +218,7 @@ ctc reap --idle-seconds 1800 --prefix ctc-csess-
 
 `reap` kills idle tmux sessions but does not delete the Claude conversation transcript. Later requests can resume when enough state remains. On resume, `ctc` starts Claude Code with `--resume <session_id>` without a prompt argv, waits for the TUI prompt, and then submits the new user prompt through tmux paste+Enter. Multi-line prompts use bracketed paste.
 
-For high-level sessions, `reap` can repair a stale `active_turn` before killing an idle tmux session when the transcript and tmux screen both show the turn is complete. `--dry-run` only reports this outcome and does not write state.
+For high-level sessions, `reap` can repair a stale `active_turn` before killing an idle tmux session when the matching session transcript and tmux screen both show the turn is complete. If the turn cannot be repaired but the tmux screen is ready, `reap` can still kill the idle session. `--dry-run` only reports this outcome and does not write state.
 
 ## 10. Current Gaps
 

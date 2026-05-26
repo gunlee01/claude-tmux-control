@@ -189,7 +189,7 @@ TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-csess- --dry-run
 TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-csess-
 ```
 
-`reap`은 high-level `active_turn`이 남아 있고 `ready`가 아니면 보수적으로 skip합니다.
+`reap`은 high-level `active_turn`이 남아 있으면 먼저 같은 session transcript로 완료 처리할 수 있는지 확인합니다. 완료 처리할 수 없어도 tmux 화면이 `ready`이면 idle 기준에 따라 정리할 수 있고, `ready`가 아니면 보수적으로 skip합니다.
 
 `timeout`이나 `interrupted` session도 자동 정리 대상으로 가정하지 말고, 먼저 `attach`/retry로 상태를 확인하거나 운영자 판단에 따라 `kill`합니다.
 
