@@ -51,7 +51,7 @@ browser
   -> enables next input
 ```
 
-Do not send a second prompt until the previous turn reaches `done`/`metrics` or is explicitly cancelled and finalized.
+Do not send a second prompt until the previous turn reaches `done`/`metrics` or is explicitly cancelled and finalized. If transcript recovery is impossible and an operator chooses to abandon the active turn, use `ctc cancel "$SESSION_ID" --reset` to clear the bridge state.
 
 ### Runtime Environment
 
@@ -195,7 +195,7 @@ If the last turn is still active, `last`/`replay` attach instead of sending a ne
 | no transcript | Claude Code did not produce transcript before timeout | show processing/retry state |
 | timeout | completion not confirmed | attach/retry; do not assume ready |
 
-`ctc info "$SESSION_ID" --json` includes `active_turn_recovery` when an active turn is present. Treat `active`, `timeout`, and `interrupted` as not ready for a new prompt; attach/retry/cancel first. Treat `failed` as requiring inspect or kill before sending another prompt.
+`ctc info "$SESSION_ID" --json` includes `active_turn_recovery` when an active turn is present. Treat `active`, `timeout`, and `interrupted` as not ready for a new prompt; attach/retry/cancel first. Treat `failed` as requiring inspect or kill before sending another prompt. Use `cancel --reset` only when the client or operator intentionally abandons the active turn state.
 
 Exit codes:
 

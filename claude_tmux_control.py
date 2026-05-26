@@ -410,6 +410,7 @@ Docs:
     cancel.add_argument("--session-id", dest="session_id_option", help="web-facing Claude session id UUID")
     cancel.add_argument("--state-dir", type=Path, default=DEFAULT_STATE_DIR, help="bridge state directory")
     cancel.add_argument("--json", action="store_true", help="accepted for symmetry; cancel always prints JSON")
+    cancel.add_argument("--reset", action="store_true", help="move active_turn to last_turn after cancelling")
 
     def add_replay_args(command_parser: argparse.ArgumentParser) -> None:
         command_parser.add_argument("session_id", nargs="?", help="web-facing Claude session id UUID")
@@ -1372,6 +1373,7 @@ def _run_high_level_cancel(args: argparse.Namespace, controller: TmuxController)
 
 def run_high_level_cancel(args: argparse.Namespace, controller: TmuxController) -> dict:
     session_id = getattr(args, "session_id_option", None) or getattr(args, "session_id", None)
+    reset_requested = bool(getattr(args, "reset", False))
     if not session_id:
         return {"event": "error", "exit_code": 2, "error": "cancel requires SESSION_ID or --session-id"}
     try:
@@ -1386,6 +1388,26 @@ def run_high_level_cancel(args: argparse.Namespace, controller: TmuxController) 
     initial_active = state.get("active_turn")
     initial_active_turn_id = initial_active.get("turn_id") if isinstance(initial_active, dict) else None
     if not controller.session_exists(tmux_session):
+        if reset_requested:
+            reset_result = reset_high_level_active_turn(
+                state_path,
+                initial_active_turn_id,
+                expected_active_turn=initial_active if isinstance(initial_active, dict) else None,
+            )
+            return {
+                "event": "cancel",
+                "exit_code": 0,
+                "session_id": actual_session_id,
+                "tmux_session": tmux_session,
+                "state_exists": state_exists,
+                "active_turn_present": initial_active_turn_id is not None,
+                "active_turn_id": initial_active_turn_id,
+                "reset_requested": True,
+                "reset_applied": reset_result["reset_applied"],
+                "moved_turn_id": reset_result["moved_turn_id"],
+                "state_after": reset_result["state_after"],
+                "tmux_session_missing": True,
+            }
         return {
             "event": "error",
             "exit_code": 2,
@@ -1398,7 +1420,7 @@ def run_high_level_cancel(args: argparse.Namespace, controller: TmuxController) 
     try:
         controller.send_escape(tmux_session)
     except subprocess.CalledProcessError as error:
-        return {
+        payload = {
             "event": "error",
             "exit_code": 5,
             "error": "cancel_failed",
@@ -1407,8 +1429,19 @@ def run_high_level_cancel(args: argparse.Namespace, controller: TmuxController) 
             "tmux_session": tmux_session,
             "state_exists": state_exists,
         }
+        if reset_requested:
+            payload["reset_requested"] = True
+        return payload
 
-    return {
+    reset_result = None
+    if reset_requested:
+        reset_result = reset_high_level_active_turn(
+            state_path,
+            initial_active_turn_id,
+            expected_active_turn=initial_active if isinstance(initial_active, dict) else None,
+        )
+
+    payload = {
         "event": "cancel",
         "exit_code": 0,
         "session_id": actual_session_id,
@@ -1417,6 +1450,51 @@ def run_high_level_cancel(args: argparse.Namespace, controller: TmuxController) 
         "active_turn_present": initial_active_turn_id is not None,
         "active_turn_id": initial_active_turn_id,
         "sent_key": "Escape",
+    }
+    if reset_requested and reset_result is not None:
+        payload.update(
+            {
+                "reset_requested": True,
+                "reset_applied": reset_result["reset_applied"],
+                "moved_turn_id": reset_result["moved_turn_id"],
+                "state_after": reset_result["state_after"],
+            }
+        )
+    return payload
+
+
+def reset_high_level_active_turn(
+    state_path: Path,
+    turn_id: object = None,
+    expected_active_turn: dict | None = None,
+) -> dict:
+    before = read_bridge_state(state_path) or {}
+    active = before.get("active_turn")
+    target_active = expected_active_turn if isinstance(expected_active_turn, dict) else active
+    moved_turn_id = target_active.get("turn_id") if isinstance(target_active, dict) else None
+    reset_applied = False
+    if isinstance(target_active, dict):
+        if turn_id is not None:
+            if isinstance(active, dict) and active.get("turn_id") == turn_id:
+                _move_active_turn_to_last_turn(state_path, turn_id=turn_id)
+        else:
+            original_active = dict(target_active)
+
+            def mutate(state: dict) -> dict | None:
+                if state.get("active_turn") != original_active:
+                    return None
+                state["last_turn"] = state["active_turn"]
+                state["active_turn"] = None
+                return state
+
+            reset_applied = mutate_high_level_state(state_path, mutate) is not None
+    after = read_bridge_state(state_path) or {}
+    if turn_id is not None:
+        reset_applied = isinstance(active, dict) and active.get("turn_id") == turn_id and after.get("active_turn") is None
+    return {
+        "reset_applied": reset_applied,
+        "moved_turn_id": moved_turn_id if reset_applied else None,
+        "state_after": {"active_turn": after.get("active_turn")},
     }
 
 

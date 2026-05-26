@@ -222,6 +222,12 @@ TERM=xterm-256color ctc last "$SESSION_ID" --last 1
 
 `cancel`은 취소 key만 전송합니다. 취소 후 transcript/화면이 완료 상태가 되면 `last` 또는 `stream --attach`가 이어서 `done`/`metrics`까지 받습니다.
 
+오래된 `active_turn`을 명시적으로 포기해야 하면 `--reset`을 붙여 `active_turn`을 `last_turn`으로 옮기고 비울 수 있습니다.
+
+```bash
+TERM=xterm-256color ctc cancel "$SESSION_ID" --reset
+```
+
 Claude Code는 tool 실행 중 ESC를 받으면 transcript에 `User rejected tool use`와 `[Request interrupted by user for tool use]`를 남길 수 있습니다. CLI는 이 패턴을 취소 완료로 보고 해당 turn을 `done`/`metrics`로 닫습니다.
 
 브라우저 연결이 끊긴 뒤 같은 turn을 이어서 볼 때도 동일하게 `stream --attach`를 사용합니다.

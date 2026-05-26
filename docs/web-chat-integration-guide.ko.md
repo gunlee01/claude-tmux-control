@@ -303,6 +303,8 @@ ctc last "$SESSION_ID" --last 1
 
 취소 뒤에도 `active_turn`은 남아 있을 수 있습니다. 클라이언트는 `last --last 1` 또는 `stream --attach --session-id "$SESSION_ID"`로 이어서 `done`/`metrics`까지 받아야 합니다.
 
+transcript recovery가 불가능하고 해당 active turn을 명시적으로 포기하기로 한 경우에는 `ctc cancel "$SESSION_ID" --reset`을 사용합니다. 이 모드는 `active_turn`을 `last_turn`으로 옮기고 `active_turn`을 비워 다음 prompt가 막히지 않게 합니다.
+
 Claude Code가 tool 실행 중 취소되면 transcript에 `User rejected tool use`와 `[Request interrupted by user for tool use]`가 남을 수 있습니다. CLI는 이 패턴을 취소 완료로 처리합니다. 이때 final assistant text가 없을 수 있으므로 `done.answer`는 비어 있을 수 있지만, `done`/`metrics`가 오면 입력창을 다시 열 수 있습니다.
 
 attach는 완료된 과거 turn 조회가 아닙니다.

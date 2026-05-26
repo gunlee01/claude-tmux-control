@@ -175,6 +175,12 @@ TERM=xterm-256color ctc cancel "$SESSION_ID"
 TERM=xterm-256color ctc last "$SESSION_ID" --last 1
 ```
 
+If a stale `active_turn` must be explicitly abandoned, add `--reset` to move it to `last_turn` and clear `active_turn`.
+
+```bash
+TERM=xterm-256color ctc cancel "$SESSION_ID" --reset
+```
+
 ## Session Cleanup
 
 `ctc stream` creates tmux sessions that do not disappear automatically.

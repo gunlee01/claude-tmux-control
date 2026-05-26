@@ -136,9 +136,12 @@ Sends Escape to the Claude Code pane for a high-level session.
 
 ```bash
 ctc cancel UUID
+ctc cancel UUID --reset
 ```
 
-Then attach or replay to receive final `done`/`metrics`.
+Without `--reset`, state is not changed. Then attach or replay to receive final `done`/`metrics`.
+
+With `--reset`, `cancel` sends Escape when the tmux session exists, then moves `active_turn` to `last_turn` and clears `active_turn`. If the tmux session is already missing, `--reset` still performs the state cleanup and exits successfully. If Escape delivery fails for an existing tmux session, state is left unchanged and the command exits with code `5`.
 
 ### `last` / `replay`
 

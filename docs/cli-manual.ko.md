@@ -811,6 +811,7 @@ attach는 완료된 과거 turn 조회가 아니라, `active_turn`이 남은 진
 
 ```bash
 ctc cancel "$SESSION_ID"
+ctc cancel "$SESSION_ID" --reset
 ```
 
 성공 시 stdout:
@@ -819,7 +820,9 @@ ctc cancel "$SESSION_ID"
 {"event":"cancel","exit_code":0,"session_id":"...","sent_key":"Escape"}
 ```
 
-`cancel`은 prompt를 새로 보내지 않고, transcript도 읽지 않습니다. 취소 후 응답 마무리를 클라이언트에 보여주려면 `ctc last "$SESSION_ID" --last 1` 또는 `ctc stream --attach --session-id "$SESSION_ID"`를 호출합니다.
+`cancel`은 prompt를 새로 보내지 않고, transcript도 읽지 않습니다. `--reset`이 없으면 state를 변경하지 않습니다. 취소 후 응답 마무리를 클라이언트에 보여주려면 `ctc last "$SESSION_ID" --last 1` 또는 `ctc stream --attach --session-id "$SESSION_ID"`를 호출합니다.
+
+`--reset`을 붙이면 tmux session이 있을 때 `Escape`를 보낸 뒤 `active_turn`을 `last_turn`으로 옮기고 `active_turn`을 비웁니다. tmux session이 이미 없으면 state cleanup만 수행하고 성공으로 처리합니다. 기존 tmux session에 `Escape` 전송이 실패하면 state는 변경하지 않고 exit `5`를 반환합니다.
 
 tool 실행 취소처럼 final assistant text 없이 끝난 turn도 있을 수 있습니다. 이 경우 `done.answer`는 없을 수 있지만 `done`과 `metrics`는 출력되어 turn이 닫힙니다.
 

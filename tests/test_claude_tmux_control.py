@@ -341,7 +341,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.3.6\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.4.0\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -2950,10 +2950,209 @@ class HighLevelCancelTest(unittest.TestCase):
             self.assertEqual(result["exit_code"], 0)
             self.assertEqual(result["event"], "cancel")
             self.assertEqual(result["active_turn_id"], "turn_active")
+            self.assertNotIn("reset_requested", result)
+            self.assertNotIn("reset_applied", result)
             controller.send_escape.assert_called_once_with(ctc.web_tmux_session_name(session_id))
             state = ctc.read_bridge_state(state_path)
             self.assertEqual(state["active_turn"]["cancel_count"], 1)
             self.assertNotIn("cancel_requested_at", state["active_turn"])
+
+    def test_cancel_reset_moves_active_turn_to_last_turn_after_escape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            active_turn = {"turn_id": "turn_active", "claude_state": "working", "stream_state": "active"}
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "active_turn": active_turn,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = True
+            args = ctc.parse_args(["cancel", session_id, "--reset", "--state-dir", str(state_dir)])
+
+            result = ctc.run_high_level_cancel(args, controller)
+
+            self.assertEqual(result["exit_code"], 0)
+            self.assertTrue(result["reset_requested"])
+            self.assertTrue(result["reset_applied"])
+            self.assertEqual(result["moved_turn_id"], "turn_active")
+            self.assertEqual(result["state_after"], {"active_turn": None})
+            controller.send_escape.assert_called_once_with(ctc.web_tmux_session_name(session_id))
+            state = ctc.read_bridge_state(state_path)
+            self.assertIsNone(state["active_turn"])
+            self.assertEqual(state["last_turn"], active_turn)
+
+    def test_cancel_reset_is_noop_when_active_turn_is_already_clear(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "active_turn": None,
+                        "last_turn": {"turn_id": "done"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = True
+            args = ctc.parse_args(["cancel", "--session-id", session_id, "--reset", "--state-dir", str(state_dir)])
+
+            result = ctc.run_high_level_cancel(args, controller)
+
+            self.assertEqual(result["exit_code"], 0)
+            self.assertTrue(result["reset_requested"])
+            self.assertFalse(result["reset_applied"])
+            self.assertIsNone(result["moved_turn_id"])
+            self.assertEqual(result["state_after"], {"active_turn": None})
+            controller.send_escape.assert_called_once_with(ctc.web_tmux_session_name(session_id))
+            state = ctc.read_bridge_state(state_path)
+            self.assertIsNone(state["active_turn"])
+            self.assertEqual(state["last_turn"], {"turn_id": "done"})
+
+    def test_cancel_reset_cleans_state_when_tmux_session_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            active_turn = {"turn_id": "turn_missing", "claude_state": "working"}
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "active_turn": active_turn,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = False
+            args = ctc.parse_args(["cancel", session_id, "--reset", "--state-dir", str(state_dir)])
+
+            result = ctc.run_high_level_cancel(args, controller)
+
+            self.assertEqual(result["exit_code"], 0)
+            self.assertTrue(result["tmux_session_missing"])
+            self.assertTrue(result["reset_applied"])
+            self.assertEqual(result["moved_turn_id"], "turn_missing")
+            controller.send_escape.assert_not_called()
+            state = ctc.read_bridge_state(state_path)
+            self.assertIsNone(state["active_turn"])
+            self.assertEqual(state["last_turn"], active_turn)
+
+    def test_cancel_reset_does_not_mutate_state_when_escape_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            original = {
+                "schema_version": 1,
+                "session_id": session_id,
+                "tmux_session": ctc.web_tmux_session_name(session_id),
+                "active_turn": {"turn_id": "turn_active", "claude_state": "working"},
+            }
+            state_path.write_text(json.dumps(original), encoding="utf-8")
+            controller = Mock()
+            controller.session_exists.return_value = True
+            controller.send_escape.side_effect = subprocess.CalledProcessError(1, ["tmux", "send-keys"])
+            args = ctc.parse_args(["cancel", session_id, "--reset", "--state-dir", str(state_dir)])
+
+            result = ctc.run_high_level_cancel(args, controller)
+
+            self.assertEqual(result["exit_code"], 5)
+            self.assertEqual(result["error"], "cancel_failed")
+            self.assertTrue(result["reset_requested"])
+            state = ctc.read_bridge_state(state_path)
+            self.assertEqual(state, original)
+
+    def test_cancel_reset_without_turn_id_does_not_clear_new_active_turn_after_escape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "active_turn": {"claude_state": "working"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = True
+
+            def send_escape(_session: str) -> None:
+                state = ctc.read_bridge_state(state_path)
+                state["active_turn"] = {"turn_id": "new_turn", "claude_state": "working"}
+                ctc._write_high_level_state(state_path, state)
+
+            controller.send_escape.side_effect = send_escape
+            args = ctc.parse_args(["cancel", session_id, "--reset", "--state-dir", str(state_dir)])
+
+            result = ctc.run_high_level_cancel(args, controller)
+
+            self.assertEqual(result["exit_code"], 0)
+            self.assertTrue(result["reset_requested"])
+            self.assertFalse(result["reset_applied"])
+            self.assertIsNone(result["moved_turn_id"])
+            state = ctc.read_bridge_state(state_path)
+            self.assertEqual(state["active_turn"], {"turn_id": "new_turn", "claude_state": "working"})
+            self.assertNotIn("last_turn", state)
+
+    def test_cancel_reset_is_idempotent_when_called_twice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "active_turn": {"turn_id": "turn_active"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = Mock()
+            controller.session_exists.return_value = True
+            args = ctc.parse_args(["cancel", session_id, "--reset", "--state-dir", str(state_dir)])
+
+            first = ctc.run_high_level_cancel(args, controller)
+            second = ctc.run_high_level_cancel(args, controller)
+
+            self.assertEqual(first["exit_code"], 0)
+            self.assertTrue(first["reset_applied"])
+            self.assertEqual(second["exit_code"], 0)
+            self.assertFalse(second["reset_applied"])
+            state = ctc.read_bridge_state(state_path)
+            self.assertIsNone(state["active_turn"])
+            self.assertEqual(state["last_turn"]["turn_id"], "turn_active")
 
     def test_cancel_without_state_still_uses_default_web_tmux_name(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -6319,9 +6518,48 @@ class CliIntegrationTest(unittest.TestCase):
             payload = json.loads(result.stdout)
             self.assertEqual(payload["event"], "cancel")
             self.assertEqual(payload["sent_key"], "Escape")
+            self.assertNotIn("reset_requested", payload)
+            self.assertNotIn("reset_applied", payload)
             self.assertIn("send-keys -t " + ctc.web_tmux_session_name(session_id) + " Escape", fake_log.read_text(encoding="utf-8"))
             state = ctc.read_bridge_state(state_path)
             self.assertEqual(state["active_turn"], {"turn_id": "turn_cancel"})
+
+    def test_cli_cancel_reset_moves_active_turn_to_last_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_bin = Path(tmp) / "bin"
+            fake_log = Path(tmp) / "tmux.log"
+            write_fake_tmux(fake_bin)
+            state_dir = Path(tmp) / "state"
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = ctc.web_session_state_path(session_id, state_dir)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "session_id": session_id,
+                        "tmux_session": ctc.web_tmux_session_name(session_id),
+                        "active_turn": {"turn_id": "turn_cancel", "claude_state": "working"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_cli(
+                ["cancel", session_id, "--reset", "--state-dir", str(state_dir)],
+                env=fake_tmux_env(fake_bin, fake_log),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["event"], "cancel")
+            self.assertTrue(payload["reset_applied"])
+            self.assertEqual(payload["moved_turn_id"], "turn_cancel")
+            self.assertEqual(payload["state_after"], {"active_turn": None})
+            self.assertIn("send-keys -t " + ctc.web_tmux_session_name(session_id) + " Escape", fake_log.read_text(encoding="utf-8"))
+            state = ctc.read_bridge_state(state_path)
+            self.assertIsNone(state["active_turn"])
+            self.assertEqual(state["last_turn"], {"turn_id": "turn_cancel", "claude_state": "working"})
 
     def test_cli_last_cancelled_active_turn_finishes_and_clears_state(self):
         with tempfile.TemporaryDirectory() as tmp:
