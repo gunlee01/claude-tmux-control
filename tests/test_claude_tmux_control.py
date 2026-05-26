@@ -186,7 +186,7 @@ class TmuxControllerTest(unittest.TestCase):
                 (["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}),
             ],
         )
-        sleep.assert_called_once_with(ctc.PASTE_SUBMIT_DELAY_SECONDS)
+        sleep.assert_called_once_with(ctc.DEFAULT_PASTE_SUBMIT_DELAY_SECONDS)
 
     def test_send_prompt_uses_bracketed_paste_for_multiline_prompt(self):
         runner = FakeRunner()
@@ -209,7 +209,7 @@ class TmuxControllerTest(unittest.TestCase):
                 (["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}),
             ],
         )
-        sleep.assert_called_once_with(ctc.PASTE_SUBMIT_DELAY_SECONDS)
+        sleep.assert_called_once_with(ctc.DEFAULT_PASTE_SUBMIT_DELAY_SECONDS)
 
     def test_send_prompt_uses_bracketed_paste_for_carriage_return_prompt(self):
         runner = FakeRunner()
@@ -341,7 +341,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.3.3\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.3.4\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -5225,6 +5225,53 @@ class StreamTest(unittest.TestCase):
             payloads = [json.loads(line) for line in "".join(writes).splitlines()]
             self.assertEqual(status.state, "ready")
             self.assertIn("target answer", json.dumps(payloads, ensure_ascii=False))
+
+    def test_high_level_stream_retries_submit_once_when_prompt_never_anchors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "session.jsonl"
+            transcript.write_text("", encoding="utf-8")
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=f"ctc-csess-{session_id}",
+                state_path=Path(tmp) / "state" / "sessions" / f"{session_id}.json",
+                state_dir=Path(tmp) / "state",
+                cwd=Path(tmp),
+                prompt="target prompt",
+                turn_id="turn_anchor",
+                before_send_offset=0,
+                replay_start_offset=0,
+            )
+            ctc._write_high_level_state(
+                runtime.state_path,
+                ctc.build_pending_turn_state({}, runtime, transcript, wall_time=1000.0),
+            )
+            controller = Mock()
+            controller.capture_screen.return_value = "Done\nclaude> "
+            writes = []
+            current_time = 0.0
+
+            def fake_now():
+                return current_time
+
+            def fake_sleep(seconds):
+                nonlocal current_time
+                current_time += seconds
+
+            status = ctc.stream_high_level_transcript_until_done(
+                transcript,
+                runtime,
+                controller,
+                interval=0.5,
+                timeout=2.0,
+                idle_seconds=1.0,
+                write=writes.append,
+                sleep=fake_sleep,
+                now=fake_now,
+            )
+
+            self.assertEqual(status.state, "timeout")
+            controller.send_enter.assert_called_once_with(runtime.tmux_session)
 
     def test_high_level_transcript_resolution_never_falls_back_to_global_latest(self):
         with tempfile.TemporaryDirectory() as tmp:

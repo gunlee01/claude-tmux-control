@@ -35,7 +35,8 @@ DEFAULT_INSTALLED_PRICING_TABLE = Path(sys.prefix) / "share" / "claude-tmux-cont
 DEFAULT_CONTROLLED_PREFIX = "ctc-"
 DEFAULT_WEB_SESSION_PREFIX = "ctc-csess-"
 DEFAULT_ENV_FILE_NAME = ".ctc.env"
-PASTE_SUBMIT_DELAY_SECONDS = 0.05
+DEFAULT_PASTE_SUBMIT_DELAY_SECONDS = 0.25
+UNANCHORED_SUBMIT_RETRY_SECONDS = 1.0
 DEFAULT_TOOL_RESULT_TEXT_LIMIT = 100
 STATE_SCHEMA_VERSION = 1
 _PRICING_TABLE_CACHE: dict | None = None
@@ -206,8 +207,11 @@ class TmuxController:
             paste_args.insert(2, "-p")
         self._run(paste_args, check=True)
         if submit:
-            time.sleep(PASTE_SUBMIT_DELAY_SECONDS)
-            self._run(["tmux", "send-keys", "-t", session, "Enter"], check=True)
+            time.sleep(DEFAULT_PASTE_SUBMIT_DELAY_SECONDS)
+            self.send_enter(session)
+
+    def send_enter(self, session: str) -> None:
+        self._run(["tmux", "send-keys", "-t", session, "Enter"], check=True)
 
     def send_escape(self, session: str) -> None:
         self._run(["tmux", "send-keys", "-t", session, "Escape"], check=True)
@@ -2979,6 +2983,8 @@ def stream_high_level_transcript_until_done(
     last_file_identity = file_identity
     completed_offset = runtime.before_send_offset
     anchored = False
+    saw_records_after_send = False
+    retried_unanchored_submit = False
 
     while now() < deadline:
         try:
@@ -3003,6 +3009,7 @@ def stream_high_level_transcript_until_done(
 
         records, read_offset = read_transcript_records(transcript, read_offset)
         if records:
+            saw_records_after_send = True
             for record in records:
                 if not anchored:
                     if not _is_anchor_user_record(record, runtime.prompt):
@@ -3024,6 +3031,17 @@ def stream_high_level_transcript_until_done(
             _mark_turn_working(runtime, current_turn_events, read_offset)
 
         screen_status = analyze_screen_status(controller.capture_screen(runtime.tmux_session, height=80))
+        if (
+            not anchored
+            and not saw_records_after_send
+            and not retried_unanchored_submit
+            and screen_status.state == "ready"
+            and now() - runtime.started_at_monotonic >= UNANCHORED_SUBMIT_RETRY_SECONDS
+        ):
+            send_enter = getattr(controller, "send_enter", None)
+            if callable(send_enter):
+                send_enter(runtime.tmux_session)
+                retried_unanchored_submit = True
         transcript_status = analyze_turn_status(current_turn_events)
         if transcript_status.state == "ready" and screen_status.state == "ready":
             last_status = ScreenStatus("ready", f"{screen_status.reason}; transcript ready")
