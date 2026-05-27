@@ -59,7 +59,7 @@ Use `--prefix ctc-csess-` for web sessions. `--prefix ctc-` is broader and can i
 
 For high-level sessions, `reap` first checks whether a stale `active_turn` can be finalized from the matching session transcript and a ready tmux screen. If it can, a real reap finalizes the turn before applying the idle kill decision. If the turn cannot be finalized but the tmux screen is ready, the session can still be reaped after the idle threshold. `--dry-run` only simulates this check and does not write state or kill sessions.
 
-`timeout` and `interrupted` do not automatically mean ready. Use `stream --attach`, retry with the same `session_id`, or explicitly `kill` after inspection.
+`interrupted` does not automatically mean ready. A normal high-level stream timeout sends Escape, stops the tmux session, and clears `active_turn` when cleanup succeeds. If a `timeout` active turn remains, inspect it or use `cancel --reset`.
 
 ## 5. Manual Stop
 
@@ -75,7 +75,7 @@ Killing a tmux session also terminates the Claude Code process inside it. It doe
 | --- | --- |
 | `turn_in_progress` | attach to the active turn, replay last turn, or retry later |
 | user cancel | run `cancel`, then `last --last 1` or `stream --attach` |
-| timeout | keep UI in processing state and allow attach/retry |
+| stream timeout | Escape is sent; if it succeeds, allow the next prompt |
 | Ctrl+C/interrupted | attach if tmux still exists; otherwise retry same session |
 | tmux missing | next stream can start/resume with same session id |
 | cwd mismatch | treat as incorrect session binding and reject |

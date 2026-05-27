@@ -580,7 +580,7 @@
             <tr><td>active turn working</td><td>`turn_in_progress` error</td><td>중복 전송 차단</td></tr>
             <tr><td>user cancel</td><td>`ctc cancel "$SESSION_ID"` sends `Escape`</td><td>취소 요청 후 `last`/`attach`로 완료까지 수신</td></tr>
             <tr><td>tool cancel marker</td><td>`User rejected tool use` + interrupt marker</td><td>final answer 없이도 `done`/`metrics`로 turn 종료</td></tr>
-            <tr><td>timeout turn already done</td><td>state-only finalize 후 새 prompt 전송</td><td>수동 attach 없이 다음 입력 진행</td></tr>
+            <tr><td>stream timeout</td><td>`timeout` event 후 `Escape`와 tmux session cleanup, 성공 시 `active_turn` 정리</td><td>다음 입력 진행 가능</td></tr>
             <tr><td>completed turn replay</td><td>`ctc last "$SESSION_ID" --last N` 또는 `replay`</td><td>이탈한 채팅창에 최근 JSONL event 재전송</td></tr>
             <tr><td>latest turn still active</td><td>`last`/`replay --last N`이 active_turn에 attach</td><td>완료 turn replay 후 active turn을 물고 `done`/`metrics` 수신</td></tr>
           </tbody>
@@ -600,7 +600,7 @@
       <div class="grid-3">
         <div class="card">
           <h3>Implemented</h3>
-          <p class="small">UUID validation, cwd fail-closed, send_lock, active_turn, cancel via Escape, transcript sessionId filtering, timeout auto-finalize, offset tailing, completed turn replay, done + metrics.</p>
+          <p class="small">UUID validation, cwd fail-closed, send_lock, active_turn, cancel via Escape, transcript sessionId filtering, timeout cancel cleanup, offset tailing, completed turn replay, done + metrics.</p>
         </div>
         <div class="card">
           <h3>CLI Metrics</h3>

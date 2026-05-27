@@ -114,6 +114,7 @@ poll transcript from baseline
   emit done
   emit metrics
   mark active_turn ready/clear
+  on timeout, emit timeout, send Escape, stop tmux session, move active_turn to last_turn, clear active_turn
 ```
 
 ## 6. Where To Start Reading

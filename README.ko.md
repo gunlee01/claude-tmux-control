@@ -224,6 +224,8 @@ TERM=xterm-256color ctc last "$SESSION_ID" --last 1
 
 오래된 `active_turn`을 명시적으로 포기해야 하면 `--reset`을 붙여 `active_turn`을 `last_turn`으로 옮기고 비울 수 있습니다.
 
+high-level `stream`이 `--timeout`에 도달하면 timeout을 취소 경계로 처리합니다. `timeout` event를 출력하고 `Escape`를 보낸 뒤 tmux session을 종료합니다. cleanup이 성공하면 해당 turn을 `last_turn`에 timeout으로 남기고 `active_turn`을 비워 다음 prompt를 resume 경로로 받을 수 있게 합니다.
+
 ```bash
 TERM=xterm-256color ctc cancel "$SESSION_ID" --reset
 ```
@@ -234,7 +236,7 @@ Claude Code는 tool 실행 중 ESC를 받으면 transcript에 `User rejected too
 
 `attach`는 완료된 과거 turn을 다시 조회하는 명령이 아닙니다.
 
-`active_turn`이 남아 있는 진행 중, timeout, interrupted turn에 다시 붙을 때만 사용합니다. 이미 완료되어 `active_turn`이 정리된 turn의 최종 답변은 `info`의 `last_turn`/state나 앱 서버가 저장해 둔 `done.answer`를 봅니다. 취소된 turn처럼 final answer가 없는 경우도 있으므로, completion 판단은 `done`/`metrics` 도착 여부를 기준으로 둡니다.
+`active_turn`이 남아 있는 진행 중, timeout, interrupted turn에 다시 붙을 때만 사용합니다. 일반 stream timeout은 Escape/session cleanup 성공 후 `active_turn`을 비우므로 attach 대상이 아닙니다. 이미 완료되어 `active_turn`이 정리된 turn의 최종 답변은 `info`의 `last_turn`/state나 앱 서버가 저장해 둔 `done.answer`를 봅니다. 취소된 turn처럼 final answer가 없는 경우도 있으므로, completion 판단은 `done`/`metrics` 도착 여부를 기준으로 둡니다.
 
 이미 완료된 turn의 JSONL event를 다시 받아야 하면 `replay`를 사용합니다.
 
@@ -289,7 +291,7 @@ cron 예:
 - 완료 처리할 수 없어도 tmux 화면이 `ready`이면 idle 기준에 따라 정리할 수 있습니다.
 - tmux 화면이 `ready`가 아니거나 Claude가 아직 working 상태로 보이면 정리하지 않습니다.
 
-`timeout`이나 `interrupted`는 입력 가능 또는 정리 가능 신호가 아닙니다. 이런 session은 `stream --attach`, 같은 `session_id` 재시도, 또는 운영자 판단에 따른 `kill`로 별도 처리합니다.
+`interrupted`는 입력 가능 또는 정리 가능 신호가 아닙니다. 남아 있는 `timeout` active turn은 Escape 전송/정리가 끝나지 않은 상태이므로 inspect 또는 `cancel --reset`으로 별도 처리합니다.
 
 `reap`으로 tmux session이 종료되면 그 안에서 실행 중이던 Claude Code process도 같이 종료됩니다.
 

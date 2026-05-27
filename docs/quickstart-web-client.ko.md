@@ -95,8 +95,9 @@ CLI는 새 prompt를 보내기 전에 이전 `active_turn`을 확인합니다.
 | 완료 확인됨 | 이전 turn을 state-only finalize 후 새 prompt 전송 |
 | 아직 working | `turn_in_progress` |
 | 사용자 취소 | `cancel` 호출 후 `last` 또는 `attach`로 완료 대기 |
-| timeout/interrupted + tmux ready + transcript ready | 이전 turn finalize 후 새 prompt 전송 |
-| timeout/interrupted + 아직 미확인 | `turn_in_progress` 또는 attach 필요 |
+| stream timeout | `Escape` 전송과 tmux session cleanup 성공 시 `active_turn` 정리 후 새 prompt 전송 가능 |
+| interrupted + tmux ready + transcript ready | 이전 turn finalize 후 새 prompt 전송 |
+| interrupted + 아직 미확인 | `turn_in_progress` 또는 attach 필요 |
 
 주요 exit code:
 
@@ -124,7 +125,7 @@ TERM=xterm-256color ctc stream --attach --session-id "$SESSION_ID" --timeout 300
 
 - `--session-id`가 필요합니다.
 - 해당 session에 `active_turn`이 남아 있어야 합니다.
-- `active_turn.stream_state`가 `active`, `timeout`, `interrupted` 중 하나여야 합니다.
+- `active_turn.stream_state`가 `active`, `timeout`, `interrupted` 중 하나여야 합니다. 일반 stream timeout은 tmux session cleanup 후 `active_turn`을 비우므로 attach 대상이 아닙니다.
 - 내부 tmux session과 transcript를 찾을 수 있어야 합니다.
 
 `attach`는 완료된 과거 turn 조회가 아닙니다.
@@ -191,7 +192,7 @@ TERM=xterm-256color ctc reap --idle-seconds 1800 --prefix ctc-csess-
 
 `reap`은 high-level `active_turn`이 남아 있으면 먼저 같은 session transcript로 완료 처리할 수 있는지 확인합니다. 완료 처리할 수 없어도 tmux 화면이 `ready`이면 idle 기준에 따라 정리할 수 있고, `ready`가 아니면 보수적으로 skip합니다.
 
-`timeout`이나 `interrupted` session도 자동 정리 대상으로 가정하지 말고, 먼저 `attach`/retry로 상태를 확인하거나 운영자 판단에 따라 `kill`합니다.
+`interrupted` session은 자동 정리 대상으로 가정하지 말고, 먼저 `attach`/retry로 상태를 확인하거나 운영자 판단에 따라 `kill`합니다. 남아 있는 `timeout` active turn은 Escape 전송/정리가 끝나지 않은 상태로 보고 inspect 또는 `cancel --reset`을 사용합니다.
 
 web session만 정리하려면 `ctc-csess-` prefix를 권장합니다. `ctc-` prefix는 controlled 전체 정리용이라 low-level `ctc-*` session도 포함될 수 있습니다.
 
@@ -226,6 +227,6 @@ background scheduler
 - [ ] `event_id`로 중복 event를 제거한다.
 - [ ] `done` 전에는 입력창을 비활성화한다.
 - [ ] `metrics`를 별도 event로 저장한다.
-- [ ] timeout/interrupted 후 `attach` 또는 같은 session_id 재시도를 지원한다.
+- [ ] stream timeout 후 다음 prompt 전송을 허용하고, interrupted 후 `attach` 또는 같은 session_id 재시도를 지원한다.
 - [ ] `reap`을 scheduler에 등록한다.
 - [ ] token/env 값은 로그에 남기지 않는다.

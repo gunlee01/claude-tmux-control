@@ -95,6 +95,12 @@ class ScreenCaptureController(Protocol):
     def capture_screen(self, session: str, height: int = 200) -> str:
         ...
 
+    def send_escape(self, session: str) -> None:
+        ...
+
+    def kill_session(self, session: str) -> None:
+        ...
+
 
 class SessionNotFoundError(RuntimeError):
     pass
@@ -1697,7 +1703,7 @@ def run_high_level_turn(
             "events": [],
         }
     if transcript is None:
-        _mark_turn_timeout(runtime)
+        _cancel_high_level_timeout_turn(runtime, controller)
         return {
             "exit_code": 2,
             "session_id": runtime.session_id,
@@ -3225,7 +3231,7 @@ def stream_high_level_transcript_until_done(
             "reason": timeout_status.reason,
         },
     )
-    _mark_turn_timeout(runtime)
+    _cancel_high_level_timeout_turn(runtime, controller)
     return timeout_status
 
 
@@ -3915,6 +3921,34 @@ def _mark_turn_timeout(runtime: StreamRuntime) -> None:
         if not _active_turn_matches_runtime(state.get("active_turn"), runtime):
             return None
         return _mark_active_turn_state(state, runtime, "working", "timeout")
+
+    mutate_high_level_state(runtime.state_path, mutate)
+
+
+def _cancel_high_level_timeout_turn(runtime: StreamRuntime, controller: ScreenCaptureController) -> bool:
+    try:
+        controller.send_escape(runtime.tmux_session)
+        controller.kill_session(runtime.tmux_session)
+    except SessionNotFoundError:
+        pass
+    except subprocess.CalledProcessError:
+        _mark_turn_timeout(runtime)
+        return False
+    _mark_turn_timeout_cancelled(runtime)
+    return True
+
+
+def _mark_turn_timeout_cancelled(runtime: StreamRuntime) -> None:
+    def mutate(state: dict) -> dict | None:
+        active = state.get("active_turn")
+        if not _active_turn_matches_runtime(active, runtime):
+            return None
+        active["claude_state"] = "cancelled"
+        active["stream_state"] = "timeout"
+        active["timeout_at"] = _utc_timestamp(time.time())
+        state["last_turn"] = active
+        state["active_turn"] = None
+        return state
 
     mutate_high_level_state(runtime.state_path, mutate)
 

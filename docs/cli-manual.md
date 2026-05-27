@@ -108,7 +108,7 @@ Important options:
 | `--state-dir PATH` | bridge state directory |
 | `--root PATH` | Claude config/transcript root |
 | `--interval N` | transcript polling interval, default `2.0` |
-| `--timeout N` | max wait time |
+| `--timeout N` | max wait time; on high-level stream timeout, send Escape, stop the tmux session, and clear the active turn when cleanup succeeds |
 | `--submit-enters {1,2}` | Enter submits after tmux paste when reusing an active session; default `2` |
 | `--tool-result-limit N` | truncate tool result previews |
 | `--env-file PATH` | read extra environment for newly created tmux sessions |
@@ -146,6 +146,8 @@ ctc cancel UUID --reset
 Without `--reset`, state is not changed. Then attach or replay to receive final `done`/`metrics`.
 
 With `--reset`, `cancel` sends Escape when the tmux session exists, then moves `active_turn` to `last_turn` and clears `active_turn`. If the tmux session is already missing, `--reset` still performs the state cleanup and exits successfully. If Escape delivery fails for an existing tmux session, state is left unchanged and the command exits with code `5`.
+
+High-level `stream` timeout is different from manual `cancel`: when the timeout expires, `ctc` emits a `timeout` event, sends Escape to the tmux pane, stops the tmux session, moves the timed-out turn to `last_turn`, and clears `active_turn` so the next prompt can be sent through the resume path. If Escape/session cleanup fails, `active_turn` remains in `stream_state: "timeout"` for inspection or explicit cleanup.
 
 ### `last` / `replay`
 
@@ -339,7 +341,8 @@ Use `ctc info "$SESSION_ID" --json` to inspect `active_turn_recovery`:
 | State | Recommended action |
 | --- | --- |
 | `active` | wait, attach, queue, or cancel |
-| `timeout` / `interrupted` | attach or retry with the same session before sending a new prompt |
+| `timeout` | inspect or `cancel --reset`; normal stream timeouts clear `active_turn` after Escape succeeds |
+| `interrupted` | attach or retry with the same session before sending a new prompt |
 | `failed` | inspect or kill before sending a new prompt |
 
 ### Events look like another session

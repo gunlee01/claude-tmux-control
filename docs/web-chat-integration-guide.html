@@ -696,7 +696,7 @@
         </div>
         <div class="role-row">
           <strong>Attach 조건</strong>
-          <span>`attach`는 완료된 과거 turn 조회가 아니다. `active_turn`이 남은 active/timeout/interrupted turn에만 다시 붙는다.</span>
+          <span>`attach`는 완료된 과거 turn 조회가 아니다. `active_turn`이 남은 active/interrupted turn에 다시 붙는다. 남은 timeout active turn은 Escape 정리 실패 상태로 보고 inspect/reset한다.</span>
         </div>
         <div class="role-row">
           <strong>Replay 조건</strong>
@@ -915,7 +915,7 @@
             <tr>
               <td>동시 입력</td>
               <td>`send_lock`은 prompt 전송만 보호하고, 긴 stream 동안은 `active_turn`이 새 prompt를 막는다.</td>
-              <td>이전 timeout/interrupted turn이 완료 확인되면 다음 prompt 전에 state-only finalize한다.</td>
+              <td>stream timeout은 Escape 후 tmux session을 종료하고 `active_turn`을 비운다. interrupted turn은 다음 prompt 전에 완료 여부를 검사한다.</td>
             </tr>
             <tr>
               <td>완료 판단</td>
@@ -1059,7 +1059,7 @@
         meta: "not complete",
         badge: "red",
         sample: {"event":"timeout","session_id":"550e8400-e29b-41d4-a716-446655440000","turn_id":"turn_20260516_0001","state":"timeout","reason":"not ready after 900.0s; last=working"},
-        notice: "프로세스가 끝났더라도 session이 계속 처리 중일 수 있다. 다음 prompt 요청 시 CLI가 이전 turn 완료 여부를 먼저 검사하고, 완료된 경우 state-only finalize 후 새 prompt를 보낸다."
+        notice: "timeout은 취소 경계다. CLI는 Escape를 보내고 tmux session을 종료한 뒤 해당 turn을 last_turn에 timeout으로 남기고 active_turn을 비워 다음 prompt를 허용한다."
       }
     ];
 

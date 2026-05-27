@@ -203,7 +203,7 @@ Do not decide whether a new prompt is allowed from `stream_state` alone.
 
 New prompts are allowed only when `claude_state` is `ready`, or when the tmux/Claude process is confirmed inactive and resume is safe.
 
-`stream_state = timeout` means the streaming process timed out. It does not prove Claude Code stopped working.
+`stream_state = timeout` means the streaming process timed out. For normal high-level `stream`, timeout sends `Escape` and stops the tmux session; when cleanup succeeds, the turn moves to `last_turn` and `active_turn` is cleared. A remaining timeout `active_turn` means Escape delivery or cleanup did not complete.
 
 `stream_state = interrupted` means the stream client disconnected or was interrupted. It remains attachable/recoverable while the tmux session exists; if the tmux session is missing, retry can clear it immediately.
 
@@ -319,8 +319,16 @@ input: optional session_id, cwd, prompt
      move active_turn to last_turn
      clear active_turn
 
-16. after timeout/interruption/failure:
-     set stream_state = timeout, interrupted, or failed
+16. after stream timeout:
+     emit timeout
+     send Escape
+     stop tmux session
+     set stream_state = timeout
+     move active_turn to last_turn
+     clear active_turn
+
+17. after interruption/failure:
+     set stream_state = interrupted or failed
      set claude_state = working or unknown
      keep active_turn until attach/inspect/kill confirms completion or inactivity
 ```

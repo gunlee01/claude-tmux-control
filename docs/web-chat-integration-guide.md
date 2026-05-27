@@ -192,10 +192,10 @@ If the last turn is still active, `last`/`replay` attach instead of sending a ne
 | --- | --- | --- |
 | `turn_in_progress` | previous turn is still active | attach, queue, or cancel |
 | `session_cwd_mismatch` | same session id used with another cwd | reject and create a new conversation |
-| no transcript | Claude Code did not produce transcript before timeout | show processing/retry state |
-| timeout | completion not confirmed | attach/retry; do not assume ready |
+| no transcript | Claude Code did not produce transcript before timeout | `ctc` sends Escape, stops the tmux session, clears the active turn if cleanup succeeds, and the client may allow the next prompt |
+| timeout | completion not confirmed before the caller's timeout | `ctc` sends Escape, stops the tmux session, records the turn as timed out, and clears `active_turn` if cleanup succeeds |
 
-`ctc info "$SESSION_ID" --json` includes `active_turn_recovery` when an active turn is present. Treat `active`, `timeout`, and `interrupted` as not ready for a new prompt; attach/retry/cancel first. Treat `failed` as requiring inspect or kill before sending another prompt. Use `cancel --reset` only when the client or operator intentionally abandons the active turn state.
+`ctc info "$SESSION_ID" --json` includes `active_turn_recovery` when an active turn is present. Treat `active` and `interrupted` as not ready for a new prompt; attach/retry/cancel first. A normal stream timeout should clear `active_turn` after Escape and tmux-session cleanup succeed. If a `timeout` active turn remains, Escape delivery or cleanup did not complete; inspect it or use `cancel --reset`. Treat `failed` as requiring inspect or kill before sending another prompt.
 
 Exit codes:
 

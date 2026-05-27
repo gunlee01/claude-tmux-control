@@ -368,7 +368,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.6.1\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.7.0\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -2552,6 +2552,42 @@ class HighLevelStreamSetupTest(unittest.TestCase):
             )
 
             ctc._mark_turn_timeout(old_runtime)
+
+            state = ctc.read_bridge_state(state_path)
+            self.assertEqual(state["active_turn"]["turn_id"], "new-turn")
+            self.assertEqual(state["active_turn"]["claude_state"], "starting")
+            self.assertEqual(state["active_turn"]["stream_state"], "active")
+
+    def test_late_timeout_cancel_does_not_overwrite_new_active_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            state_path = Path(tmp) / "state" / "sessions" / f"{session_id}.json"
+            old_runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=ctc.web_tmux_session_name(session_id),
+                state_path=state_path,
+                state_dir=Path(tmp) / "state",
+                cwd=Path(tmp),
+                prompt="old prompt",
+                turn_id="old-turn",
+                before_send_offset=0,
+                replay_start_offset=0,
+            )
+            ctc._write_high_level_state(
+                state_path,
+                {
+                    "schema_version": 1,
+                    "session_id": session_id,
+                    "active_turn": {
+                        "turn_id": "new-turn",
+                        "claude_state": "starting",
+                        "stream_state": "active",
+                        "prompt_preview": "new prompt",
+                    },
+                },
+            )
+
+            ctc._mark_turn_timeout_cancelled(old_runtime)
 
             state = ctc.read_bridge_state(state_path)
             self.assertEqual(state["active_turn"]["turn_id"], "new-turn")
@@ -5848,6 +5884,70 @@ class StreamTest(unittest.TestCase):
             self.assertEqual(status.state, "timeout")
             controller.send_enter.assert_called_once_with(runtime.tmux_session)
 
+    def test_high_level_stream_timeout_sends_escape_and_clears_active_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "session.jsonl"
+            transcript.write_text(
+                json_line({"sessionId": "550e8400-e29b-41d4-a716-446655440000", "type": "user", "message": {"content": "question"}})
+                + json_line(
+                    {
+                        "sessionId": "550e8400-e29b-41d4-a716-446655440000",
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": "working"}], "stop_reason": "tool_use"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runtime = ctc.StreamRuntime(
+                session_id=session_id,
+                tmux_session=f"ctc-csess-{session_id}",
+                state_path=Path(tmp) / "state" / "sessions" / f"{session_id}.json",
+                state_dir=Path(tmp) / "state",
+                cwd=Path(tmp),
+                prompt="question",
+                turn_id="turn_timeout",
+                before_send_offset=0,
+                replay_start_offset=0,
+            )
+            ctc._write_high_level_state(
+                runtime.state_path,
+                ctc.build_pending_turn_state({}, runtime, transcript, wall_time=1000.0),
+            )
+            controller = Mock()
+            controller.capture_screen.return_value = "Working\n"
+            writes = []
+            current_time = 0.0
+
+            def fake_now():
+                return current_time
+
+            def fake_sleep(seconds):
+                nonlocal current_time
+                current_time += seconds
+
+            status = ctc.stream_high_level_transcript_until_done(
+                transcript,
+                runtime,
+                controller,
+                interval=1.0,
+                timeout=2.0,
+                idle_seconds=1.0,
+                write=writes.append,
+                sleep=fake_sleep,
+                now=fake_now,
+            )
+
+            self.assertEqual(status.state, "timeout")
+            controller.send_escape.assert_called_once_with(runtime.tmux_session)
+            controller.kill_session.assert_called_once_with(runtime.tmux_session)
+            payloads = [json.loads(line) for line in "".join(writes).splitlines()]
+            self.assertEqual(payloads[-1]["event"], "timeout")
+            state = ctc.read_bridge_state(runtime.state_path)
+            self.assertIsNone(state["active_turn"])
+            self.assertEqual(state["last_turn"]["turn_id"], runtime.turn_id)
+            self.assertEqual(state["last_turn"]["stream_state"], "timeout")
+
     def test_high_level_stream_retries_submit_when_only_non_anchor_records_arrive(self):
         with tempfile.TemporaryDirectory() as tmp:
             transcript = Path(tmp) / "session.jsonl"
@@ -6492,7 +6592,9 @@ class CliIntegrationTest(unittest.TestCase):
             self.assertEqual(payloads[-1]["state"], "timeout")
             self.assertNotIn("done", [payload["event"] for payload in payloads])
             state = ctc.read_bridge_state(state_path)
-            self.assertEqual(state["active_turn"]["stream_state"], "timeout")
+            self.assertIsNone(state["active_turn"])
+            self.assertEqual(state["last_turn"]["stream_state"], "timeout")
+            self.assertIn("send-keys -t " + ctc.web_tmux_session_name(session_id) + " Escape", fake_log.read_text(encoding="utf-8"))
 
     def test_cli_last_active_turn_does_not_finish_when_assistant_text_has_null_stop_reason(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -6571,7 +6673,9 @@ class CliIntegrationTest(unittest.TestCase):
             self.assertEqual(payloads[-1]["state"], "timeout")
             self.assertNotIn("done", [payload["event"] for payload in payloads])
             state = ctc.read_bridge_state(state_path)
-            self.assertEqual(state["active_turn"]["stream_state"], "timeout")
+            self.assertIsNone(state["active_turn"])
+            self.assertEqual(state["last_turn"]["stream_state"], "timeout")
+            self.assertIn("send-keys -t " + ctc.web_tmux_session_name(session_id) + " Escape", fake_log.read_text(encoding="utf-8"))
 
     def test_cli_cancel_sends_escape_without_updating_active_turn(self):
         with tempfile.TemporaryDirectory() as tmp:

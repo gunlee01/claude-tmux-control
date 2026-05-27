@@ -341,7 +341,7 @@ Only a future acknowledgement protocol may advance replay past the conservative 
 
 State writes use a dedicated state-write lock plus `generation` compare/update. `send_lock` only covers ensure/start/resume/send. The stream owner keeps `active_turn.heartbeat_at` fresh; reconnect may attach read-only, and takeover is allowed only when the owner process is gone or the heartbeat lease is stale.
 
-`timeout` and `failed` events do not mean the session is ready for another prompt. They leave `active_turn` in place with `claude_state` as `working` or `unknown` until attach/inspect/kill confirms the prior turn ended.
+`failed` events do not mean the session is ready for another prompt. A normal high-level stream `timeout` sends Escape, stops the tmux session, and clears `active_turn` when cleanup succeeds; if a timeout active turn remains, Escape delivery or cleanup did not complete and the client/operator must inspect or reset it.
 
 `done` is the answer-completion event. It must not carry usage/context/cost summary fields. Final usage and cost are emitted immediately after `done` as a separate `metrics` event for the same `turn_id`.
 
