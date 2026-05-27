@@ -368,7 +368,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.7.1\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.7.2\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -4188,6 +4188,56 @@ class ScreenStatusTest(unittest.TestCase):
                 "────────────────────────────────",
                 "  Sonnet 4.6 high [Team] Cache:1h",
                 "  ⏵⏵ auto mode on (shift+tab to cycle)",
+            ],
+        )
+
+        status = ctc.analyze_screen_status(screen)
+
+        self.assertEqual(status.state, "ready")
+
+    def test_detects_working_status_line_even_when_prompt_glyph_is_visible(self):
+        screen = "\n".join(
+            [
+                "● Searching for 1 pattern… (ctrl+o to expand)",
+                "",
+                "✽ Moseying… (1m 20s · ↑ 3.5k tokens)",
+                "  ⎿  Tip: Use /btw to ask a quick side question without interrupting Claude's current work",
+                "",
+                "● How is Claude doing this session? (optional)",
+                "  1: Bad    2: Fine   3: Good   0: Dismiss",
+                "",
+                "────────────────────────────────",
+                "❯ ",
+            ],
+        )
+
+        status = ctc.analyze_screen_status(screen)
+
+        self.assertEqual(status.state, "working")
+
+    def test_detects_haiku_working_status_line_with_elapsed_seconds(self):
+        screen = "\n".join(
+            [
+                '⏺ Bash(python3 -c \'import time; time.sleep(8); print("SLEPT")\')',
+                "",
+                "✢ Slithering… (8s · ↓ 249 tokens)",
+                "────────────────────────────────",
+                "❯ ",
+            ],
+        )
+
+        status = ctc.analyze_screen_status(screen)
+
+        self.assertEqual(status.state, "working")
+
+    def test_does_not_treat_completed_elapsed_summary_as_working(self):
+        screen = "\n".join(
+            [
+                "⏺ TOOL-DONE",
+                "",
+                "✻ Cooked for 16s",
+                "────────────────────────────────",
+                "❯ ",
             ],
         )
 

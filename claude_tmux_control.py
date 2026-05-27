@@ -45,6 +45,11 @@ _PRICING_TABLE_CACHE: dict | None = None
 ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 RESERVED_ENV_NAMES = {CLAUDE_OAUTH_TOKEN_ENV}
 WORKING_PATTERNS = (
+    re.compile(
+        r"(?m)^\s*[\u2722\u2733-\u273f·]\s+\S.*(?:…|\.{3})\s*"
+        r"\([^)\n]*\b\d+\s*(?:m|s)\b[^)\n]*\)",
+        re.IGNORECASE,
+    ),
     re.compile(r"\besc\b.*\binterrupt\b", re.IGNORECASE),
     re.compile(r"\bthinking\b", re.IGNORECASE),
     re.compile(r"\brunning\b", re.IGNORECASE),
