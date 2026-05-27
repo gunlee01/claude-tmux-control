@@ -368,7 +368,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.7.0\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.7.1\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -4430,6 +4430,23 @@ class TranscriptTest(unittest.TestCase):
                         "stop_reason": "end_turn",
                     },
                 },
+            ]
+        )
+
+        self.assertEqual(status.state, "ready")
+
+    def test_transcript_status_ignores_mode_metadata_after_ready_answer(self):
+        status = ctc.analyze_transcript_status(
+            [
+                {"type": "user", "message": {"content": "answer"}},
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [{"type": "text", "text": "final answer"}],
+                        "stop_reason": "end_turn",
+                    },
+                },
+                {"type": "mode", "mode": "default"},
             ]
         )
 

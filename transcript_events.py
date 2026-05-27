@@ -508,7 +508,7 @@ def _content_types(content: object) -> list[str]:
 
 
 def _is_metadata_event(event_type: str) -> bool:
-    return event_type in {"attachment", "ai-title", "permission-mode", "file-history-snapshot", "last-prompt", "system"}
+    return event_type in {"attachment", "ai-title", "permission-mode", "mode", "file-history-snapshot", "last-prompt", "system"}
 
 
 def _event_content(event: dict) -> object:
