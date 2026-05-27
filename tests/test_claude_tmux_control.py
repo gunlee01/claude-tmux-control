@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import claude_tmux_control as ctc
+import transcript_events
 
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -4486,21 +4487,20 @@ class TranscriptTest(unittest.TestCase):
         self.assertEqual(status.state, "ready")
 
     def test_transcript_status_ignores_mode_metadata_after_ready_answer(self):
-        status = ctc.analyze_transcript_status(
-            [
-                {"type": "user", "message": {"content": "answer"}},
-                {
-                    "type": "assistant",
-                    "message": {
-                        "content": [{"type": "text", "text": "final answer"}],
-                        "stop_reason": "end_turn",
-                    },
+        events = [
+            {"type": "user", "message": {"content": "answer"}},
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "text", "text": "final answer"}],
+                    "stop_reason": "end_turn",
                 },
-                {"type": "mode", "mode": "default"},
-            ]
-        )
+            },
+            {"type": "mode", "mode": "default"},
+        ]
 
-        self.assertEqual(status.state, "ready")
+        self.assertEqual(ctc.analyze_transcript_status(events).state, "ready")
+        self.assertEqual(transcript_events.analyze_transcript_status(events).state, "ready")
 
     def test_transcript_status_stays_working_when_assistant_text_has_null_stop_reason(self):
         status = ctc.analyze_transcript_status(
