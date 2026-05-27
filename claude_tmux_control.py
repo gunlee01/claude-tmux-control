@@ -36,6 +36,8 @@ DEFAULT_CONTROLLED_PREFIX = "ctc-"
 DEFAULT_WEB_SESSION_PREFIX = "ctc-csess-"
 DEFAULT_ENV_FILE_NAME = ".ctc.env"
 DEFAULT_PASTE_SUBMIT_DELAY_SECONDS = 0.25
+DEFAULT_SECOND_SUBMIT_DELAY_SECONDS = 1.0
+DEFAULT_STREAM_SUBMIT_ENTERS = 2
 UNANCHORED_SUBMIT_RETRY_SECONDS = 1.0
 DEFAULT_TOOL_RESULT_TEXT_LIMIT = 100
 STATE_SCHEMA_VERSION = 1
@@ -137,6 +139,7 @@ class StreamRuntime:
     before_send_transcript: Path | None = None
     started_at_monotonic: float = 0.0
     started_at_utc: str | None = None
+    submit_retry_enabled: bool = True
 
 
 class RenderedScreenFollower:
@@ -201,7 +204,9 @@ class TmuxController:
             raise SessionNotFoundError(f"tmux session not found: {session}")
         self._run(["tmux", "kill-session", "-t", session], check=True)
 
-    def send_prompt(self, session: str, prompt: str, submit: bool = True) -> None:
+    def send_prompt(self, session: str, prompt: str, submit: bool = True, submit_enters: int = 1) -> None:
+        if submit_enters not in {1, 2}:
+            raise ValueError("submit_enters_must_be_1_or_2")
         self._run(["tmux", "load-buffer", "-b", DEFAULT_BUFFER_NAME, "-"], input=prompt, text=True, check=True)
         paste_args = ["tmux", "paste-buffer", "-d", "-b", DEFAULT_BUFFER_NAME, "-t", session]
         if "\n" in prompt or "\r" in prompt:
@@ -210,6 +215,9 @@ class TmuxController:
         if submit:
             time.sleep(DEFAULT_PASTE_SUBMIT_DELAY_SECONDS)
             self.send_enter(session)
+            if submit_enters == 2:
+                time.sleep(DEFAULT_SECOND_SUBMIT_DELAY_SECONDS)
+                self.send_enter(session)
 
     def send_enter(self, session: str) -> None:
         self._run(["tmux", "send-keys", "-t", session, "Enter"], check=True)
@@ -395,6 +403,13 @@ Docs:
     ask.add_argument("--timeout", type=float, default=300.0, help="maximum seconds to wait")
     ask.add_argument("--idle", type=float, default=2.0, help="ready state must remain stable this many seconds")
     ask.add_argument(
+        "--submit-enters",
+        type=int,
+        choices=(1, 2),
+        default=DEFAULT_STREAM_SUBMIT_ENTERS,
+        help="number of Enter key submits after tmux paste when reusing an active session",
+    )
+    ask.add_argument(
         "--tool-result-limit",
         type=int,
         default=DEFAULT_TOOL_RESULT_TEXT_LIMIT,
@@ -462,6 +477,13 @@ Docs:
     stream.add_argument("--interval", type=float, default=2.0, help="seconds between transcript checks")
     stream.add_argument("--timeout", type=float, default=300.0, help="maximum seconds to stream")
     stream.add_argument("--idle", type=float, default=2.0, help="ready state must remain stable this many seconds")
+    stream.add_argument(
+        "--submit-enters",
+        type=int,
+        choices=(1, 2),
+        default=DEFAULT_STREAM_SUBMIT_ENTERS,
+        help="number of Enter key submits after tmux paste when reusing an active session",
+    )
     stream.add_argument("--attach", action="store_true", help="attach to the active high-level turn without sending")
     stream.add_argument(
         "--tool-result-limit",
@@ -1650,6 +1672,7 @@ def run_high_level_turn(
             session_id=args.session_id,
             claude_args_builder=lambda: claude_args_from_options(args),
             env_builder=lambda: claude_environment_from_args(args),
+            submit_enters=getattr(args, "submit_enters", DEFAULT_STREAM_SUBMIT_ENTERS),
         )
     except ValueError as error:
         return {"exit_code": 2, "error": str(error)}
@@ -1752,8 +1775,11 @@ def prepare_high_level_stream(
     env: Mapping[str, str] | None = None,
     env_builder: Callable[[], Mapping[str, str]] | None = None,
     preseed_project_trust: Callable[[Path, Mapping[str, str] | None], object] = preseed_claude_project_trust,
+    submit_enters: int = DEFAULT_STREAM_SUBMIT_ENTERS,
     now: Callable[[], float] = time.time,
 ) -> StreamRuntime:
+    if submit_enters not in {1, 2}:
+        raise ValueError("submit_enters_must_be_1_or_2")
     actual_session_id = validate_or_create_session_id(session_id)
     tmux_session = web_tmux_session_name(actual_session_id)
     canonical_cwd = cwd.expanduser().resolve()
@@ -1807,6 +1833,7 @@ def prepare_high_level_stream(
             before_send_transcript=transcript,
             started_at_monotonic=time.monotonic(),
             started_at_utc=_utc_timestamp(now()),
+            submit_retry_enabled=tmux_exists and submit_enters < 2,
         )
 
         pending_state = build_pending_turn_state(
@@ -1822,7 +1849,7 @@ def prepare_high_level_stream(
                 screen_status = analyze_screen_status(controller.capture_screen(tmux_session, height=80))
                 if screen_status.state != "ready":
                     raise RuntimeError("turn_in_progress")
-                controller.send_prompt(tmux_session, prompt)
+                controller.send_prompt(tmux_session, prompt, submit_enters=submit_enters)
             else:
                 resume = bool(state or transcript)
                 preseed_project_trust(canonical_cwd, new_session_env)
@@ -3214,6 +3241,8 @@ def _maybe_retry_unanchored_submit(
     already_retried: bool,
     current_time: float,
 ) -> bool:
+    if not runtime.submit_retry_enabled:
+        return already_retried
     if already_retried:
         return True
     if screen_status.state in {"working", "needs_confirmation"}:

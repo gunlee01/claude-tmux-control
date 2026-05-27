@@ -979,7 +979,7 @@
         title: "Send Prompt",
         desc: "inline 또는 tmux 입력",
         detail: "전송 전 이전 active_turn이 있으면 먼저 검사한다. tmux ready + transcript ready이면 이전 turn을 state-only finalize하고, 아니면 turn_in_progress로 막는다. 이후 transcript baseline과 active_turn owner/heartbeat를 state에 저장한다.",
-        command: "claude --session-id \"$SESSION_ID\" -- \"$PROMPT\"\nclaude --resume \"$SESSION_ID\" -- \"$PROMPT\"\n# active tmux only:\ntmux load-buffer + paste-buffer + send-keys Enter"
+        command: "claude --session-id \"$SESSION_ID\" -- \"$PROMPT\"\nclaude --resume \"$SESSION_ID\" -- \"$PROMPT\"\n# active tmux only:\ntmux load-buffer + paste-buffer + Enter after 0.25s + Enter after 1.0s"
       },
       {
         key: "send",
@@ -1137,7 +1137,7 @@ claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeA
 claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --resume "$SESSION_ID"${defaultPermissionArg(s)} -- "$PROMPT"
 
 # active tmux session:
-tmux load-buffer + paste-buffer + send-keys Enter`
+tmux load-buffer + paste-buffer + Enter after 0.25s + Enter after 1.0s`
       },
       metrics: {
         title: "metrics source",

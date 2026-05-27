@@ -188,6 +188,33 @@ class TmuxControllerTest(unittest.TestCase):
         )
         sleep.assert_called_once_with(ctc.DEFAULT_PASTE_SUBMIT_DELAY_SECONDS)
 
+    def test_send_prompt_can_submit_enter_twice(self):
+        runner = FakeRunner()
+        controller = ctc.TmuxController(run=runner)
+
+        with patch("claude_tmux_control.time.sleep") as sleep:
+            controller.send_prompt("cc-test", "hello Claude", submit_enters=2)
+
+        self.assertEqual(
+            runner.calls,
+            [
+                (
+                    ["tmux", "load-buffer", "-b", "claude-tmux-control", "-"],
+                    {"input": "hello Claude", "text": True, "check": True},
+                ),
+                (
+                    ["tmux", "paste-buffer", "-d", "-b", "claude-tmux-control", "-t", "cc-test"],
+                    {"check": True},
+                ),
+                (["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}),
+                (["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}),
+            ],
+        )
+        self.assertEqual(
+            [call.args[0] for call in sleep.call_args_list],
+            [ctc.DEFAULT_PASTE_SUBMIT_DELAY_SECONDS, ctc.DEFAULT_SECOND_SUBMIT_DELAY_SECONDS],
+        )
+
     def test_send_prompt_uses_bracketed_paste_for_multiline_prompt(self):
         runner = FakeRunner()
         controller = ctc.TmuxController(run=runner)
@@ -341,7 +368,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.5.0\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.6.0\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -732,6 +759,7 @@ class CliTest(unittest.TestCase):
         self.assertEqual(args.cwd, Path("/tmp/project"))
         self.assertEqual(ctc._high_level_prompt_from_args(args), "hello Claude")
         self.assertEqual(args.tool_result_limit, 100)
+        self.assertEqual(args.submit_enters, 2)
 
     def test_parse_stream_requires_session_name(self):
         args = ctc.parse_args(["stream", "work", "--timeout", "300", "--idle", "1.5"])
@@ -755,7 +783,14 @@ class CliTest(unittest.TestCase):
         self.assertEqual(args.session_id, session_id)
         self.assertEqual(args.cwd, Path("/tmp/project"))
         self.assertEqual(ctc._high_level_prompt_from_args(args), "hello Claude")
+        self.assertEqual(args.submit_enters, 2)
         self.assertTrue(ctc._is_high_level_stream_args(args))
+
+    def test_parse_high_level_stream_accepts_submit_enters_override(self):
+        session_id = "550e8400-e29b-41d4-a716-446655440000"
+        args = ctc.parse_args(["stream", "--session-id", session_id, "--cwd", "/tmp/project", "--submit-enters", "1", "hello"])
+
+        self.assertEqual(args.submit_enters, 1)
 
     def test_parse_high_level_stream_accepts_attach_without_cwd(self):
         session_id = "550e8400-e29b-41d4-a716-446655440000"
@@ -2317,7 +2352,7 @@ class HighLevelStreamSetupTest(unittest.TestCase):
             state = ctc.read_bridge_state(state_path)
             self.assertEqual(state["active_turn"]["prompt_preview"], "resume please")
 
-    def test_prepare_high_level_stream_reuses_active_tmux_and_sends_prompt(self):
+    def test_prepare_high_level_stream_reuses_active_tmux_and_sends_two_enters_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             session_id = "550e8400-e29b-41d4-a716-446655440000"
             runner = FakeRunner()
@@ -2341,6 +2376,36 @@ class HighLevelStreamSetupTest(unittest.TestCase):
                     {"input": "next turn", "text": True, "check": True},
                 ),
                 runner.calls,
+            )
+            self.assertEqual(
+                [call for call in runner.calls if call[0] == ["tmux", "send-keys", "-t", runtime.tmux_session, "Enter"]],
+                [
+                    (["tmux", "send-keys", "-t", runtime.tmux_session, "Enter"], {"check": True}),
+                    (["tmux", "send-keys", "-t", runtime.tmux_session, "Enter"], {"check": True}),
+                ],
+            )
+
+    def test_prepare_high_level_stream_can_send_one_enter_for_active_tmux(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_id = "550e8400-e29b-41d4-a716-446655440000"
+            runner = FakeRunner()
+            runner.session_exists = True
+            runner.capture_text = "Done\nclaude> "
+            controller = ctc.TmuxController(run=runner)
+
+            runtime = ctc.prepare_high_level_stream(
+                controller=controller,
+                cwd=Path(tmp),
+                prompt="next turn",
+                root=Path(tmp) / "claude",
+                state_dir=Path(tmp) / "state",
+                session_id=session_id,
+                submit_enters=1,
+            )
+
+            self.assertEqual(
+                [call for call in runner.calls if call[0] == ["tmux", "send-keys", "-t", runtime.tmux_session, "Enter"]],
+                [(["tmux", "send-keys", "-t", runtime.tmux_session, "Enter"], {"check": True})],
             )
 
     def test_prepare_high_level_stream_refuses_active_tmux_when_ready_is_unknown(self):

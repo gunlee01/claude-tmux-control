@@ -42,7 +42,7 @@ browser
 backend
   -> spawn ctc stream --cwd <project> --session-id <uuid> <prompt>
   -> ctc starts/resumes Claude Code with an inline prompt argv when tmux is missing
-  -> ctc submits through tmux paste+Enter only when reusing an active tmux session
+  -> ctc submits through tmux paste plus Enter only when reusing an active tmux session
   -> read stdout JSONL
   -> relay events to browser
   -> wait for done and metrics
@@ -85,7 +85,7 @@ ctc stream \
 
 These options apply only when the bridge creates or resumes a Claude Code process. If the tmux session already exists, the running process keeps its original model and arguments.
 
-When creating or resuming a tmux session, the bridge launches Claude Code with the prompt as an argv value after a `--` separator, for example `--session-id <uuid> -- <prompt>` or `--resume <uuid> -- <prompt>`. The shell command uses ANSI-C `$'...'` quoting so embedded newlines are represented as `\n` inside one prompt argument. If the tmux session already exists, the bridge submits the prompt through tmux `load-buffer`, `paste-buffer`, and `send-keys Enter`; embedded newlines use bracketed `paste-buffer -p`.
+When creating or resuming a tmux session, the bridge launches Claude Code with the prompt as an argv value after a `--` separator, for example `--session-id <uuid> -- <prompt>` or `--resume <uuid> -- <prompt>`. The shell command uses ANSI-C `$'...'` quoting so embedded newlines are represented as `\n` inside one prompt argument. If the tmux session already exists, the bridge submits the prompt through tmux `load-buffer`, `paste-buffer`, and `send-keys Enter`. Active-session submits send two Enter keys by default: after `0.25s` and again after `1.0s`. Use `--submit-enters 1` for a single Enter submit. Embedded newlines use bracketed `paste-buffer -p`.
 
 Keep `--claude-args` operator-controlled. Do not expose arbitrary raw arguments to untrusted browser clients.
 

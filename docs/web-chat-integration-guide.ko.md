@@ -196,7 +196,9 @@ if session_id is empty:
 
 else if tmux ctc-csess-<session_id> exists:
   wait for ready screen
-  paste+Enter "<prompt>" through tmux
+  paste "<prompt>" through tmux
+  send Enter after 0.25s
+  send Enter again after 1.0s by default
 
 else:
   tmux_session = ctc-csess-<session_id>
@@ -259,7 +261,7 @@ POST /conversations/:id/messages
   -> bridge persists active_turn with owner and heartbeat
   -> bridge releases send_lock
   -> if tmux was missing, Claude Code receives prompt as launch argv
-  -> if tmux already existed, bridge submits prompt through tmux paste+Enter
+  -> if tmux already existed, bridge submits prompt through tmux paste and Enter
   -> stream owner tails transcript from stored offset
   -> bridge streams events until done
   -> include session_id in every client event
