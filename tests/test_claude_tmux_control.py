@@ -368,7 +368,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.6.0\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.6.1\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -4208,8 +4208,8 @@ class TranscriptTest(unittest.TestCase):
             new = root / "new.jsonl"
             old.write_text("", encoding="utf-8")
             new.write_text("", encoding="utf-8")
-            old.touch()
-            new.touch()
+            os.utime(old, (1000.0, 1000.0))
+            os.utime(new, (2000.0, 2000.0))
 
             self.assertEqual(ctc.find_latest_transcript(root), new)
 
@@ -6009,6 +6009,30 @@ class StreamTest(unittest.TestCase):
             )
 
             self.assertEqual(ctc.wait_for_high_level_transcript(root, runtime, timeout=0.1, interval=0.0), transcript)
+
+    def test_transcript_replaced_since_baseline_detects_shrunk_same_inode_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "session.jsonl"
+            state_path = Path(tmp) / "state.json"
+            transcript.write_text("new\n", encoding="utf-8")
+            stat = transcript.stat()
+            ctc._write_high_level_state(
+                state_path,
+                {
+                    "active_turn": {
+                        "before_send_transcript": {
+                            "path": str(transcript),
+                            "st_dev": stat.st_dev,
+                            "st_ino": stat.st_ino,
+                            "size": stat.st_size + 100,
+                            "offset": stat.st_size + 100,
+                            "mtime_ns": stat.st_mtime_ns,
+                        }
+                    }
+                },
+            )
+
+            self.assertTrue(ctc.transcript_replaced_since_baseline(transcript, state_path))
 
     def test_wait_for_high_level_transcript_retries_submit_when_no_transcript_appears(self):
         with tempfile.TemporaryDirectory() as tmp:

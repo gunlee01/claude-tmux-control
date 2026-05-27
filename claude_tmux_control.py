@@ -2421,7 +2421,15 @@ def transcript_replaced_since_baseline(path: Path, state_path: Path) -> bool:
         stat = path.stat()
     except OSError:
         return False
-    return stat.st_dev != baseline.get("st_dev") or stat.st_ino != baseline.get("st_ino")
+    if stat.st_dev != baseline.get("st_dev") or stat.st_ino != baseline.get("st_ino"):
+        return True
+    baseline_size = _int_or_none(baseline.get("size"))
+    if baseline_size is not None and stat.st_size < baseline_size:
+        return True
+    baseline_offset = _int_or_none(baseline.get("offset"))
+    if baseline_offset is not None and stat.st_size < baseline_offset:
+        return True
+    return False
 
 
 def resolve_high_level_transcript(
