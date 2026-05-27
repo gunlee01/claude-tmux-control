@@ -53,7 +53,7 @@ ctc answer work --wait --timeout 120
 
 Claude Code is a terminal UI, not a plain stdin/stdout protocol.
 
-Input is sent through tmux:
+When a tmux session already exists, input is sent through tmux:
 
 ```text
 tmux load-buffer
@@ -74,9 +74,9 @@ High-level session:
 - state path: `~/.cache/claude-tmux-control/sessions/<session_id>.json`
 - transcript path: under `~/.claude/projects/<encoded-cwd>/`
 
-If no state exists, `ctc stream` starts Claude Code with `--session-id <session_id>`. If state/transcript exists but tmux is gone, it starts Claude Code with `--resume <session_id>`.
+If no state exists, `ctc stream` starts Claude Code with `--session-id <session_id> -- <prompt>`. If state/transcript exists but tmux is gone, it starts Claude Code with `--resume <session_id> -- <prompt>`.
 
-In both cases the prompt is not passed as a Claude Code command argument. The bridge waits for the Claude Code TUI to become ready, then submits the prompt through tmux `load-buffer`, `paste-buffer`, a short submit delay, and `send-keys Enter`. Active tmux sessions use the same tmux input path. Multi-line prompts use bracketed `paste-buffer -p` so embedded newlines are submitted as one user turn. If the prompt never anchors in the transcript, or the transcript does not appear, and the terminal is not working or waiting for confirmation, high-level streams retry submit once with another `Enter`.
+For newly created tmux sessions, the prompt is passed as a Claude Code argv value after a `--` separator. The shell command uses ANSI-C `$'...'` quoting so embedded newlines are represented as `\n` inside one prompt argument. Active tmux sessions still use the tmux `load-buffer`, `paste-buffer`, short submit delay, and `send-keys Enter` input path. Multi-line prompts in active sessions use bracketed `paste-buffer -p` so embedded newlines are submitted as one user turn. If the prompt never anchors in the transcript, or the transcript does not appear, and the terminal is not working or waiting for confirmation, high-level streams retry submit once with another `Enter`.
 
 The same `session_id` cannot be reused with a different `cwd`.
 

@@ -450,7 +450,7 @@
         </div>
         <div class="flow-card">
           <strong>tmux + Claude Code</strong>
-          <span>`--session-id`, `--resume`, or paste prompt</span>
+          <span>inline prompt on start/resume, paste prompt on active tmux</span>
           <span class="badge amber">terminal UI</span>
         </div>
         <div class="flow-card">
@@ -573,9 +573,9 @@
             <tr><th>상황</th><th>CLI 동작</th><th>UI 의미</th></tr>
           </thead>
           <tbody>
-            <tr><td>session_id 없음</td><td>UUID 생성, `claude --session-id`</td><td>새 대화 시작</td></tr>
+            <tr><td>session_id 없음</td><td>UUID 생성, `claude --session-id ... -- &lt;prompt&gt;`</td><td>새 대화 시작</td></tr>
             <tr><td>active tmux 있음</td><td>기존 pane에 prompt 전송</td><td>대화 이어가기</td></tr>
-            <tr><td>inactive + state/transcript 있음</td><td>`claude --resume`</td><td>복구 후 이어가기</td></tr>
+            <tr><td>inactive + state/transcript 있음</td><td>`claude --resume ... -- &lt;prompt&gt;`</td><td>복구 후 이어가기</td></tr>
             <tr><td>cwd mismatch</td><td>`session_cwd_mismatch` error</td><td>잘못된 대화 연결 차단</td></tr>
             <tr><td>active turn working</td><td>`turn_in_progress` error</td><td>중복 전송 차단</td></tr>
             <tr><td>user cancel</td><td>`ctc cancel "$SESSION_ID"` sends `Escape`</td><td>취소 요청 후 `last`/`attach`로 완료까지 수신</td></tr>

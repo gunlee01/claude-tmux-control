@@ -166,7 +166,7 @@ ctc answer work --wait --timeout 120
 
 | 대상 | 원본 | 용도 |
 | --- | --- | --- |
-| 입력 | `tmux load-buffer` + `paste-buffer` + 짧은 submit delay + `send-keys Enter` + 필요 시 Enter 1회 재시도 | Claude Code terminal UI에 prompt 전달. embedded newline이 있으면 bracketed `paste-buffer -p`로 입력 text 보존 |
+| 입력 | 새 tmux session은 Claude argv prompt, 기존 tmux session은 `tmux load-buffer` + `paste-buffer` + 짧은 submit delay + `send-keys Enter` | 새 process에는 `-- <prompt>`로 전달. 기존 terminal UI에는 paste+Enter로 전달하며 embedded newline이 있으면 bracketed `paste-buffer -p`로 입력 text 보존 |
 | 화면 | `tmux capture-pane` | 사람이 보는 화면, 디버깅, fallback 상태 확인 |
 | 응답/이벤트 | Claude Code transcript JSONL | assistant text, thinking, tool_use, tool_result, usage 조회 |
 
@@ -739,13 +739,11 @@ ctc stream --session-id "$SESSION_ID" --cwd "$PROJECT_DIR" "$USER_PROMPT"
 
 `--session-id`를 생략하면 CLI가 UUID를 생성합니다. 이 경우 클라이언트는 첫 stream event의 `session_id`를 저장해서 이후 turn에 다시 넘깁니다.
 
-새 session은 `claude --session-id <uuid> --dangerously-skip-permissions`로 Claude Code를 먼저 시작한 뒤, tmux `load-buffer`/`paste-buffer`/짧은 submit delay/`send-keys Enter`로 prompt를 전송합니다.
+새 session은 `claude --session-id <uuid> --dangerously-skip-permissions -- <prompt>` 형태로 prompt를 argv에 포함해 Claude Code를 시작합니다.
 
-기존 state 또는 matching transcript가 있고 tmux session이 없으면 `claude --resume <uuid> --dangerously-skip-permissions`로 복구한 뒤, 같은 tmux 입력 경로로 prompt를 전송합니다.
+기존 state 또는 matching transcript가 있고 tmux session이 없으면 `claude --resume <uuid> --dangerously-skip-permissions -- <prompt>` 형태로 복구와 prompt 제출을 함께 수행합니다.
 
-prompt에 newline이 포함된 경우에만 `paste-buffer -p`를 사용합니다. Claude Code TUI가 bracketed paste mode를 요청한 경우 prompt를 bracketed paste sequence로 감싸 전송해서, multi-line prompt 안의 newline이 여러 Enter key로 해석되어 turn이 쪼개지는 것을 막습니다. Single-line prompt는 기본 `paste-buffer` 경로를 유지합니다. 두 경로 모두 paste 직후 아주 짧게 기다린 뒤 `Enter`를 보내 terminal UI가 붙여넣은 text를 먼저 처리할 시간을 줍니다. high-level stream에서 transcript가 아직 없거나 target user turn이 transcript에 기록되지 않았고 terminal이 작업 중/확인 대기 상태가 아니면 `Enter`를 한 번 더 보내 submit을 재시도합니다.
-
-tmux session이 이미 active이면 ready 화면인지 확인한 뒤 prompt를 전송합니다.
+새 tmux session의 prompt argv는 shell ANSI-C `$'...'` quoting을 사용하며, newline은 `\n`으로 표현됩니다. tmux session이 이미 active이면 ready 화면인지 확인한 뒤 기존 tmux `load-buffer`/`paste-buffer`/짧은 submit delay/`send-keys Enter` 경로로 prompt를 전송합니다. 이 active-session 경로에서 prompt에 newline이 포함된 경우에만 `paste-buffer -p`를 사용합니다. Claude Code TUI가 bracketed paste mode를 요청한 경우 prompt를 bracketed paste sequence로 감싸 전송해서, multi-line prompt 안의 newline이 여러 Enter key로 해석되어 turn이 쪼개지는 것을 막습니다. high-level stream에서 transcript가 아직 없거나 target user turn이 transcript에 기록되지 않았고 terminal이 작업 중/확인 대기 상태가 아니면 `Enter`를 한 번 더 보내 submit을 재시도합니다.
 
 출력은 JSONL입니다.
 

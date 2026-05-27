@@ -1752,7 +1752,6 @@ def prepare_high_level_stream(
     env: Mapping[str, str] | None = None,
     env_builder: Callable[[], Mapping[str, str]] | None = None,
     preseed_project_trust: Callable[[Path, Mapping[str, str] | None], object] = preseed_claude_project_trust,
-    new_session_ready_waiter: Callable[[TmuxController, str], ScreenStatus] | None = None,
     now: Callable[[], float] = time.time,
 ) -> StreamRuntime:
     actual_session_id = validate_or_create_session_id(session_id)
@@ -1760,7 +1759,6 @@ def prepare_high_level_stream(
     canonical_cwd = cwd.expanduser().resolve()
     state_path = web_session_state_path(actual_session_id, state_dir)
     lock_path = web_session_lock_path(actual_session_id, state_dir)
-    submit_prompt_after_start = False
     runtime: StreamRuntime | None = None
 
     with exclusive_file_lock(lock_path):
@@ -1828,9 +1826,8 @@ def prepare_high_level_stream(
             else:
                 resume = bool(state or transcript)
                 preseed_project_trust(canonical_cwd, new_session_env)
-                command = build_initial_claude_command(new_session_claude_args, actual_session_id, resume=resume)
+                command = build_initial_claude_command(new_session_claude_args, actual_session_id, resume=resume, prompt=prompt)
                 controller.start_session(tmux_session, command=command, cwd=canonical_cwd, env=new_session_env)
-                submit_prompt_after_start = True
         except KeyboardInterrupt:
             _mark_turn_interrupted(runtime)
             raise
@@ -1841,25 +1838,7 @@ def prepare_high_level_stream(
     if runtime is None:
         raise RuntimeError("stream_runtime_missing")
 
-    if submit_prompt_after_start:
-        try:
-            ready_waiter = new_session_ready_waiter or wait_for_new_claude_session_ready
-            ready_status = ready_waiter(controller, tmux_session)
-            if ready_status.state != "ready":
-                raise RuntimeError("claude_session_not_ready")
-            controller.send_prompt(tmux_session, prompt)
-        except KeyboardInterrupt:
-            _mark_turn_interrupted(runtime)
-            raise
-        except Exception:
-            _clear_active_turn_after_failed_send(state_path)
-            raise
-
     return runtime
-
-
-def wait_for_new_claude_session_ready(controller: TmuxController, tmux_session: str) -> ScreenStatus:
-    return wait_until_ready(controller, tmux_session, height=80, interval=0.2, idle_seconds=0.0)
 
 
 def prepare_high_level_attach(
@@ -2310,12 +2289,33 @@ def transcript_file_state(path: Path | None, offset: int | None = None) -> dict 
     }
 
 
-def build_initial_claude_command(claude_args: Sequence[str], session_id: str, resume: bool) -> str:
+def build_initial_claude_command(
+    claude_args: Sequence[str],
+    session_id: str,
+    resume: bool,
+    prompt: str | None = None,
+) -> str:
     session_flag = "--resume" if resume else "--session-id"
     args = [*claude_args, session_flag, session_id]
     if not _has_permission_override(claude_args):
         args.append(CLAUDE_DANGEROUS_SKIP_PERMISSIONS_FLAG)
-    return _shell_join([CLAUDE_EXECUTABLE, *args])
+    command = _shell_join([CLAUDE_EXECUTABLE, *args])
+    if prompt is not None:
+        command += " -- " + _shell_ansi_c_quote(prompt)
+    return command
+
+
+def _shell_ansi_c_quote(value: str) -> str:
+    if "\0" in value:
+        raise ValueError("prompt_contains_nul")
+    replacements = {
+        "\\": "\\\\",
+        "'": "\\'",
+        "\n": "\\n",
+        "\r": "\\r",
+        "\t": "\\t",
+    }
+    return "$'" + "".join(replacements.get(char, char) for char in value) + "'"
 
 
 def make_turn_id(now: Callable[[], float] = time.time) -> str:

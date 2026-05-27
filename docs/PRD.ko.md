@@ -24,7 +24,7 @@ CLI는 Claude Code를 `tmux` session 안에서 실행하고, 외부 프로그램
 - 최신 turn을 JSONL로 streaming하고 완료 시 종료
 - 오래된 inactive session 종료
 
-입력은 `tmux load-buffer` + `paste-buffer` + `send-keys Enter`로 전달한다. Multi-line prompt는 bracketed `paste-buffer -p`를 사용해서 embedded newline이 별도 Enter key가 아니라 하나의 user turn 안의 text로 보존되어야 한다.
+새 tmux session을 만들 때는 user prompt를 Claude Code launch argv로 전달한다. 기존 tmux session을 재사용할 때는 `tmux load-buffer` + `paste-buffer` + `send-keys Enter`로 전달한다. Multi-line prompt는 새 tmux launch 경로에서는 shell ANSI-C `$'...'` quoting의 `\n`으로 보존하고, 기존 tmux 입력 경로에서는 bracketed `paste-buffer -p`를 사용해서 embedded newline이 별도 Enter key가 아니라 하나의 user turn 안의 text로 보존되어야 한다.
 
 Claude Code process는 기본적으로 `--dangerously-skip-permissions`를 붙여 실행한다. 이 bridge는 외부 서비스가 session을 소유하는 구조이므로 Claude Code의 interactive permission prompt에 의존하지 않는다.
 
@@ -139,9 +139,9 @@ High-level `stream [--session-id <id>] --cwd <path> <prompt...>` contract:
 - Accepts the user prompt for one conversation turn.
 - Generates a UUID `session_id` when omitted.
 - Uses tmux session name `ctc-csess-<session_id>` internally.
-- If tmux session is inactive and this is a new session, launches Claude Code with `--session-id <session_id>`, waits for the Claude Code prompt, then submits the user prompt through tmux paste+Enter.
-- If tmux session is inactive and known state or a matching transcript exists, launches Claude Code with `--resume <session_id>`, waits for the Claude Code prompt, then submits the user prompt through tmux paste+Enter.
-- If tmux session is active, sends the prompt to the existing Claude Code process.
+- If tmux session is inactive and this is a new session, launches Claude Code with `--session-id <session_id> -- <prompt>`.
+- If tmux session is inactive and known state or a matching transcript exists, launches Claude Code with `--resume <session_id> -- <prompt>`.
+- If tmux session is active, sends the prompt to the existing Claude Code process through tmux paste+Enter.
 - Emits normalized events: `user`, `thinking`, `tool_use`, `tool_result`, `assistant_text`.
 - Emits `done` and exits `0` only after the target turn is complete.
 - Does not treat `tool_use`, `tool_result`, or thinking-only assistant events as complete.

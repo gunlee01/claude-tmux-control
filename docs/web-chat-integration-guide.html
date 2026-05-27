@@ -971,15 +971,15 @@
         key: "start",
         title: "Ensure Internally",
         desc: "UUID 생성/재사용/resume",
-        detail: "stream 내부에서 session_id가 없으면 UUID를 만들고, active tmux가 있으면 재사용한다. active tmux가 없을 때 기존 state/transcript가 있으면 --resume, 없으면 --session-id로 Claude Code를 시작한다. 이 metadata는 로컬 state에 저장한다.",
+        detail: "stream 내부에서 session_id가 없으면 UUID를 만들고, active tmux가 있으면 재사용한다. active tmux가 없을 때 기존 state/transcript가 있으면 --resume, 없으면 --session-id로 Claude Code를 prompt argv와 함께 시작한다. 이 metadata는 로컬 state에 저장한다.",
         command: "~/.cache/claude-tmux-control/sessions/<session_id>.json"
       },
       {
         key: "ready",
         title: "Send Prompt",
-        desc: "tmux 입력",
+        desc: "inline 또는 tmux 입력",
         detail: "전송 전 이전 active_turn이 있으면 먼저 검사한다. tmux ready + transcript ready이면 이전 turn을 state-only finalize하고, 아니면 turn_in_progress로 막는다. 이후 transcript baseline과 active_turn owner/heartbeat를 state에 저장한다.",
-        command: "claude --session-id \"$SESSION_ID\"\nclaude --resume \"$SESSION_ID\"\ntmux load-buffer + paste-buffer + send-keys Enter\n# multi-line prompts use paste-buffer -p"
+        command: "claude --session-id \"$SESSION_ID\" -- \"$PROMPT\"\nclaude --resume \"$SESSION_ID\" -- \"$PROMPT\"\n# active tmux only:\ntmux load-buffer + paste-buffer + send-keys Enter"
       },
       {
         key: "send",
@@ -1131,12 +1131,10 @@ SESSION_ID="${escapeHtml(s.sessionId)}"
 TMUX_SESSION="ctc-csess-$SESSION_ID"
 
 # new session:
-claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --session-id "$SESSION_ID"${defaultPermissionArg(s)}
-tmux load-buffer + paste-buffer + send-keys Enter
+claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --session-id "$SESSION_ID"${defaultPermissionArg(s)} -- "$PROMPT"
 
 # resume inactive session:
-claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --resume "$SESSION_ID"${defaultPermissionArg(s)}
-tmux load-buffer + paste-buffer + send-keys Enter
+claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --resume "$SESSION_ID"${defaultPermissionArg(s)} -- "$PROMPT"
 
 # active tmux session:
 tmux load-buffer + paste-buffer + send-keys Enter`

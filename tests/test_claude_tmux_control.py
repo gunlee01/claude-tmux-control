@@ -341,7 +341,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.4.0\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.5.0\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -1396,16 +1396,17 @@ class HighLevelStreamSetupTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid_session_id"):
             ctc.web_session_state_path("../../bad", Path("/tmp/state"))
 
-    def test_build_initial_claude_command_omits_prompt_for_interactive_submit(self):
+    def test_build_initial_claude_command_inlines_prompt_for_new_tmux_session(self):
         command = ctc.build_initial_claude_command(
             ["--model", "opus"],
             "550e8400-e29b-41d4-a716-446655440000",
             resume=True,
+            prompt="안녕?\n니 이름은?",
         )
 
         self.assertEqual(
             command,
-            "claude --model opus --resume 550e8400-e29b-41d4-a716-446655440000 --dangerously-skip-permissions",
+            "claude --model opus --resume 550e8400-e29b-41d4-a716-446655440000 --dangerously-skip-permissions -- $'안녕?\\n니 이름은?'",
         )
 
     def test_build_initial_claude_command_respects_permission_mode_equals(self):
@@ -1413,11 +1414,25 @@ class HighLevelStreamSetupTest(unittest.TestCase):
             ["--permission-mode=plan"],
             "550e8400-e29b-41d4-a716-446655440000",
             resume=False,
+            prompt="--help를 설명해줘",
         )
 
         self.assertEqual(
             command,
-            "claude --permission-mode=plan --session-id 550e8400-e29b-41d4-a716-446655440000",
+            "claude --permission-mode=plan --session-id 550e8400-e29b-41d4-a716-446655440000 -- $'--help를 설명해줘'",
+        )
+
+    def test_build_initial_claude_command_escapes_inline_prompt_for_shell(self):
+        command = ctc.build_initial_claude_command(
+            [],
+            "550e8400-e29b-41d4-a716-446655440000",
+            resume=False,
+            prompt="it's \\ ok\nnext",
+        )
+
+        self.assertEqual(
+            command,
+            "claude --session-id 550e8400-e29b-41d4-a716-446655440000 --dangerously-skip-permissions -- $'it\\'s \\\\ ok\\nnext'",
         )
 
     def test_prepare_high_level_stream_fails_closed_on_cwd_mismatch(self):
@@ -1442,7 +1457,7 @@ class HighLevelStreamSetupTest(unittest.TestCase):
                     session_id=session_id,
                 )
 
-    def test_prepare_high_level_stream_starts_new_generated_session_then_submits_prompt(self):
+    def test_prepare_high_level_stream_starts_new_generated_session_with_inline_prompt(self):
         with tempfile.TemporaryDirectory() as tmp:
             runner = FakeRunner()
             controller = ctc.TmuxController(run=runner)
@@ -1467,19 +1482,15 @@ class HighLevelStreamSetupTest(unittest.TestCase):
                         runtime.tmux_session,
                         "-c",
                         str(Path(tmp).resolve()),
-                        f"claude --session-id {runtime.session_id} --dangerously-skip-permissions",
+                        f"claude --session-id {runtime.session_id} --dangerously-skip-permissions -- $'hello Claude'",
                     ],
                     {"check": True},
                 ),
                 runner.calls,
             )
-            self.assertIn(
-                (
-                    ["tmux", "load-buffer", "-b", "claude-tmux-control", "-"],
-                    {"input": "hello Claude", "text": True, "check": True},
-                ),
-                runner.calls,
-            )
+            self.assertFalse(any(call[0][:2] == ["tmux", "load-buffer"] for call in runner.calls))
+            self.assertFalse(any(call[0][:2] == ["tmux", "paste-buffer"] for call in runner.calls))
+            self.assertFalse(any(call[0][:2] == ["tmux", "send-keys"] for call in runner.calls))
             state = ctc.read_bridge_state(runtime.state_path)
             self.assertEqual(state["active_turn"]["claude_state"], "starting")
             self.assertTrue(state["active_turn"]["no_transcript_baseline"])
@@ -1610,7 +1621,7 @@ class HighLevelStreamSetupTest(unittest.TestCase):
                         "-c",
                         str(Path(tmp).resolve()),
                         "claude --model opus --session-id 550e8400-e29b-41d4-a716-446655440000 "
-                        "--dangerously-skip-permissions",
+                        "--dangerously-skip-permissions -- $'hello'",
                     ],
                     {"check": True},
                 ),
@@ -1648,7 +1659,7 @@ class HighLevelStreamSetupTest(unittest.TestCase):
                         "-c",
                         str(Path(tmp).resolve()),
                         "claude --session-id 550e8400-e29b-41d4-a716-446655440000 "
-                        "--dangerously-skip-permissions",
+                        "--dangerously-skip-permissions -- $'hello'",
                     ],
                     {"check": True},
                 ),
@@ -1804,7 +1815,7 @@ class HighLevelStreamSetupTest(unittest.TestCase):
                         "-c",
                         str(Path(tmp).resolve()),
                         "claude --session-id 550e8400-e29b-41d4-a716-446655440000 "
-                        "--dangerously-skip-permissions",
+                        "--dangerously-skip-permissions -- $'first prompt'",
                     ],
                     {"check": True},
                 ),
@@ -2222,7 +2233,7 @@ class HighLevelStreamSetupTest(unittest.TestCase):
             self.assertEqual(runtime.session_id, session_id)
             self.assertFalse(lock_path.exists())
 
-    def test_prepare_high_level_stream_resumes_inactive_existing_session_then_submits_prompt(self):
+    def test_prepare_high_level_stream_resumes_inactive_existing_session_with_inline_prompt(self):
         with tempfile.TemporaryDirectory() as tmp:
             state_dir = Path(tmp) / "state"
             session_id = "550e8400-e29b-41d4-a716-446655440000"
@@ -2261,35 +2272,18 @@ class HighLevelStreamSetupTest(unittest.TestCase):
                         runtime.tmux_session,
                         "-c",
                         str(Path(tmp).resolve()),
-                        "claude --resume 550e8400-e29b-41d4-a716-446655440000 --dangerously-skip-permissions",
+                        "claude --resume 550e8400-e29b-41d4-a716-446655440000 --dangerously-skip-permissions -- $'resume please'",
                     ],
                     {"check": True},
                 ),
                 runner.calls,
             )
-            self.assertIn(
-                (
-                    ["tmux", "load-buffer", "-b", "claude-tmux-control", "-"],
-                    {"input": "resume please", "text": True, "check": True},
-                ),
-                runner.calls,
-            )
-            start_index = next(index for index, call in enumerate(runner.calls) if call[0][:2] == ["tmux", "new-session"])
-            capture_index = next(index for index, call in enumerate(runner.calls) if call[0][:2] == ["tmux", "capture-pane"])
-            paste_index = next(index for index, call in enumerate(runner.calls) if call[0][:2] == ["tmux", "paste-buffer"])
-            enter_index = next(index for index, call in enumerate(runner.calls) if call[0][:2] == ["tmux", "send-keys"])
-            self.assertEqual(
-                runner.calls[paste_index],
-                (
-                    ["tmux", "paste-buffer", "-d", "-b", "claude-tmux-control", "-t", runtime.tmux_session],
-                    {"check": True},
-                ),
-            )
-            self.assertLess(start_index, capture_index)
-            self.assertLess(capture_index, paste_index)
-            self.assertLess(paste_index, enter_index)
+            self.assertFalse(any(call[0][:2] == ["tmux", "capture-pane"] for call in runner.calls))
+            self.assertFalse(any(call[0][:2] == ["tmux", "load-buffer"] for call in runner.calls))
+            self.assertFalse(any(call[0][:2] == ["tmux", "paste-buffer"] for call in runner.calls))
+            self.assertFalse(any(call[0][:2] == ["tmux", "send-keys"] for call in runner.calls))
 
-    def test_prepare_high_level_stream_clears_active_turn_when_new_session_never_becomes_ready(self):
+    def test_prepare_high_level_stream_does_not_wait_for_ready_after_new_session_start(self):
         with tempfile.TemporaryDirectory() as tmp:
             state_dir = Path(tmp) / "state"
             session_id = "550e8400-e29b-41d4-a716-446655440000"
@@ -2309,20 +2303,19 @@ class HighLevelStreamSetupTest(unittest.TestCase):
             runner = FakeRunner()
             controller = ctc.TmuxController(run=runner)
 
-            with self.assertRaisesRegex(RuntimeError, "claude_session_not_ready"):
-                ctc.prepare_high_level_stream(
-                    controller=controller,
-                    cwd=Path(tmp),
-                    prompt="resume please",
-                    root=Path(tmp) / "claude",
-                    state_dir=state_dir,
-                    session_id=session_id,
-                    new_session_ready_waiter=lambda _controller, _session: ctc.ScreenStatus("timeout", "not ready"),
-                )
+            runtime = ctc.prepare_high_level_stream(
+                controller=controller,
+                cwd=Path(tmp),
+                prompt="resume please",
+                root=Path(tmp) / "claude",
+                state_dir=state_dir,
+                session_id=session_id,
+            )
 
+            self.assertEqual(runtime.session_id, session_id)
             self.assertFalse(any(call[0][:2] == ["tmux", "load-buffer"] for call in runner.calls))
             state = ctc.read_bridge_state(state_path)
-            self.assertIsNone(state["active_turn"])
+            self.assertEqual(state["active_turn"]["prompt_preview"], "resume please")
 
     def test_prepare_high_level_stream_reuses_active_tmux_and_sends_prompt(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -6103,6 +6096,7 @@ class CliIntegrationTest(unittest.TestCase):
                     TMUX_FAKE_SESSION_ID=session_id,
                     TMUX_FAKE_ANSWER="streamed answer",
                     TMUX_FAKE_STARTUP_METADATA=1,
+                    TMUX_FAKE_INLINE_PROMPT="hello",
                 ),
             )
 
@@ -6119,7 +6113,8 @@ class CliIntegrationTest(unittest.TestCase):
             self.assertTrue(settings_json["skipDangerousModePermissionPrompt"])
             fake_log_text = fake_log.read_text(encoding="utf-8")
             self.assertIn("new-session -d -s " + ctc.web_tmux_session_name(session_id), fake_log_text)
-            self.assertIn("send-keys -t " + ctc.web_tmux_session_name(session_id) + " Enter", fake_log_text)
+            self.assertIn("-- $'hello'", fake_log_text)
+            self.assertNotIn("send-keys -t " + ctc.web_tmux_session_name(session_id) + " Enter", fake_log_text)
             self.assertIn('"type":"system"', transcript.read_text(encoding="utf-8"))
 
     def test_cli_stream_resumes_inactive_session_then_streams_done(self):
@@ -6185,6 +6180,7 @@ class CliIntegrationTest(unittest.TestCase):
                     TMUX_FAKE_SESSION_ID=session_id,
                     TMUX_FAKE_ANSWER="resumed answer",
                     TMUX_FAKE_STARTUP_METADATA=1,
+                    TMUX_FAKE_INLINE_PROMPT="resume prompt",
                 ),
             )
 
@@ -6198,8 +6194,8 @@ class CliIntegrationTest(unittest.TestCase):
             fake_log_lines = fake_log.read_text(encoding="utf-8").splitlines()
             new_session_line = next(line for line in fake_log_lines if line.startswith("new-session "))
             self.assertIn("--resume " + session_id, new_session_line)
-            self.assertNotIn("resume prompt", new_session_line)
-            self.assertIn("send-keys -t " + ctc.web_tmux_session_name(session_id) + " Enter", "\n".join(fake_log_lines))
+            self.assertIn("-- $'resume prompt'", new_session_line)
+            self.assertNotIn("send-keys -t " + ctc.web_tmux_session_name(session_id) + " Enter", "\n".join(fake_log_lines))
             transcript_text = transcript.read_text(encoding="utf-8")
             self.assertIn('"type":"system"', transcript_text)
             self.assertIn("resume prompt", transcript_text)
@@ -6784,6 +6780,10 @@ fi
 if [ "$1" = "new-session" ] && [ -n "$TMUX_FAKE_TRANSCRIPT" ] && [ -n "$TMUX_FAKE_STARTUP_METADATA" ]; then
   mkdir -p "$(dirname "$TMUX_FAKE_TRANSCRIPT")"
   printf '{"sessionId":"%s","type":"system","message":{"content":"startup metadata"}}\\n' "$TMUX_FAKE_SESSION_ID" >> "$TMUX_FAKE_TRANSCRIPT"
+  if [ -n "$TMUX_FAKE_INLINE_PROMPT" ]; then
+    printf '{"sessionId":"%s","type":"user","message":{"content":"%s"}}\\n' "$TMUX_FAKE_SESSION_ID" "$TMUX_FAKE_INLINE_PROMPT" >> "$TMUX_FAKE_TRANSCRIPT"
+    printf '{"sessionId":"%s","type":"assistant","message":{"content":[{"type":"text","text":"%s"}],"stop_reason":"end_turn"},"usage":{"input_tokens":1,"output_tokens":2},"context":{"remaining":12345},"model":"claude-sonnet-4-6"}\\n' "$TMUX_FAKE_SESSION_ID" "$TMUX_FAKE_ANSWER" >> "$TMUX_FAKE_TRANSCRIPT"
+  fi
 fi
 if [ "$1" = "capture-pane" ]; then
   printf 'Done\\nclaude> \\n'

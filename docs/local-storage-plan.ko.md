@@ -290,22 +290,18 @@ input: optional session_id, cwd, prompt
      if active:
        send prompt to existing Claude Code process
      else if state exists or matching transcript exists:
-       start tmux with claude --resume <session_id>
+       start tmux with claude --resume <session_id> -- <prompt>
      else:
-       start tmux with claude --session-id <session_id>
+       start tmux with claude --session-id <session_id> -- <prompt>
 
 10. release send_lock after prompt is accepted or launch command is started
 
-11. if a new tmux session was started:
-      wait for the Claude Code prompt
-      submit prompt with tmux paste+Enter
-
-12. establish turn start:
+11. establish turn start:
      wait for user event after before_send_transcript.offset
      or after before_send_wall_time_utc when no prior transcript existed
      fallback to prompt_hash/user prompt match only if needed and unambiguous
 
-13. persist turn cursor:
+12. persist turn cursor:
      turn.anchor_start_offset = user event offset
      turn.anchor_end_offset = user event end offset
      turn.replay_start_offset = user event end offset
@@ -313,17 +309,17 @@ input: optional session_id, cwd, prompt
      turn.claude_state = working
      turn.stream_state = active
 
-14. stream from cursor until done
+13. stream from cursor until done
 
-15. write final metrics and status
+14. write final metrics and status
 
-16. after done:
+15. after done:
      set claude_state = ready
      set stream_state = done
      move active_turn to last_turn
      clear active_turn
 
-17. after timeout/interruption/failure:
+16. after timeout/interruption/failure:
      set stream_state = timeout, interrupted, or failed
      set claude_state = working or unknown
      keep active_turn until attach/inspect/kill confirms completion or inactivity
