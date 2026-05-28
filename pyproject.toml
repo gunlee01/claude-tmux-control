@@ -34,7 +34,7 @@ ctc = "claude_tmux_control:main"
 claude-tmux-control = "claude_tmux_control:main"
 
 [tool.setuptools]
-py-modules = ["claude_tmux_control", "transcript_events", "ctc_tmux", "ctc_launch", "ctc_transcripts"]
+py-modules = ["claude_tmux_control", "transcript_events", "ctc_tmux", "ctc_launch", "ctc_transcripts", "ctc_pricing"]
 
 [tool.setuptools.data-files]
 "share/claude-tmux-control" = ["claude_pricing.json"]

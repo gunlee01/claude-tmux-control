@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 
 import claude_tmux_control as ctc
 import ctc_launch
+import ctc_pricing
 import ctc_tmux
 import ctc_transcripts
 import transcript_events
@@ -831,7 +832,7 @@ class RefactorCompatibilityContractTest(unittest.TestCase):
         pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
 
         self.assertIn(
-            'py-modules = ["claude_tmux_control", "transcript_events", "ctc_tmux", "ctc_launch", "ctc_transcripts"]',
+            'py-modules = ["claude_tmux_control", "transcript_events", "ctc_tmux", "ctc_launch", "ctc_transcripts", "ctc_pricing"]',
             pyproject,
         )
 
@@ -923,6 +924,30 @@ class RefactorCompatibilityContractTest(unittest.TestCase):
         for name in symbol_names:
             with self.subTest(name=name):
                 self.assertIs(getattr(ctc, name), getattr(ctc_transcripts, name))
+
+    def test_pricing_helpers_keep_canonical_identity(self):
+        symbol_names = [
+            "DEFAULT_PRICING_TABLE",
+            "DEFAULT_INSTALLED_PRICING_TABLE",
+            "add_session_cost_to_turn_cost",
+            "aggregate_turn_usage",
+            "cost_totals_from_completed_turns",
+            "count_turn_usage_calls",
+            "estimate_turn_cost",
+            "load_pricing_table",
+            "resolve_pricing_table_path",
+            "result_total_cost",
+            "select_pricing_model",
+            "usage_totals_from_completed_turns",
+            "_extract_context",
+            "_extract_usage",
+            "_numeric_value",
+            "_turn_cost_for_completed_record",
+        ]
+
+        for name in symbol_names:
+            with self.subTest(name=name):
+                self.assertIs(getattr(ctc, name), getattr(ctc_pricing, name))
 
     def test_facade_exposes_refactor_contract_symbols(self):
         required_symbols = [
@@ -5787,11 +5812,11 @@ class StreamTest(unittest.TestCase):
             installed_table.parent.mkdir(parents=True)
             installed_table.write_text('{"version": "installed-test", "models": {}}', encoding="utf-8")
 
-            with patch.object(ctc, "DEFAULT_INSTALLED_PRICING_TABLE", installed_table):
-                with patch.object(ctc, "DEFAULT_PRICING_TABLE", Path(tmp) / "missing.json"):
-                    ctc._PRICING_TABLE_CACHE = None
+            with patch.object(ctc_pricing, "DEFAULT_INSTALLED_PRICING_TABLE", installed_table):
+                with patch.object(ctc_pricing, "DEFAULT_PRICING_TABLE", Path(tmp) / "missing.json"):
+                    ctc_pricing._PRICING_TABLE_CACHE = None
                     self.assertEqual(ctc.load_pricing_table()["version"], "installed-test")
-                    ctc._PRICING_TABLE_CACHE = None
+                    ctc_pricing._PRICING_TABLE_CACHE = None
 
     def test_high_level_stream_starts_from_before_send_offset_for_repeated_prompt(self):
         with tempfile.TemporaryDirectory() as tmp:
