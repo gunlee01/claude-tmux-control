@@ -14,6 +14,7 @@ import claude_tmux_control as ctc
 import ctc_launch
 import ctc_pricing
 import ctc_state
+import ctc_streaming
 import ctc_tmux
 import ctc_transcripts
 import transcript_events
@@ -833,7 +834,7 @@ class RefactorCompatibilityContractTest(unittest.TestCase):
         pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
 
         self.assertIn(
-            'py-modules = ["claude_tmux_control", "transcript_events", "ctc_tmux", "ctc_launch", "ctc_transcripts", "ctc_pricing", "ctc_state"]',
+            'py-modules = ["claude_tmux_control", "transcript_events", "ctc_tmux", "ctc_launch", "ctc_transcripts", "ctc_pricing", "ctc_state", "ctc_streaming"]',
             pyproject,
         )
 
@@ -978,6 +979,40 @@ class RefactorCompatibilityContractTest(unittest.TestCase):
         for name in symbol_names:
             with self.subTest(name=name):
                 self.assertIs(getattr(ctc, name), getattr(ctc_state, name))
+
+    def test_streaming_helpers_keep_canonical_identity(self):
+        symbol_names = [
+            "DEFAULT_STREAM_SUBMIT_ENTERS",
+            "DEFAULT_TOOL_RESULT_TEXT_LIMIT",
+            "DEFAULT_TRANSCRIPT_ROOT",
+            "UNANCHORED_SUBMIT_RETRY_SECONDS",
+            "analyze_combined_status",
+            "analyze_screen_status",
+            "high_level_done_payload",
+            "high_level_metrics_payload",
+            "stream_transcript_until_done",
+            "_bottom_screen_area",
+            "_capture_screen_status",
+            "_compact_payload",
+            "_elapsed_ms",
+            "_event_content",
+            "_extract_text_blocks",
+            "_format_user_content",
+            "_is_anchor_user_record",
+            "_is_external_user_record",
+            "_is_interruption_user_content",
+            "_is_internal_user_content",
+            "_is_metadata_event",
+            "_is_tool_result_content",
+            "_maybe_retry_unanchored_submit",
+            "_normalize_match_whitespace",
+            "_text_contains_with_normalized_whitespace",
+            "_write_jsonl",
+        ]
+
+        for name in symbol_names:
+            with self.subTest(name=name):
+                self.assertIs(getattr(ctc, name), getattr(ctc_streaming, name))
 
     def test_facade_exposes_refactor_contract_symbols(self):
         required_symbols = [
