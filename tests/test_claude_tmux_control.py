@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 import claude_tmux_control as ctc
 import ctc_launch
 import ctc_pricing
+import ctc_state
 import ctc_tmux
 import ctc_transcripts
 import transcript_events
@@ -832,7 +833,7 @@ class RefactorCompatibilityContractTest(unittest.TestCase):
         pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
 
         self.assertIn(
-            'py-modules = ["claude_tmux_control", "transcript_events", "ctc_tmux", "ctc_launch", "ctc_transcripts", "ctc_pricing"]',
+            'py-modules = ["claude_tmux_control", "transcript_events", "ctc_tmux", "ctc_launch", "ctc_transcripts", "ctc_pricing", "ctc_state"]',
             pyproject,
         )
 
@@ -948,6 +949,35 @@ class RefactorCompatibilityContractTest(unittest.TestCase):
         for name in symbol_names:
             with self.subTest(name=name):
                 self.assertIs(getattr(ctc, name), getattr(ctc_pricing, name))
+
+    def test_state_helpers_keep_canonical_identity(self):
+        symbol_names = [
+            "DEFAULT_STATE_DIR",
+            "DEFAULT_WEB_SESSION_PREFIX",
+            "STATE_SCHEMA_VERSION",
+            "SessionState",
+            "StateGenerationConflict",
+            "StreamRuntime",
+            "build_pending_turn_state",
+            "break_stale_lock",
+            "exclusive_file_lock",
+            "mutate_high_level_state",
+            "process_exists",
+            "read_bridge_state",
+            "read_session_state",
+            "session_state_path",
+            "state_write_lock_path",
+            "validate_or_create_session_id",
+            "web_session_lock_path",
+            "web_session_state_path",
+            "web_tmux_session_name",
+            "write_session_state",
+            "_write_high_level_state",
+        ]
+
+        for name in symbol_names:
+            with self.subTest(name=name):
+                self.assertIs(getattr(ctc, name), getattr(ctc_state, name))
 
     def test_facade_exposes_refactor_contract_symbols(self):
         required_symbols = [
