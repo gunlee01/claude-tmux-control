@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import claude_tmux_control as ctc
+import ctc_launch
 import ctc_tmux
 import transcript_events
 
@@ -828,7 +829,7 @@ class RefactorCompatibilityContractTest(unittest.TestCase):
     def test_packaging_keeps_current_public_modules(self):
         pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
 
-        self.assertIn('py-modules = ["claude_tmux_control", "transcript_events", "ctc_tmux"]', pyproject)
+        self.assertIn('py-modules = ["claude_tmux_control", "transcript_events", "ctc_tmux", "ctc_launch"]', pyproject)
 
     def test_transcript_event_types_keep_canonical_identity(self):
         self.assertIs(ctc.ScreenStatus, transcript_events.ScreenStatus)
@@ -871,6 +872,33 @@ class RefactorCompatibilityContractTest(unittest.TestCase):
         for name in symbol_names:
             with self.subTest(name=name):
                 self.assertIs(getattr(ctc, name), getattr(ctc_tmux, name))
+
+    def test_launch_helpers_keep_canonical_identity(self):
+        symbol_names = [
+            "CLAUDE_OAUTH_TOKEN_ENV",
+            "CLAUDE_DANGEROUS_SKIP_PERMISSIONS_FLAG",
+            "CLAUDE_LAUNCH_COMMANDS",
+            "CLAUDE_EXECUTABLE",
+            "DEFAULT_ENV_FILE_NAME",
+            "ENV_NAME_PATTERN",
+            "RESERVED_ENV_NAMES",
+            "add_claude_launch_args",
+            "add_environment_args",
+            "claude_args_from_options",
+            "build_claude_command",
+            "build_initial_claude_command",
+            "claude_environment_from_args",
+            "preseed_claude_project_trust",
+            "read_env_file",
+            "check_runtime_dependencies",
+            "_normalize_claude_args_option_values",
+            "_shell_ansi_c_quote",
+            "_shell_join",
+        ]
+
+        for name in symbol_names:
+            with self.subTest(name=name):
+                self.assertIs(getattr(ctc, name), getattr(ctc_launch, name))
 
     def test_facade_exposes_refactor_contract_symbols(self):
         required_symbols = [
