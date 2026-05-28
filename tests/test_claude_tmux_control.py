@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import claude_tmux_control as ctc
+import ctc_tmux
 import transcript_events
 
 
@@ -170,7 +171,7 @@ class TmuxControllerTest(unittest.TestCase):
         runner = FakeRunner()
         controller = ctc.TmuxController(run=runner)
 
-        with patch("claude_tmux_control.time.sleep") as sleep:
+        with patch("ctc_tmux.time.sleep") as sleep:
             controller.send_prompt("cc-test", "hello Claude")
 
         self.assertEqual(
@@ -193,7 +194,7 @@ class TmuxControllerTest(unittest.TestCase):
         runner = FakeRunner()
         controller = ctc.TmuxController(run=runner)
 
-        with patch("claude_tmux_control.time.sleep") as sleep:
+        with patch("ctc_tmux.time.sleep") as sleep:
             controller.send_prompt("cc-test", "hello Claude", submit_enters=2)
 
         self.assertEqual(
@@ -220,7 +221,7 @@ class TmuxControllerTest(unittest.TestCase):
         runner = FakeRunner()
         controller = ctc.TmuxController(run=runner)
 
-        with patch("claude_tmux_control.time.sleep") as sleep:
+        with patch("ctc_tmux.time.sleep") as sleep:
             controller.send_prompt("cc-test", "first line\nsecond line")
 
         self.assertEqual(
@@ -264,7 +265,7 @@ class TmuxControllerTest(unittest.TestCase):
         runner = FakeRunner()
         controller = ctc.TmuxController(run=runner)
 
-        with patch("claude_tmux_control.time.sleep") as sleep:
+        with patch("ctc_tmux.time.sleep") as sleep:
             controller.send_prompt("cc-test", "draft only", submit=False)
 
         self.assertNotIn((["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}), runner.calls)
@@ -827,7 +828,7 @@ class RefactorCompatibilityContractTest(unittest.TestCase):
     def test_packaging_keeps_current_public_modules(self):
         pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
 
-        self.assertIn('py-modules = ["claude_tmux_control", "transcript_events"]', pyproject)
+        self.assertIn('py-modules = ["claude_tmux_control", "transcript_events", "ctc_tmux"]', pyproject)
 
     def test_transcript_event_types_keep_canonical_identity(self):
         self.assertIs(ctc.ScreenStatus, transcript_events.ScreenStatus)
@@ -854,6 +855,22 @@ class RefactorCompatibilityContractTest(unittest.TestCase):
         for name in helper_names:
             with self.subTest(name=name):
                 self.assertIs(getattr(ctc, name), getattr(transcript_events, name))
+
+    def test_tmux_adapter_symbols_keep_canonical_identity(self):
+        symbol_names = [
+            "ScreenCaptureController",
+            "SessionNotFoundError",
+            "RenderedScreenFollower",
+            "TmuxController",
+            "follow_until_idle",
+            "DEFAULT_BUFFER_NAME",
+            "DEFAULT_PASTE_SUBMIT_DELAY_SECONDS",
+            "DEFAULT_SECOND_SUBMIT_DELAY_SECONDS",
+        ]
+
+        for name in symbol_names:
+            with self.subTest(name=name):
+                self.assertIs(getattr(ctc, name), getattr(ctc_tmux, name))
 
     def test_facade_exposes_refactor_contract_symbols(self):
         required_symbols = [
