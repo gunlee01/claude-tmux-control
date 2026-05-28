@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import claude_tmux_control as ctc
+import ctc_bridge_sessions
 import ctc_launch
 import ctc_pricing
 import ctc_state
@@ -834,7 +835,7 @@ class RefactorCompatibilityContractTest(unittest.TestCase):
         pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
 
         self.assertIn(
-            'py-modules = ["claude_tmux_control", "transcript_events", "ctc_tmux", "ctc_launch", "ctc_transcripts", "ctc_pricing", "ctc_state", "ctc_streaming"]',
+            'py-modules = ["claude_tmux_control", "transcript_events", "ctc_tmux", "ctc_launch", "ctc_transcripts", "ctc_pricing", "ctc_state", "ctc_streaming", "ctc_bridge_sessions"]',
             pyproject,
         )
 
@@ -1013,6 +1014,26 @@ class RefactorCompatibilityContractTest(unittest.TestCase):
         for name in symbol_names:
             with self.subTest(name=name):
                 self.assertIs(getattr(ctc, name), getattr(ctc_streaming, name))
+
+    def test_bridge_session_helpers_keep_canonical_identity(self):
+        symbol_names = [
+            "active_turn_recovery_payload",
+            "build_session_info_payload",
+            "build_session_list_payload",
+            "completed_turn_transcript_path",
+            "replay_completed_turn_payloads",
+            "replay_metrics_payload",
+            "transcript_replaced_since_baseline",
+            "validated_stored_transcript_path",
+            "wait_for_high_level_transcript",
+            "_attach_transcript_path",
+            "_int_or_none",
+            "_session_info_transcript_path",
+        ]
+
+        for name in symbol_names:
+            with self.subTest(name=name):
+                self.assertIs(getattr(ctc, name), getattr(ctc_bridge_sessions, name))
 
     def test_facade_exposes_refactor_contract_symbols(self):
         required_symbols = [
