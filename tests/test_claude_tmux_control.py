@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 
 import claude_tmux_control as ctc
 import ctc_bridge_sessions
+import ctc_cli
 import ctc_launch
 import ctc_pricing
 import ctc_state
@@ -835,7 +836,7 @@ class RefactorCompatibilityContractTest(unittest.TestCase):
         pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
 
         self.assertIn(
-            'py-modules = ["claude_tmux_control", "transcript_events", "ctc_tmux", "ctc_launch", "ctc_transcripts", "ctc_pricing", "ctc_state", "ctc_streaming", "ctc_bridge_sessions"]',
+            'py-modules = ["claude_tmux_control", "transcript_events", "ctc_tmux", "ctc_launch", "ctc_transcripts", "ctc_pricing", "ctc_state", "ctc_streaming", "ctc_bridge_sessions", "ctc_cli"]',
             pyproject,
         )
 
@@ -1034,6 +1035,18 @@ class RefactorCompatibilityContractTest(unittest.TestCase):
         for name in symbol_names:
             with self.subTest(name=name):
                 self.assertIs(getattr(ctc, name), getattr(ctc_bridge_sessions, name))
+
+    def test_cli_helpers_keep_canonical_identity(self):
+        symbol_names = [
+            "DEFAULT_CONTROLLED_PREFIX",
+            "PACKAGE_NAME",
+            "package_version",
+            "parse_args",
+        ]
+
+        for name in symbol_names:
+            with self.subTest(name=name):
+                self.assertIs(getattr(ctc, name), getattr(ctc_cli, name))
 
     def test_facade_exposes_refactor_contract_symbols(self):
         required_symbols = [
