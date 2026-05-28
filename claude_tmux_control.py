@@ -20,6 +20,25 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, Mapping, Protocol, Sequence
 
+from transcript_events import (
+    ScreenStatus,
+    TranscriptRecord,
+    analyze_transcript_status,
+    analyze_turn_status,
+    extract_answer_texts,
+    extract_latest_answer_text,
+    format_latest_turn,
+    format_latest_turns,
+    latest_context,
+    latest_model,
+    latest_usage,
+    normalize_stream_events,
+    normalize_stream_record,
+    normalize_usage,
+    read_transcript_records,
+    target_turn_events,
+)
+
 
 RunFn = Callable[..., subprocess.CompletedProcess[str]]
 PACKAGE_NAME = "claude-tmux-control"
@@ -116,24 +135,11 @@ class StateGenerationConflict(RuntimeError):
 
 
 @dataclass(frozen=True)
-class ScreenStatus:
-    state: str
-    reason: str
-
-
-@dataclass(frozen=True)
 class SessionState:
     session: str
     last_prompt: str
     cwd: str | None = None
     session_id: str | None = None
-
-
-@dataclass(frozen=True)
-class TranscriptRecord:
-    event: dict
-    start_offset: int
-    end_offset: int
 
 
 @dataclass(frozen=True)
@@ -2826,245 +2832,6 @@ def analyze_combined_status(screen: str, transcript_path: Path | None = None) ->
     return screen_status
 
 
-def analyze_transcript_status(events: Sequence[dict]) -> ScreenStatus:
-    latest_turn = _latest_turn_events(events)
-    if not latest_turn:
-        return ScreenStatus("unknown", "no user turn found in transcript")
-    return analyze_turn_status(latest_turn)
-
-
-def analyze_turn_status(turn_events: Sequence[dict]) -> ScreenStatus:
-    if not turn_events:
-        return ScreenStatus("unknown", "no target user turn found in transcript")
-
-    latest_type = ""
-    latest_event: dict | None = None
-    for event in turn_events:
-        event_type = str(event.get("type") or event.get("event") or event.get("role") or "")
-        if _is_metadata_event(event_type):
-            continue
-        latest_type = event_type
-        latest_event = event
-
-    if latest_event is None:
-        return ScreenStatus("unknown", "no meaningful transcript event after user")
-
-    if latest_type == "user":
-        content = _event_content(latest_event)
-        if _is_interruption_user_content(content):
-            return ScreenStatus("ready", "target turn was interrupted by user")
-        if _is_tool_result_content(content):
-            return ScreenStatus("working", "latest transcript event after user is tool_result")
-        return ScreenStatus("working", "latest transcript event after user is user")
-
-    if latest_type in {"tool_use", "tool_result"}:
-        return ScreenStatus("working", f"latest transcript event after user is {latest_type}")
-
-    if latest_type == "assistant":
-        has_stop_reason, stop_reason = _assistant_stop_reason(latest_event)
-        if has_stop_reason and stop_reason is None:
-            return ScreenStatus("working", "latest assistant transcript has pending stop_reason")
-        if stop_reason == "tool_use":
-            return ScreenStatus("working", "latest assistant transcript stopped for tool_use")
-        if stop_reason == "pause_turn":
-            return ScreenStatus("working", "latest assistant transcript paused turn")
-        content_types = _content_types(_event_content(latest_event))
-        if "tool_use" in content_types:
-            return ScreenStatus("working", "latest assistant transcript requested tool_use")
-        if content_types and all(content_type == "thinking" for content_type in content_types):
-            return ScreenStatus("working", "latest assistant transcript content is thinking")
-        if "text" in content_types or not content_types:
-            return ScreenStatus("ready", "latest assistant transcript event is complete enough")
-
-    return ScreenStatus("unknown", f"latest transcript event after user is {latest_type or 'unknown'}")
-
-
-def extract_latest_answer_text(events: Sequence[dict]) -> str | None:
-    answers = extract_answer_texts(events, count=1)
-    return answers[-1] if answers else None
-
-
-def extract_answer_texts(events: Sequence[dict], count: int = 1) -> list[str]:
-    answers = []
-    for turn_events in _turn_events(events):
-        current_text_blocks: list[str] = []
-        for event in turn_events:
-            event_type = str(event.get("type") or event.get("event") or event.get("role") or "")
-            if event_type != "assistant":
-                continue
-            text_blocks = _extract_text_blocks(_event_content(event))
-            if text_blocks:
-                current_text_blocks = text_blocks
-        if current_text_blocks:
-            answers.append("\n".join(current_text_blocks))
-    return answers[-max(count, 1) :]
-
-
-def format_latest_turn(events: Sequence[dict]) -> str | None:
-    formatted_turns = format_latest_turns(events, count=1)
-    if formatted_turns is None:
-        return None
-    if formatted_turns.startswith("\n\n--- turn "):
-        return formatted_turns.split("\n\n", 2)[2]
-    return formatted_turns
-
-
-def format_latest_turns(events: Sequence[dict], count: int = 1) -> str | None:
-    turns = _turn_events(events)
-    if not turns:
-        return None
-
-    selected_turns = turns[-max(count, 1) :]
-    formatted = [_format_turn_events(turn_events) for turn_events in selected_turns]
-    formatted = [item for item in formatted if item]
-    if not formatted:
-        return None
-    if len(formatted) == 1:
-        return formatted[0]
-    return "\n\n".join(f"--- turn {index}/{len(formatted)} ---\n\n{item}" for index, item in enumerate(formatted, start=1))
-
-
-def _format_turn_events(turn_events: Sequence[dict]) -> str | None:
-    if not turn_events:
-        return None
-
-    sections: list[tuple[str, str]] = []
-    for event in turn_events:
-        event_type = str(event.get("type") or event.get("event") or event.get("role") or "")
-        content = _event_content(event)
-        if event_type == "user":
-            if _is_tool_result_content(content):
-                sections.append(("[tool_result]", _format_tool_result_content(content)))
-            else:
-                user_text = _format_user_content(content)
-                if user_text:
-                    sections.append(("[user]", user_text))
-            continue
-
-        if event_type != "assistant":
-            continue
-
-        for item in _content_items(content):
-            if not isinstance(item, dict):
-                continue
-            item_type = item.get("type")
-            if item_type == "thinking" and isinstance(item.get("thinking"), str):
-                sections.append(("[thinking]", item["thinking"]))
-            elif item_type == "tool_use":
-                name = str(item.get("name") or item.get("tool_name") or "tool")
-                tool_input = item.get("input") or item.get("tool_input") or {}
-                sections.append((f"[tool_use] {name}", json.dumps(tool_input, ensure_ascii=False)))
-            elif item_type == "text" and isinstance(item.get("text"), str):
-                sections.append(("[assistant]", item["text"]))
-
-    if not sections:
-        return None
-    return "\n\n".join(f"{header}\n{body}" for header, body in sections)
-
-
-def _latest_turn_events(events: Sequence[dict]) -> list[dict]:
-    turns = _turn_events(events)
-    return turns[-1] if turns else []
-
-
-def target_turn_events(events: Sequence[dict], state: SessionState | None = None) -> list[dict]:
-    turns = _turn_events(events)
-    if not turns:
-        return []
-    if state is None or not state.last_prompt:
-        return turns[-1]
-
-    matched = [turn for turn in turns if _turn_matches_prompt(turn, state.last_prompt)]
-    return matched[-1] if matched else []
-
-
-def normalize_stream_events(
-    events: Sequence[dict],
-    tool_result_limit: int | None = DEFAULT_TOOL_RESULT_TEXT_LIMIT,
-) -> list[dict]:
-    normalized: list[dict] = []
-    for event in events:
-        event_type = str(event.get("type") or event.get("event") or event.get("role") or "")
-        timestamp = str(event.get("timestamp", "")) or None
-        content = _event_content(event)
-
-        if event_type == "user":
-            if _is_tool_result_content(content):
-                tool_result = _compact_payload(
-                    {
-                        "event": "tool_result",
-                        "timestamp": timestamp,
-                        "tool_use_id": _tool_result_use_id(content),
-                        **_truncated_text_payload("text", _format_tool_result_content(content), tool_result_limit),
-                        "is_error": _tool_result_is_error(content),
-                        **_tool_use_result_preview(event.get("toolUseResult"), tool_result_limit),
-                    }
-                )
-                normalized.append(tool_result)
-            elif not _is_internal_user_content(content):
-                user_text = _format_user_content(content)
-                if user_text:
-                    normalized.append(_compact_payload({"event": "user", "timestamp": timestamp, "text": user_text}))
-            continue
-
-        if event_type == "tool_use":
-            normalized.append(
-                _compact_payload(
-                    {
-                        "event": "tool_use",
-                        "timestamp": timestamp,
-                        "name": event.get("tool_name") or event.get("name"),
-                        "input": event.get("tool_input") or event.get("input") or {},
-                    }
-                )
-            )
-            continue
-
-        if event_type == "tool_result":
-            normalized.append(
-                _compact_payload(
-                    {
-                        "event": "tool_result",
-                        "timestamp": timestamp,
-                        **_truncated_text_payload(
-                            "text",
-                            str(event.get("tool_output") or event.get("content") or ""),
-                            tool_result_limit,
-                        ),
-                    }
-                )
-            )
-            continue
-
-        if event_type != "assistant":
-            continue
-
-        for item in _content_items(content):
-            if not isinstance(item, dict):
-                continue
-            item_type = item.get("type")
-            if item_type == "thinking":
-                normalized.append(_compact_payload(_thinking_payload(item, timestamp)))
-            elif item_type == "tool_use":
-                normalized.append(
-                    _compact_payload(
-                        {
-                            "event": "tool_use",
-                            "timestamp": timestamp,
-                            "id": item.get("id"),
-                            "caller": item.get("caller"),
-                            "name": item.get("name") or item.get("tool_name"),
-                            "input": item.get("input") or item.get("tool_input") or {},
-                        }
-                    )
-                )
-            elif item_type == "text" and isinstance(item.get("text"), str):
-                normalized.append(
-                    _compact_payload({"event": "assistant_text", "timestamp": timestamp, "text": item["text"]})
-                )
-    return normalized
-
-
 def stream_transcript_until_done(
     transcript: Path,
     state: SessionState | None,
@@ -3275,101 +3042,9 @@ def _maybe_retry_unanchored_submit(
     return True
 
 
-def read_transcript_records(path: Path, offset: int = 0) -> tuple[list[TranscriptRecord], int]:
-    records: list[TranscriptRecord] = []
-    with path.open("r", encoding="utf-8", errors="replace") as file:
-        file.seek(offset)
-        while True:
-            start = file.tell()
-            line = file.readline()
-            if not line:
-                return records, file.tell()
-            end = file.tell()
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                event = json.loads(stripped)
-            except json.JSONDecodeError:
-                if not line.endswith("\n"):
-                    return records, start
-                continue
-            if isinstance(event, dict):
-                records.append(TranscriptRecord(event=event, start_offset=start, end_offset=end))
-
-
 def transcript_identity(path: Path) -> str:
     stat = path.stat()
     return f"dev{stat.st_dev}-ino{stat.st_ino}"
-
-
-def normalize_stream_record(
-    record: TranscriptRecord,
-    turn_id: str,
-    file_identity: str,
-    tool_result_limit: int | None = DEFAULT_TOOL_RESULT_TEXT_LIMIT,
-) -> list[dict]:
-    payloads = normalize_stream_events([record.event], tool_result_limit=tool_result_limit)
-    for index, payload in enumerate(payloads):
-        payload["turn_id"] = turn_id
-        payload["event_id"] = (
-            f"{turn_id}:{file_identity}:{record.start_offset:016d}-{record.end_offset:016d}:"
-            f"block{index}:{payload['event']}"
-        )
-        payload["source_offset"] = record.start_offset
-        payload["source_end_offset"] = record.end_offset
-        payload["block_index"] = index
-    return payloads
-
-
-def _thinking_payload(item: Mapping[str, object], timestamp: str | None) -> dict:
-    text = _first_string(item, "thinking", "text", "summary")
-    has_signature = isinstance(item.get("signature"), str) and bool(item.get("signature"))
-    payload = {
-        "event": "thinking",
-        "timestamp": timestamp,
-        "text": text or "",
-        "text_available": bool(text),
-        "has_signature": has_signature,
-    }
-    if not text and has_signature:
-        payload["note"] = "thinking text unavailable; signature present"
-    return payload
-
-
-def _first_string(source: Mapping[str, object], *keys: str) -> str | None:
-    for key in keys:
-        value = source.get(key)
-        if isinstance(value, str) and value:
-            return value
-    return None
-
-
-def _truncated_text_payload(key: str, text: str, limit: int | None) -> dict:
-    if limit is None or limit < 0 or len(text) <= limit:
-        return {key: text}
-    return {
-        key: text[:limit] + "...",
-        f"{key}_truncated": True,
-        f"{key}_full_length": len(text),
-    }
-
-
-def _tool_use_result_preview(result: object, limit: int | None) -> dict:
-    if result is None:
-        return {}
-    if isinstance(result, str):
-        preview = result
-    else:
-        try:
-            preview = json.dumps(result, ensure_ascii=False, sort_keys=True)
-        except TypeError:
-            preview = str(result)
-    payload = _truncated_text_payload("result_preview", preview, limit)
-    if "result_preview_truncated" not in payload:
-        payload["result_preview_truncated"] = False
-    payload["result_preview_full_length"] = len(preview)
-    return payload
 
 
 def _is_anchor_user_record(record: TranscriptRecord, prompt: str) -> bool:
@@ -3466,14 +3141,6 @@ def high_level_metrics_payload(
     )
 
 
-def latest_usage(events: Sequence[dict]) -> dict:
-    for event in reversed(events):
-        usage = _extract_usage(event)
-        if usage:
-            return usage
-    return {}
-
-
 def aggregate_turn_usage(events: Sequence[dict]) -> dict:
     totals: dict[str, int | float] = {}
     seen_usage_ids: set[tuple[str, str]] = set()
@@ -3524,38 +3191,6 @@ def _usage_event_identity(event: Mapping[str, object]) -> tuple[str, str] | None
     if request_id is None and message_id is None:
         return None
     return (str(request_id or ""), str(message_id or ""))
-
-
-def normalize_usage(usage: Mapping[str, object]) -> dict | None:
-    if not usage:
-        return None
-    normalized = {
-        "input_tokens": _numeric_value(usage, "input_tokens"),
-        "cache_read_tokens": _numeric_value(usage, "cache_read_input_tokens", "cache_read_tokens"),
-        "cache_write_tokens": _numeric_value(usage, "cache_creation_input_tokens", "cache_write_tokens"),
-        "output_tokens": _numeric_value(usage, "output_tokens"),
-    }
-    return {key: value for key, value in normalized.items() if value is not None}
-
-
-def latest_context(events: Sequence[dict]) -> dict:
-    for event in reversed(events):
-        context = _extract_context(event)
-        if context:
-            return context
-    return {}
-
-
-def latest_model(events: Sequence[dict]) -> str | None:
-    for event in reversed(events):
-        for value in (
-            event.get("model"),
-            _nested_value(event, "message", "model"),
-            _nested_value(event, "response", "model"),
-        ):
-            if isinstance(value, str) and value:
-                return value
-    return None
 
 
 def result_total_cost(events: Sequence[dict]) -> dict | None:
@@ -4700,34 +4335,6 @@ def _print_transcript_line(line: str, raw_json: bool) -> None:
     if not isinstance(event, dict):
         return
     print(json.dumps(event, ensure_ascii=False) if raw_json else format_transcript_event(event))
-
-
-def _use_transcript_events_module() -> None:
-    import transcript_events
-
-    globals().update(
-        {
-            "ScreenStatus": transcript_events.ScreenStatus,
-            "TranscriptRecord": transcript_events.TranscriptRecord,
-            "analyze_transcript_status": transcript_events.analyze_transcript_status,
-            "analyze_turn_status": transcript_events.analyze_turn_status,
-            "extract_latest_answer_text": transcript_events.extract_latest_answer_text,
-            "extract_answer_texts": transcript_events.extract_answer_texts,
-            "format_latest_turn": transcript_events.format_latest_turn,
-            "format_latest_turns": transcript_events.format_latest_turns,
-            "target_turn_events": transcript_events.target_turn_events,
-            "normalize_stream_events": transcript_events.normalize_stream_events,
-            "read_transcript_records": transcript_events.read_transcript_records,
-            "normalize_stream_record": transcript_events.normalize_stream_record,
-            "latest_usage": transcript_events.latest_usage,
-            "normalize_usage": transcript_events.normalize_usage,
-            "latest_context": transcript_events.latest_context,
-            "latest_model": transcript_events.latest_model,
-        }
-    )
-
-
-_use_transcript_events_module()
 
 
 if __name__ == "__main__":

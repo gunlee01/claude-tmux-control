@@ -833,6 +833,28 @@ class RefactorCompatibilityContractTest(unittest.TestCase):
         self.assertIs(ctc.ScreenStatus, transcript_events.ScreenStatus)
         self.assertIs(ctc.TranscriptRecord, transcript_events.TranscriptRecord)
 
+    def test_transcript_event_helpers_keep_canonical_identity(self):
+        helper_names = [
+            "analyze_transcript_status",
+            "analyze_turn_status",
+            "extract_latest_answer_text",
+            "extract_answer_texts",
+            "format_latest_turn",
+            "format_latest_turns",
+            "target_turn_events",
+            "normalize_stream_events",
+            "read_transcript_records",
+            "normalize_stream_record",
+            "latest_usage",
+            "normalize_usage",
+            "latest_context",
+            "latest_model",
+        ]
+
+        for name in helper_names:
+            with self.subTest(name=name):
+                self.assertIs(getattr(ctc, name), getattr(transcript_events, name))
+
     def test_facade_exposes_refactor_contract_symbols(self):
         required_symbols = [
             "main",
