@@ -28,6 +28,14 @@ docker build -t claude-tmux-control -f docker/Dockerfile .
 
 Claude Code의 `--dangerously-skip-permissions`는 root/sudo 환경에서 거부될 수 있으므로, root가 아닌 사용자로 실행해야 합니다.
 
+module extraction refactor를 merge하기 전에는 no-auth Docker contract smoke를 실행합니다.
+
+```bash
+scripts/docker_refactor_contract_check.sh
+```
+
+이 검증은 Claude auth 없이 image build, console script, installed import, pricing data, entrypoint preseed file, local refactor contract gate를 확인합니다. 실제 Claude stream 동작은 auth env와 `CTC_DOCKER_LIVE_SMOKE=1`이 있을 때만 검증합니다.
+
 ## Quick Run
 
 OAuth token은 이미지에 굽지 말고 runtime environment로 전달합니다.

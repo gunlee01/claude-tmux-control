@@ -817,6 +817,57 @@ class CliTest(unittest.TestCase):
         self.assertTrue(args.dry_run)
 
 
+class RefactorCompatibilityContractTest(unittest.TestCase):
+    def test_console_scripts_stay_on_facade_main(self):
+        pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+
+        self.assertIn('ctc = "claude_tmux_control:main"', pyproject)
+        self.assertIn('claude-tmux-control = "claude_tmux_control:main"', pyproject)
+
+    def test_packaging_keeps_current_public_modules(self):
+        pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+
+        self.assertIn('py-modules = ["claude_tmux_control", "transcript_events"]', pyproject)
+
+    def test_transcript_event_types_keep_canonical_identity(self):
+        self.assertIs(ctc.ScreenStatus, transcript_events.ScreenStatus)
+        self.assertIs(ctc.TranscriptRecord, transcript_events.TranscriptRecord)
+
+    def test_facade_exposes_refactor_contract_symbols(self):
+        required_symbols = [
+            "main",
+            "parse_args",
+            "_run_command",
+            "TmuxController",
+            "RenderedScreenFollower",
+            "SessionNotFoundError",
+            "claude_args_from_options",
+            "build_claude_command",
+            "build_initial_claude_command",
+            "claude_environment_from_args",
+            "preseed_claude_project_trust",
+            "find_latest_transcript",
+            "resolve_high_level_transcript",
+            "project_transcript_dir",
+            "read_transcript_events",
+            "read_bridge_state",
+            "_write_high_level_state",
+            "mutate_high_level_state",
+            "build_pending_turn_state",
+            "transcript_file_state",
+            "estimate_turn_cost",
+            "stream_high_level_transcript_until_done",
+            "prepare_high_level_stream",
+            "run_high_level_turn",
+            "run_high_level_cancel",
+            "run_high_level_replay",
+            "reap_idle_sessions",
+        ]
+
+        missing = [name for name in required_symbols if not hasattr(ctc, name)]
+        self.assertEqual(missing, [])
+
+
 class FollowUntilIdleTest(unittest.TestCase):
     def test_follow_until_idle_prints_changed_screens_until_stable(self):
         controller = Mock()

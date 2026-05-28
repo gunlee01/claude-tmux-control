@@ -26,6 +26,14 @@ docker build -t claude-tmux-control -f docker/Dockerfile .
 
 The image runs as the non-root `ctc` user. Claude Code may reject `--dangerously-skip-permissions` when run as root or through sudo.
 
+For module-extraction refactors, run the no-auth Docker contract smoke before merging:
+
+```bash
+scripts/docker_refactor_contract_check.sh
+```
+
+This verifies image build, console scripts, installed imports, pricing data, entrypoint preseed files, and the local refactor contract gate without requiring Claude auth. It does not prove live Claude stream behavior unless `CTC_DOCKER_LIVE_SMOKE=1` is set with auth env.
+
 ## Quick Run
 
 Pass auth at runtime. Do not bake tokens into the image.
