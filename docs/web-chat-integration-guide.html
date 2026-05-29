@@ -692,11 +692,11 @@
         </div>
         <div class="role-row">
           <strong>Cancel 조건</strong>
-          <span>`cancel`은 내부 tmux pane에 `Escape`를 보내고 JSON을 반환한다. tool 취소는 final answer 없이 `done`/`metrics`로 닫힐 수 있다.</span>
+          <span>`cancel`은 내부 tmux pane에 `Escape`를 보내고 tmux/state cleanup 후 JSON을 반환한다. cleanup 성공 후 다음 prompt는 같은 session_id로 resume된다.</span>
         </div>
         <div class="role-row">
           <strong>Attach 조건</strong>
-          <span>`attach`는 완료된 과거 turn 조회가 아니다. `active_turn`이 남은 active/interrupted turn에 다시 붙는다. 남은 timeout active turn은 Escape 정리 실패 상태로 보고 inspect/reset한다.</span>
+          <span>`attach`는 완료된 과거 turn 조회가 아니다. `active_turn`이 남은 active/interrupted turn에 다시 붙는다. 남은 timeout active turn은 Escape 정리 실패 상태로 보고 inspect/cancel한다.</span>
         </div>
         <div class="role-row">
           <strong>Replay 조건</strong>
@@ -1109,10 +1109,7 @@ ${s.envFile ? `  --env-file "${escapeHtml(s.envFile)}" \\
         render: s => `TERM=xterm-256color \\
 ctc cancel "${escapeHtml(s.sessionId)}"
 
-# then receive the cancelled turn's final state:
-ctc last "${escapeHtml(s.sessionId)}" --last 1
-
-# cancelled tool turns may emit done + metrics without answer`
+# cleanup success clears active_turn; next prompt resumes with the same session_id`
       },
       replay: {
         title: "replay recent turns",

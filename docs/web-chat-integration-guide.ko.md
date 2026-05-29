@@ -280,7 +280,7 @@ ctc stream --session-id "$SESSION_ID" --cwd "$PROJECT_DIR" "$USER_PROMPT"
 | 상태 | 권장 처리 |
 | --- | --- |
 | 아직 working | 새 입력 거절 또는 현재 stream에 attach |
-| 사용자가 취소 요청 | `cancel <session_id>` 호출 후 `last --last 1` 또는 `stream --attach`로 완료까지 수신 |
+| 사용자가 취소 요청 | `cancel <session_id>`로 Escape/session cleanup/state cleanup 수행 후 다음 입력 허용 |
 | timeout | `ctc`가 `timeout` event를 출력하고 `Escape`를 보낸 뒤 tmux session을 종료하고, cleanup 성공 시 `active_turn`을 비워 다음 prompt를 허용 |
 | interrupted | UI에 "아직 처리 중" 표시. 다음 prompt 요청 시 CLI가 이전 turn의 완료 여부를 먼저 검사 |
 | needs confirmation | session 재시작 또는 운영자 확인 |
@@ -296,16 +296,15 @@ ctc stream --session-id "$SESSION_ID" --cwd "$PROJECT_DIR" "$USER_PROMPT"
 
 ```bash
 ctc cancel "$SESSION_ID"
-ctc last "$SESSION_ID" --last 1
 ```
 
-`cancel`은 내부 tmux session에 `Escape` key를 보낸 뒤 JSON을 반환합니다. 이 명령은 완료 판정을 하지 않습니다.
+`cancel`은 내부 tmux session에 `Escape` key를 보내고 tmux session을 종료한 뒤 JSON을 반환합니다.
 
-취소 뒤에도 `active_turn`은 남아 있을 수 있습니다. 클라이언트는 `last --last 1` 또는 `stream --attach --session-id "$SESSION_ID"`로 이어서 `done`/`metrics`까지 받아야 합니다.
+cleanup이 성공하면 `active_turn`을 `last_turn`으로 옮기고 `active_turn`을 비워 다음 prompt를 같은 `session_id`의 resume 경로로 받을 수 있게 합니다.
 
 반면 high-level `stream --timeout`은 timeout을 취소 경계로 봅니다. timeout이 지나면 `Escape`를 보내고 tmux session을 종료합니다. cleanup이 성공하면 해당 turn을 `last_turn`에 `stream_state=timeout`으로 남긴 뒤 `active_turn`을 비웁니다.
 
-transcript recovery가 불가능하고 해당 active turn을 명시적으로 포기하기로 한 경우에는 `ctc cancel "$SESSION_ID" --reset`을 사용합니다. 이 모드는 `active_turn`을 `last_turn`으로 옮기고 `active_turn`을 비워 다음 prompt가 막히지 않게 합니다.
+`--reset`은 같은 동작을 수행하는 호환 옵션입니다. `Escape` 또는 tmux session cleanup에 실패하면 state는 변경하지 않고 오류를 반환합니다.
 
 Claude Code가 tool 실행 중 취소되면 transcript에 `User rejected tool use`와 `[Request interrupted by user for tool use]`가 남을 수 있습니다. CLI는 이 패턴을 취소 완료로 처리합니다. 이때 final assistant text가 없을 수 있으므로 `done.answer`는 비어 있을 수 있지만, `done`/`metrics`가 오면 입력창을 다시 열 수 있습니다.
 
@@ -331,7 +330,7 @@ ctc last "$SESSION_ID" --last 1
 
 남아 있는 `timeout`이나 `failed` active turn은 "입력 가능" 신호가 아닙니다.
 
-일반 stream timeout은 `Escape`와 tmux session cleanup 성공 후 `active_turn`을 비웁니다. 그래도 timeout active turn이 남아 있으면 Escape 전송/정리가 끝나지 않은 상태로 보고 inspect 또는 `cancel --reset`을 사용합니다.
+일반 stream timeout은 `Escape`와 tmux session cleanup 성공 후 `active_turn`을 비웁니다. 그래도 timeout active turn이 남아 있으면 Escape 전송/정리가 끝나지 않은 상태로 보고 inspect 또는 `cancel`을 사용합니다.
 
 다음 `stream --cwd ... --session-id ... "$PROMPT"` 요청이 들어오면 CLI는 먼저 tmux 화면과 transcript를 검사합니다.
 
@@ -633,7 +632,7 @@ high-level `active_turn`이 남아 있으면 `reap`은 같은 session transcript
 
 완료 처리할 수 없는 `active_turn`이 남아 있어도 tmux 화면이 `ready`이면 idle 기준에 따라 정리할 수 있습니다. tmux 화면이 `ready`가 아니면 `reap`은 보수적으로 skip합니다. `--dry-run`은 이 판단을 보고만 하고 state를 쓰지 않습니다.
 
-`interrupted`는 입력 가능 또는 정리 가능 신호가 아닙니다. 일반 stream timeout은 `Escape`와 tmux session cleanup 성공 후 `active_turn`을 비웁니다. 남아 있는 `timeout` active turn은 inspect 또는 `cancel --reset`으로 별도 처리합니다.
+`interrupted`는 입력 가능 또는 정리 가능 신호가 아닙니다. 일반 stream timeout은 `Escape`와 tmux session cleanup 성공 후 `active_turn`을 비웁니다. 남아 있는 `timeout` active turn은 inspect 또는 `cancel`로 별도 처리합니다.
 
 web session만 정리하려면 `ctc-csess-` prefix를 권장합니다. `ctc-` prefix는 controlled 전체 정리용이라 low-level `ctc-*` session도 포함될 수 있습니다.
 
@@ -647,8 +646,8 @@ cron, systemd timer, app scheduler 중 하나에서 호출합니다.
 | `claude` 없음 | exit `127` | Claude Code 설치 안내 |
 | invalid `session_id` 또는 cwd mismatch | exit `2` | 요청 오류로 표시. 같은 대화창에 다른 cwd를 연결하지 않음 |
 | `turn_in_progress` 등 high-level state error | exit `5`, stderr JSON | 새 입력을 큐에 넣거나 `stream --attach`로 기존 turn에 재연결 |
-| cancel 성공 | exit `0`, stdout JSON `event:cancel` | UI를 cancelling 상태로 전환하고 `last`/`attach`로 완료 대기 |
-| cancel 대상 tmux 없음 | exit `2`, stderr JSON `tmux_session_missing` | 이미 종료된 session으로 표시하거나 같은 session_id로 다음 stream 시 resume |
+| cancel 성공 | exit `0`, stdout JSON `event:cancel` | UI 입력을 다시 열고 같은 session_id로 다음 stream 시 resume |
+| cancel 대상 tmux 없음 | exit `0`, stdout JSON `tmux_session_missing:true` | state cleanup 결과를 반영하고 같은 session_id로 다음 stream 시 resume |
 | transcript 없음 | exit `2` | starting 상태로 재시도 |
 | stream timeout | exit `3`, `timeout` event | Escape 성공 시 다음 prompt 허용 |
 | stream interrupted | exit `130` | 연결 끊김으로 표시. 같은 session_id로 attach 또는 다음 prompt 시 자동 완료 검사 |

@@ -213,16 +213,15 @@ TERM=xterm-256color ctc stream \
 TERM=xterm-256color ctc stream --attach --session-id "$SESSION_ID" --timeout 300
 ```
 
-사용자가 진행 중인 응답을 취소하면 `cancel`로 Claude Code pane에 `Escape`를 보냅니다.
+사용자가 진행 중인 응답을 취소하면 `cancel`로 Claude Code pane에 `Escape`를 보내고 tmux session을 종료한 뒤 bridge `active_turn`을 비웁니다.
 
 ```bash
 TERM=xterm-256color ctc cancel "$SESSION_ID"
-TERM=xterm-256color ctc last "$SESSION_ID" --last 1
 ```
 
-`cancel`은 취소 key만 전송합니다. 취소 후 transcript/화면이 완료 상태가 되면 `last` 또는 `stream --attach`가 이어서 `done`/`metrics`까지 받습니다.
+cleanup이 성공하면 다음 prompt를 같은 `session_id`의 resume 경로로 바로 받을 수 있습니다.
 
-오래된 `active_turn`을 명시적으로 포기해야 하면 `--reset`을 붙여 `active_turn`을 `last_turn`으로 옮기고 비울 수 있습니다.
+`--reset`은 같은 동작을 수행하는 호환 옵션입니다.
 
 high-level `stream`이 `--timeout`에 도달하면 timeout을 취소 경계로 처리합니다. `timeout` event를 출력하고 `Escape`를 보낸 뒤 tmux session을 종료합니다. cleanup이 성공하면 해당 turn을 `last_turn`에 timeout으로 남기고 `active_turn`을 비워 다음 prompt를 resume 경로로 받을 수 있게 합니다.
 
@@ -291,7 +290,7 @@ cron 예:
 - 완료 처리할 수 없어도 tmux 화면이 `ready`이면 idle 기준에 따라 정리할 수 있습니다.
 - tmux 화면이 `ready`가 아니거나 Claude가 아직 working 상태로 보이면 정리하지 않습니다.
 
-`interrupted`는 입력 가능 또는 정리 가능 신호가 아닙니다. 남아 있는 `timeout` active turn은 Escape 전송/정리가 끝나지 않은 상태이므로 inspect 또는 `cancel --reset`으로 별도 처리합니다.
+`interrupted`는 입력 가능 또는 정리 가능 신호가 아닙니다. 남아 있는 `timeout` active turn은 Escape 전송/정리가 끝나지 않은 상태이므로 inspect 또는 `cancel`로 별도 처리합니다.
 
 `reap`으로 tmux session이 종료되면 그 안에서 실행 중이던 Claude Code process도 같이 종료됩니다.
 

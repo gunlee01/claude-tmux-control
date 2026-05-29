@@ -136,18 +136,30 @@ ctc ask --cwd PATH [--session-id UUID] [--model MODEL] [--claude-args "ARGS"] PR
 
 ### `cancel`
 
-Sends Escape to the Claude Code pane for a high-level session.
+Cancels the active high-level turn, terminates the tmux session, and clears the
+bridge `active_turn` when cleanup succeeds.
 
 ```bash
 ctc cancel UUID
 ctc cancel UUID --reset
 ```
 
-Without `--reset`, state is not changed. Then attach or replay to receive final `done`/`metrics`.
+`cancel` sends Escape when the tmux session exists, stops that tmux session, then
+moves `active_turn` to `last_turn` and clears `active_turn`. If the tmux session
+is already missing, `cancel` still performs the state cleanup and exits
+successfully. `--reset` is kept as a compatibility alias for the same behavior.
+If Escape delivery or tmux cleanup fails, state is left unchanged and the command
+exits with code `5`.
 
-With `--reset`, `cancel` sends Escape when the tmux session exists, then moves `active_turn` to `last_turn` and clears `active_turn`. If the tmux session is already missing, `--reset` still performs the state cleanup and exits successfully. If Escape delivery fails for an existing tmux session, state is left unchanged and the command exits with code `5`.
+After a successful cancel, the next prompt can be sent through the high-level
+resume path with the same `session_id`.
 
-High-level `stream` timeout is different from manual `cancel`: when the timeout expires, `ctc` emits a `timeout` event, sends Escape to the tmux pane, stops the tmux session, moves the timed-out turn to `last_turn`, and clears `active_turn` so the next prompt can be sent through the resume path. If Escape/session cleanup fails, `active_turn` remains in `stream_state: "timeout"` for inspection or explicit cleanup.
+High-level `stream` timeout uses the same cleanup model: when the timeout
+expires, `ctc` emits a `timeout` event, sends Escape to the tmux pane, stops the
+tmux session, moves the timed-out turn to `last_turn`, and clears `active_turn`
+so the next prompt can be sent through the resume path. If Escape/session cleanup
+fails, `active_turn` remains in `stream_state: "timeout"` for inspection or
+explicit cleanup.
 
 ### `last` / `replay`
 
@@ -341,7 +353,7 @@ Use `ctc info "$SESSION_ID" --json` to inspect `active_turn_recovery`:
 | State | Recommended action |
 | --- | --- |
 | `active` | wait, attach, queue, or cancel |
-| `timeout` | inspect or `cancel --reset`; normal stream timeouts clear `active_turn` after Escape succeeds |
+| `timeout` | inspect or `cancel`; normal stream timeouts clear `active_turn` after Escape succeeds |
 | `interrupted` | attach or retry with the same session before sending a new prompt |
 | `failed` | inspect or kill before sending a new prompt |
 

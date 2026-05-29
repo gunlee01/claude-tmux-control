@@ -498,14 +498,13 @@ ctc stream --attach --session-id "$SESSION_ID"
 
 ```bash
 ctc cancel "$SESSION_ID"
-ctc last "$SESSION_ID" --last 1
 ```
 
-`cancel`은 내부 tmux session에 `Escape` key를 보내고 JSON 결과를 출력합니다.
+`cancel`은 내부 tmux session에 `Escape` key를 보내고 tmux session을 종료한 뒤 JSON 결과를 출력합니다.
 
-완료 판정은 하지 않습니다. 취소 후에도 `active_turn`이 남아 있으면 `last` 또는 `stream --attach`로 이어서 `done`/`metrics`까지 받습니다.
+cleanup이 성공하면 해당 turn을 `last_turn`으로 옮기고 `active_turn`을 비워 다음 prompt를 같은 `session_id`의 resume 경로로 받을 수 있게 합니다. `Escape` 또는 session cleanup에 실패하면 state를 변경하지 않고 exit `5`를 반환합니다.
 
-high-level `stream`의 `--timeout`은 수동 `cancel`과 다릅니다. timeout이 지나면 `timeout` event를 출력하고 tmux pane에 `Escape`를 보낸 뒤 tmux session을 종료합니다. cleanup이 성공하면 해당 turn을 `last_turn`으로 옮기고 `active_turn`을 비워 다음 prompt를 resume 경로로 받을 수 있게 합니다. `Escape` 또는 session cleanup에 실패하면 검사/명시적 정리를 위해 `active_turn.stream_state = "timeout"` 상태로 남깁니다.
+high-level `stream`의 `--timeout`도 같은 cleanup model을 사용합니다. timeout이 지나면 `timeout` event를 출력하고 tmux pane에 `Escape`를 보낸 뒤 tmux session을 종료합니다. cleanup이 성공하면 해당 turn을 `last_turn`으로 옮기고 `active_turn`을 비워 다음 prompt를 resume 경로로 받을 수 있게 합니다. `Escape` 또는 session cleanup에 실패하면 검사/명시적 정리를 위해 `active_turn.stream_state = "timeout"` 상태로 남깁니다.
 
 Claude Code가 tool 실행 중 ESC를 받으면 transcript에 `User rejected tool use`와 `[Request interrupted by user for tool use]`를 남길 수 있습니다. CLI는 이 조합을 취소 완료로 해석하고, 후속 `last`/`attach`에서 해당 turn을 `done`/`metrics`로 닫습니다.
 
@@ -718,7 +717,7 @@ ctc reap --idle-seconds 1800 --prefix ctc-csess- --dry-run
 - 완료 처리할 수 없어도 tmux 화면이 `ready`이면 idle 기준에 따라 정리할 수 있습니다.
 - tmux 화면이 `ready`가 아니면 오래됐어도 종료하지 않습니다.
 - transcript/screen 기준으로 아직 `working`이면 오래됐어도 종료하지 않습니다.
-- `interrupted`는 입력 가능 또는 정리 가능 신호가 아닙니다. 일반 stream timeout은 `Escape` 전송 성공 시 `active_turn`을 비웁니다. 남아 있는 `timeout` active turn은 inspect 또는 `cancel --reset`으로 별도 처리합니다.
+- `interrupted`는 입력 가능 또는 정리 가능 신호가 아닙니다. 일반 stream timeout은 `Escape` 전송 성공 시 `active_turn`을 비웁니다. 남아 있는 `timeout` active turn은 inspect 또는 `cancel`로 별도 처리합니다.
 - state file이 없는 session은 안전하게 skip합니다.
 
 cron 예:
@@ -817,12 +816,12 @@ ctc cancel "$SESSION_ID" --reset
 성공 시 stdout:
 
 ```json
-{"event":"cancel","exit_code":0,"session_id":"...","sent_key":"Escape"}
+{"event":"cancel","exit_code":0,"session_id":"...","sent_key":"Escape","tmux_session_terminated":true,"reset_applied":true}
 ```
 
-`cancel`은 prompt를 새로 보내지 않고, transcript도 읽지 않습니다. `--reset`이 없으면 state를 변경하지 않습니다. 취소 후 응답 마무리를 클라이언트에 보여주려면 `ctc last "$SESSION_ID" --last 1` 또는 `ctc stream --attach --session-id "$SESSION_ID"`를 호출합니다.
+`cancel`은 prompt를 새로 보내지 않고, transcript도 읽지 않습니다. tmux session이 있을 때 `Escape`를 보낸 뒤 tmux session을 종료하고, `active_turn`을 `last_turn`으로 옮겨 비웁니다. tmux session이 이미 없으면 state cleanup만 수행하고 성공으로 처리합니다.
 
-`--reset`을 붙이면 tmux session이 있을 때 `Escape`를 보낸 뒤 `active_turn`을 `last_turn`으로 옮기고 `active_turn`을 비웁니다. tmux session이 이미 없으면 state cleanup만 수행하고 성공으로 처리합니다. 기존 tmux session에 `Escape` 전송이 실패하면 state는 변경하지 않고 exit `5`를 반환합니다.
+`--reset`은 같은 동작을 수행하는 호환 옵션입니다. 기존 tmux session에 `Escape` 전송 또는 session cleanup이 실패하면 state는 변경하지 않고 exit `5`를 반환합니다.
 
 tool 실행 취소처럼 final assistant text 없이 끝난 turn도 있을 수 있습니다. 이 경우 `done.answer`는 없을 수 있지만 `done`과 `metrics`는 출력되어 turn이 닫힙니다.
 
@@ -1050,7 +1049,7 @@ session-scoped 명령은 다음 단서로 transcript를 찾습니다.
 | --- | --- |
 | `0` | 성공 |
 | `1` | tmux command 실패 등 일반 실패 |
-| `2` | request/session/transcript를 찾지 못함. 예: `cancel`의 `tmux_session_missing` |
+| `2` | request/session/transcript를 찾지 못함 |
 | `3` | ready 대기 실패 |
 | `4` | 완료된 answer/turn을 찾지 못함 |
 | `5` | high-level runtime state error. 예: `turn_in_progress`, `stream --attach`의 `tmux_session_missing` |
@@ -1065,14 +1064,14 @@ high-level `stream`/`ask` 오류는 stderr에 JSON을 출력할 수 있습니다
 
 클라이언트는 exit code와 stderr JSON의 `error` 값을 함께 봐야 합니다.
 
-같은 `error` 문자열이라도 명령에 따라 exit code가 다를 수 있습니다. 예를 들어 `cancel`은 대상 tmux session이 없으면 요청 대상이 없다는 의미로 exit `2`를 반환하고, `stream --attach`는 진행 중 turn에 붙을 수 없다는 runtime 상태로 exit `5`를 반환합니다.
+같은 `error` 문자열이라도 명령에 따라 exit code가 다를 수 있습니다. 예를 들어 `cancel`은 대상 tmux session이 이미 없으면 state cleanup만 수행하고 exit `0`을 반환할 수 있고, `stream --attach`는 진행 중 turn에 붙을 수 없다는 runtime 상태로 exit `5`를 반환합니다.
 
 `turn_in_progress`나 timeout 계열 상태에서는 `ctc info "$SESSION_ID" --json`의 `active_turn_recovery`를 확인하세요.
 
 | 상태 | 권장 조치 |
 | --- | --- |
 | `active` | 기다리거나 attach, queue, cancel |
-| `timeout` | inspect 또는 `cancel --reset`; 일반 stream timeout은 Escape/session cleanup 성공 후 `active_turn`을 비움 |
+| `timeout` | inspect 또는 `cancel`; 일반 stream timeout은 Escape/session cleanup 성공 후 `active_turn`을 비움 |
 | `interrupted` | 새 prompt 전송 전에 같은 session으로 attach 또는 retry |
 | `failed` | 새 prompt 전송 전에 inspect 또는 kill |
 

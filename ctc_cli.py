@@ -221,7 +221,7 @@ Docs:
     cancel.add_argument("--session-id", dest="session_id_option", help="web-facing Claude session id UUID")
     cancel.add_argument("--state-dir", type=Path, default=DEFAULT_STATE_DIR, help="bridge state directory")
     cancel.add_argument("--json", action="store_true", help="accepted for symmetry; cancel always prints JSON")
-    cancel.add_argument("--reset", action="store_true", help="move active_turn to last_turn after cancelling")
+    cancel.add_argument("--reset", action="store_true", help="compatibility alias; cancel already clears active_turn")
 
     def add_replay_args(command_parser: argparse.ArgumentParser) -> None:
         command_parser.add_argument("session_id", nargs="?", help="web-facing Claude session id UUID")

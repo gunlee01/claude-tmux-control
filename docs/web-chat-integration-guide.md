@@ -51,7 +51,7 @@ browser
   -> enables next input
 ```
 
-Do not send a second prompt until the previous turn reaches `done`/`metrics` or is explicitly cancelled and finalized. If transcript recovery is impossible and an operator chooses to abandon the active turn, use `ctc cancel "$SESSION_ID" --reset` to clear the bridge state.
+Do not send a second prompt until the previous turn reaches `done`/`metrics` or is explicitly cancelled and finalized. If the user or operator chooses to abandon the active turn, use `ctc cancel "$SESSION_ID"` to send Escape, stop the tmux session, clear bridge `active_turn`, and allow the next prompt through the resume path. `--reset` remains a compatibility alias for the same behavior.
 
 ### Runtime Environment
 
@@ -195,7 +195,7 @@ If the last turn is still active, `last`/`replay` attach instead of sending a ne
 | no transcript | Claude Code did not produce transcript before timeout | `ctc` sends Escape, stops the tmux session, clears the active turn if cleanup succeeds, and the client may allow the next prompt |
 | timeout | completion not confirmed before the caller's timeout | `ctc` sends Escape, stops the tmux session, records the turn as timed out, and clears `active_turn` if cleanup succeeds |
 
-`ctc info "$SESSION_ID" --json` includes `active_turn_recovery` when an active turn is present. Treat `active` and `interrupted` as not ready for a new prompt; attach/retry/cancel first. A normal stream timeout should clear `active_turn` after Escape and tmux-session cleanup succeed. If a `timeout` active turn remains, Escape delivery or cleanup did not complete; inspect it or use `cancel --reset`. Treat `failed` as requiring inspect or kill before sending another prompt.
+`ctc info "$SESSION_ID" --json` includes `active_turn_recovery` when an active turn is present. Treat `active` and `interrupted` as not ready for a new prompt; attach/retry/cancel first. A normal stream timeout should clear `active_turn` after Escape and tmux-session cleanup succeed. If a `timeout` active turn remains, Escape delivery or cleanup did not complete; inspect it or use `cancel`. Treat `failed` as requiring inspect or kill before sending another prompt.
 
 Exit codes:
 

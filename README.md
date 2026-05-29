@@ -168,14 +168,14 @@ Clients should either queue the new message or attach to the active turn.
 TERM=xterm-256color ctc stream --attach --session-id "$SESSION_ID" --timeout 300
 ```
 
-To cancel the active turn, send Escape to Claude Code and then attach/replay until completion.
+To cancel the active turn, send Escape, stop the tmux session, and clear the bridge
+`active_turn` so the next prompt can resume with the same `session_id`.
 
 ```bash
 TERM=xterm-256color ctc cancel "$SESSION_ID"
-TERM=xterm-256color ctc last "$SESSION_ID" --last 1
 ```
 
-If a stale `active_turn` must be explicitly abandoned, add `--reset` to move it to `last_turn` and clear `active_turn`.
+`--reset` is kept as a compatibility alias for the same behavior.
 
 When a high-level `stream` reaches its `--timeout`, `ctc` treats that timeout as a cancellation boundary: it emits a `timeout` event, sends Escape, stops the tmux session, records the turn as timed out in `last_turn`, and clears `active_turn` if cleanup succeeds so the next prompt can be sent through the resume path.
 

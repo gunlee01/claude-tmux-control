@@ -578,7 +578,7 @@
             <tr><td>inactive + state/transcript 있음</td><td>`claude --resume ... -- &lt;prompt&gt;`</td><td>복구 후 이어가기</td></tr>
             <tr><td>cwd mismatch</td><td>`session_cwd_mismatch` error</td><td>잘못된 대화 연결 차단</td></tr>
             <tr><td>active turn working</td><td>`turn_in_progress` error</td><td>중복 전송 차단</td></tr>
-            <tr><td>user cancel</td><td>`ctc cancel "$SESSION_ID"` sends `Escape`</td><td>취소 요청 후 `last`/`attach`로 완료까지 수신</td></tr>
+            <tr><td>user cancel</td><td>`ctc cancel "$SESSION_ID"` sends `Escape`, cleans tmux/state</td><td>다음 입력 진행 가능</td></tr>
             <tr><td>tool cancel marker</td><td>`User rejected tool use` + interrupt marker</td><td>final answer 없이도 `done`/`metrics`로 turn 종료</td></tr>
             <tr><td>stream timeout</td><td>`timeout` event 후 `Escape`와 tmux session cleanup, 성공 시 `active_turn` 정리</td><td>다음 입력 진행 가능</td></tr>
             <tr><td>completed turn replay</td><td>`ctc last "$SESSION_ID" --last N` 또는 `replay`</td><td>이탈한 채팅창에 최근 JSONL event 재전송</td></tr>

@@ -676,37 +676,33 @@ def run_high_level_cancel(args: argparse.Namespace, controller: TmuxController) 
     initial_active = state.get("active_turn")
     initial_active_turn_id = initial_active.get("turn_id") if isinstance(initial_active, dict) else None
     if not controller.session_exists(tmux_session):
-        if reset_requested:
-            reset_result = reset_high_level_active_turn(
-                state_path,
-                initial_active_turn_id,
-                expected_active_turn=initial_active if isinstance(initial_active, dict) else None,
-            )
-            return {
-                "event": "cancel",
-                "exit_code": 0,
-                "session_id": actual_session_id,
-                "tmux_session": tmux_session,
-                "state_exists": state_exists,
-                "active_turn_present": initial_active_turn_id is not None,
-                "active_turn_id": initial_active_turn_id,
-                "reset_requested": True,
-                "reset_applied": reset_result["reset_applied"],
-                "moved_turn_id": reset_result["moved_turn_id"],
-                "state_after": reset_result["state_after"],
-                "tmux_session_missing": True,
-            }
-        return {
-            "event": "error",
-            "exit_code": 2,
-            "error": "tmux_session_missing",
+        reset_result = reset_high_level_active_turn(
+            state_path,
+            initial_active_turn_id,
+            expected_active_turn=initial_active if isinstance(initial_active, dict) else None,
+        )
+        payload = {
+            "event": "cancel",
+            "exit_code": 0,
             "session_id": actual_session_id,
             "tmux_session": tmux_session,
             "state_exists": state_exists,
+            "active_turn_present": initial_active_turn_id is not None,
+            "active_turn_id": initial_active_turn_id,
+            "reset_applied": reset_result["reset_applied"],
+            "moved_turn_id": reset_result["moved_turn_id"],
+            "state_after": reset_result["state_after"],
+            "tmux_session_missing": True,
         }
+        if reset_requested:
+            payload["reset_requested"] = True
+        return payload
 
     try:
         controller.send_escape(tmux_session)
+        controller.kill_session(tmux_session)
+    except SessionNotFoundError:
+        pass
     except subprocess.CalledProcessError as error:
         payload = {
             "event": "error",
@@ -721,13 +717,11 @@ def run_high_level_cancel(args: argparse.Namespace, controller: TmuxController) 
             payload["reset_requested"] = True
         return payload
 
-    reset_result = None
-    if reset_requested:
-        reset_result = reset_high_level_active_turn(
-            state_path,
-            initial_active_turn_id,
-            expected_active_turn=initial_active if isinstance(initial_active, dict) else None,
-        )
+    reset_result = reset_high_level_active_turn(
+        state_path,
+        initial_active_turn_id,
+        expected_active_turn=initial_active if isinstance(initial_active, dict) else None,
+    )
 
     payload = {
         "event": "cancel",
@@ -738,16 +732,13 @@ def run_high_level_cancel(args: argparse.Namespace, controller: TmuxController) 
         "active_turn_present": initial_active_turn_id is not None,
         "active_turn_id": initial_active_turn_id,
         "sent_key": "Escape",
+        "tmux_session_terminated": True,
+        "reset_applied": reset_result["reset_applied"],
+        "moved_turn_id": reset_result["moved_turn_id"],
+        "state_after": reset_result["state_after"],
     }
-    if reset_requested and reset_result is not None:
-        payload.update(
-            {
-                "reset_requested": True,
-                "reset_applied": reset_result["reset_applied"],
-                "moved_turn_id": reset_result["moved_turn_id"],
-                "state_after": reset_result["state_after"],
-            }
-        )
+    if reset_requested:
+        payload["reset_requested"] = True
     return payload
 
 
