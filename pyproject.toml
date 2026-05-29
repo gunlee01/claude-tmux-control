@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-tmux-control"
-version = "0.7.6"
-description = "A tmux-based Claude Code control CLI for persistent sessions and JSONL streaming."
+version = "0.7.7"
+description = "A tmux-based Claude Code control CLI and interactive streaming alternative to claude -p."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
   { name = "Gun Lee" }
 ]
 license = "Apache-2.0"
-keywords = ["claude-code", "tmux", "cli", "automation", "agent", "jsonl", "streaming", "web-chat", "backend"]
+keywords = ["claude-code", "claude-p", "claude-cli", "tmux", "cli", "automation", "agent", "jsonl", "streaming", "web-chat", "backend"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
