@@ -349,7 +349,7 @@ ctc wait-ready SESSION --timeout 120
 | --- | --- |
 | `--timeout SEC` | 최대 대기 시간 |
 | `--interval SEC` | polling 간격 |
-| `--idle SEC` | ready 화면이 안정적으로 유지되어야 하는 시간 |
+| `--idle SEC` | ready 화면이 안정적으로 유지되어야 하는 시간. 기본 `3.5` |
 | `--screen-only` | transcript를 보지 않고 화면만 사용 |
 
 exit code:
@@ -440,7 +440,7 @@ ctc stream SESSION
 타임아웃과 ready 안정화 시간 조정:
 
 ```bash
-ctc stream SESSION --timeout 300 --idle 2 --interval 0.5
+ctc stream SESSION --timeout 300 --idle 3.5 --interval 0.5
 ```
 
 `tool_result.text`는 기본 100자로 축약됩니다. 한도를 바꾸려면:

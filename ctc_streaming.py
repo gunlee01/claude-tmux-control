@@ -34,6 +34,8 @@ from transcript_events import (
 
 DEFAULT_TRANSCRIPT_ROOT = Path.home() / ".claude"
 DEFAULT_STREAM_SUBMIT_ENTERS = 2
+DEFAULT_READY_IDLE_SECONDS = 3.5
+DEFAULT_SCREEN_STATUS_LINES = 15
 UNANCHORED_SUBMIT_RETRY_SECONDS = 1.0
 DEFAULT_TOOL_RESULT_TEXT_LIMIT = 100
 WORKING_PATTERNS = (
@@ -102,7 +104,7 @@ def stream_transcript_until_done(
     session: str,
     interval: float = 0.5,
     timeout: float = 300.0,
-    idle_seconds: float = 2.0,
+    idle_seconds: float = DEFAULT_READY_IDLE_SECONDS,
     write: Callable[[str], object] = sys.stdout.write,
     sleep: Callable[[float], object] = time.sleep,
     now: Callable[[], float] = time.monotonic,
@@ -349,5 +351,5 @@ def _event_content(event: dict) -> object:
     return event.get("content")
 
 
-def _bottom_screen_area(screen: str, lines: int = 10) -> str:
+def _bottom_screen_area(screen: str, lines: int = DEFAULT_SCREEN_STATUS_LINES) -> str:
     return "\n".join(screen.splitlines()[-lines:])

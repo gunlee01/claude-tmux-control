@@ -13,6 +13,7 @@ RunFn = Callable[..., subprocess.CompletedProcess[str]]
 DEFAULT_BUFFER_NAME = "claude-tmux-control"
 DEFAULT_PASTE_SUBMIT_DELAY_SECONDS = 0.25
 DEFAULT_SECOND_SUBMIT_DELAY_SECONDS = 1.0
+DEFAULT_READY_IDLE_SECONDS = 3.5
 
 
 class ScreenCaptureController(Protocol):
@@ -146,7 +147,7 @@ def follow_until_idle(
     session: str,
     height: int = 200,
     interval: float = 0.5,
-    idle_seconds: float = 2.0,
+    idle_seconds: float = DEFAULT_READY_IDLE_SECONDS,
     write: Callable[[str], object] = sys.stdout.write,
     sleep: Callable[[float], object] = time.sleep,
     now: Callable[[], float] = time.monotonic,

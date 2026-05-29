@@ -94,6 +94,7 @@ from ctc_state import (
 )
 from ctc_streaming import (
     CONFIRMATION_PATTERNS,
+    DEFAULT_READY_IDLE_SECONDS,
     DEFAULT_STREAM_SUBMIT_ENTERS,
     DEFAULT_TOOL_RESULT_TEXT_LIMIT,
     DEFAULT_TRANSCRIPT_ROOT,
@@ -1465,7 +1466,7 @@ def stream_high_level_transcript_until_done(
     root: Path = DEFAULT_TRANSCRIPT_ROOT,
     interval: float = 2.0,
     timeout: float = 300.0,
-    idle_seconds: float = 2.0,
+    idle_seconds: float = DEFAULT_READY_IDLE_SECONDS,
     write: Callable[[str], object] = sys.stdout.write,
     sleep: Callable[[float], object] = time.sleep,
     now: Callable[[], float] = time.monotonic,
@@ -2086,7 +2087,7 @@ def wait_until_ready(
     height: int = 80,
     interval: float = 0.5,
     timeout: float = 120.0,
-    idle_seconds: float = 2.0,
+    idle_seconds: float = DEFAULT_READY_IDLE_SECONDS,
     transcript_path: Path | None = None,
     transcript_resolver: Callable[[], tuple[Path | None, bool]] | None = None,
     sleep: Callable[[float], object] = time.sleep,

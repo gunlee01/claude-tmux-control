@@ -377,7 +377,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.7.4\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.7.5\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -779,6 +779,11 @@ class CliTest(unittest.TestCase):
         self.assertEqual(args.idle, 1.5)
         self.assertEqual(args.tool_result_limit, 100)
 
+    def test_parse_stream_defaults_to_three_point_five_idle_seconds(self):
+        args = ctc.parse_args(["stream", "work"])
+
+        self.assertEqual(args.idle, 3.5)
+
     def test_parse_stream_accepts_tool_result_limit(self):
         args = ctc.parse_args(["stream", "work", "--tool-result-limit", "240"])
 
@@ -792,6 +797,7 @@ class CliTest(unittest.TestCase):
         self.assertEqual(args.session_id, session_id)
         self.assertEqual(args.cwd, Path("/tmp/project"))
         self.assertEqual(ctc._high_level_prompt_from_args(args), "hello Claude")
+        self.assertEqual(args.idle, 3.5)
         self.assertEqual(args.submit_enters, 2)
         self.assertTrue(ctc._is_high_level_stream_args(args))
 
@@ -4597,11 +4603,40 @@ class ScreenStatusTest(unittest.TestCase):
 
         self.assertEqual(status.state, "ready")
 
+    def test_detects_prompt_glyph_within_bottom_fifteen_status_lines(self):
+        screen = "\n".join(
+            [
+                "❯ 현재 프롬프트",
+                "line 1",
+                "line 2",
+                "line 3",
+                "line 4",
+                "line 5",
+                "line 6",
+                "line 7",
+                "line 8",
+                "line 9",
+                "line 10",
+                "  Sonnet 4.6 high [Team] Cache:1h",
+                "  Context ██░░░░░░░░ 22% (44k/200k)",
+                "  ⏵⏵ auto mode on (shift+tab to cycle)",
+            ],
+        )
+
+        status = ctc.analyze_screen_status(screen)
+
+        self.assertEqual(status.state, "ready")
+
     def test_ignores_old_prompt_glyph_outside_bottom_status_area(self):
         screen = "\n".join(
             [
                 "❯ 이전에 보낸 프롬프트",
                 "Claude is still producing a long answer.",
+                "line -4",
+                "line -3",
+                "line -2",
+                "line -1",
+                "line 0",
                 "line 1",
                 "line 2",
                 "line 3",

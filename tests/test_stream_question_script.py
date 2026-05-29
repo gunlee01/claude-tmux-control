@@ -12,6 +12,13 @@ def load_stream_question_module():
 
 
 class StreamQuestionScriptTest(unittest.TestCase):
+    def test_parse_args_defaults_to_three_point_five_idle_seconds(self):
+        module = load_stream_question_module()
+
+        args = module.parse_args(["work", "hello"])
+
+        self.assertEqual(args.idle, 3.5)
+
     def test_build_commands_send_prompt_then_stream_session(self):
         module = load_stream_question_module()
 

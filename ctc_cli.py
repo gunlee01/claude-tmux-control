@@ -13,7 +13,12 @@ from ctc_launch import (
     _normalize_claude_args_option_values,
 )
 from ctc_state import DEFAULT_STATE_DIR
-from ctc_streaming import DEFAULT_STREAM_SUBMIT_ENTERS, DEFAULT_TOOL_RESULT_TEXT_LIMIT, DEFAULT_TRANSCRIPT_ROOT
+from ctc_streaming import (
+    DEFAULT_READY_IDLE_SECONDS,
+    DEFAULT_STREAM_SUBMIT_ENTERS,
+    DEFAULT_TOOL_RESULT_TEXT_LIMIT,
+    DEFAULT_TRANSCRIPT_ROOT,
+)
 
 
 PACKAGE_NAME = "claude-tmux-control"
@@ -133,7 +138,7 @@ Docs:
     wait_ready.add_argument("--height", type=int, default=80, help="number of pane history lines to inspect")
     wait_ready.add_argument("--interval", type=float, default=0.5, help="seconds between captures")
     wait_ready.add_argument("--timeout", type=float, default=120.0, help="maximum seconds to wait")
-    wait_ready.add_argument("--idle", type=float, default=2.0, help="screen must stay stable this many seconds")
+    wait_ready.add_argument("--idle", type=float, default=DEFAULT_READY_IDLE_SECONDS, help="screen must stay stable this many seconds")
     wait_ready.add_argument("--transcript", type=Path, help="specific transcript JSONL path")
     wait_ready.add_argument("--root", type=Path, default=DEFAULT_TRANSCRIPT_ROOT, help="Claude config/transcript directory")
     wait_ready.add_argument("--screen-only", action="store_true", help="do not use transcript state")
@@ -197,7 +202,7 @@ Docs:
     ask.add_argument("--root", type=Path, default=DEFAULT_TRANSCRIPT_ROOT, help="Claude config/transcript directory")
     ask.add_argument("--interval", type=float, default=2.0, help="seconds between transcript checks")
     ask.add_argument("--timeout", type=float, default=300.0, help="maximum seconds to wait")
-    ask.add_argument("--idle", type=float, default=2.0, help="ready state must remain stable this many seconds")
+    ask.add_argument("--idle", type=float, default=DEFAULT_READY_IDLE_SECONDS, help="ready state must remain stable this many seconds")
     ask.add_argument(
         "--submit-enters",
         type=int,
@@ -231,7 +236,7 @@ Docs:
         command_parser.add_argument("--last", "--count", "--tail", dest="count", type=int, default=1, help="number of recent turns to replay")
         command_parser.add_argument("--interval", type=float, default=2.0, help="seconds between transcript checks for active turn attach")
         command_parser.add_argument("--timeout", type=float, default=300.0, help="maximum seconds to stream active last turn")
-        command_parser.add_argument("--idle", type=float, default=2.0, help="ready state must remain stable this many seconds")
+        command_parser.add_argument("--idle", type=float, default=DEFAULT_READY_IDLE_SECONDS, help="ready state must remain stable this many seconds")
         command_parser.add_argument(
             "--tool-result-limit",
             type=int,
@@ -272,7 +277,7 @@ Docs:
     stream.add_argument("--root", type=Path, default=DEFAULT_TRANSCRIPT_ROOT, help="Claude config/transcript directory")
     stream.add_argument("--interval", type=float, default=2.0, help="seconds between transcript checks")
     stream.add_argument("--timeout", type=float, default=300.0, help="maximum seconds to stream")
-    stream.add_argument("--idle", type=float, default=2.0, help="ready state must remain stable this many seconds")
+    stream.add_argument("--idle", type=float, default=DEFAULT_READY_IDLE_SECONDS, help="ready state must remain stable this many seconds")
     stream.add_argument(
         "--submit-enters",
         type=int,
@@ -310,6 +315,6 @@ Docs:
     add_environment_args(chat)
     chat.add_argument("--height", type=int, default=200, help="number of pane history lines to capture")
     chat.add_argument("--interval", type=float, default=0.5, help="seconds between captures after sending input")
-    chat.add_argument("--idle", type=float, default=2.0, help="return to the input prompt after this many stable seconds")
+    chat.add_argument("--idle", type=float, default=DEFAULT_READY_IDLE_SECONDS, help="return to the input prompt after this many stable seconds")
 
     return parser.parse_args(argv)

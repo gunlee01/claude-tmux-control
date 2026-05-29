@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+DEFAULT_READY_IDLE_SECONDS = 3.5
+
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -19,7 +21,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("prompt", nargs="*", help="prompt text; reads stdin when omitted")
     parser.add_argument("--ctc", default=str(Path(__file__).resolve().parents[1] / "claude_tmux_control.py"))
     parser.add_argument("--timeout", type=float, default=300.0, help="maximum seconds to stream")
-    parser.add_argument("--idle", type=float, default=2.0, help="ready state must remain stable this many seconds")
+    parser.add_argument(
+        "--idle",
+        type=float,
+        default=DEFAULT_READY_IDLE_SECONDS,
+        help="ready state must remain stable this many seconds",
+    )
     parser.add_argument("--interval", type=float, default=0.5, help="seconds between stream checks")
     parser.add_argument("--raw-json", action="store_true", help="print raw JSONL stream instead of formatted text")
     return parser.parse_args(argv)

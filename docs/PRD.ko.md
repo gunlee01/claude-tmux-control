@@ -146,7 +146,7 @@ High-level `stream [--session-id <id>] --cwd <path> <prompt...>` contract:
 - Emits `done` and exits `0` only after the target turn is complete.
 - Does not treat `tool_use`, `tool_result`, or thinking-only assistant events as complete.
 - Does not complete a subagent flow until the `Task` tool result is followed by final assistant text.
-- Combines transcript readiness with tmux screen readiness and a short idle window.
+- Combines transcript readiness with tmux screen readiness and a short idle window. The default idle window is `3.5` seconds.
 - Emits final turn metrics after `done` as a separate `metrics` event.
 - Provides `cancel <session_id>` to send `Escape` to the underlying Claude Code tmux pane without sending a new prompt.
 - Provides `last <session_id> --last N` / `replay <session_id> --last N` to re-emit completed turn JSONL events for clients that disconnected after a turn finished.

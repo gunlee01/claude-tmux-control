@@ -367,6 +367,7 @@ final assistant text exists
 latest meaningful transcript event is not thinking/tool_use/tool_result
 tmux screen is ready or transcript-only completion policy is explicitly enabled
 ready state remains stable for idle window
+default idle window is 3.5 seconds
 ```
 
 ## 6. Where To Start Reading

@@ -108,6 +108,7 @@ Important options:
 | `--state-dir PATH` | bridge state directory |
 | `--root PATH` | Claude config/transcript root |
 | `--interval N` | transcript polling interval, default `2.0` |
+| `--idle N` | ready state stability window before `done`, default `3.5` |
 | `--timeout N` | max wait time; on high-level stream timeout, send Escape, stop the tmux session, and clear the active turn when cleanup succeeds |
 | `--submit-enters {1,2}` | Enter submits after tmux paste when reusing an active session; default `2` |
 | `--tool-result-limit N` | truncate tool result previews |

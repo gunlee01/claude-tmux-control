@@ -63,7 +63,7 @@ A turn is complete only when:
 - the target user turn is anchored in transcript,
 - meaningful transcript events no longer indicate thinking/tool work,
 - the tmux screen looks ready,
-- readiness remains stable for the idle window.
+- readiness remains stable for the idle window, default `3.5` seconds.
 
 The visible prompt alone is not enough.
 
