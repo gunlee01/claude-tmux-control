@@ -223,17 +223,18 @@ Environment injection applies only when a new tmux session is created. Existing 
 
 ## Claude Launch Options
 
-The bridge always launches the fixed `claude` executable. Use `--model MODEL` for model selection and `--claude-args "ARGS"` for trusted extra Claude Code CLI arguments.
+The bridge always launches the fixed `claude` executable. Use `--model MODEL` for model selection, `--effort EFFORT` for reasoning effort, and `--claude-args "ARGS"` for trusted extra Claude Code CLI arguments.
 
 ```bash
 TERM=xterm-256color ctc stream \
   --cwd "$PWD" \
   --model opus \
+  --effort high \
   --claude-args "--add-dir ../shared" \
   "hello"
 ```
 
-These options apply only when a new Claude Code process is launched. Existing tmux sessions keep their original model and arguments.
+These options apply only when a new Claude Code process is launched. Existing tmux sessions keep their original model, effort, and arguments.
 
 Claude Code launches with `--dangerously-skip-permissions` by default. This is convenient for non-interactive service flows, but it lets Claude Code run tools without per-action approval. Run it only in a controlled project directory, container, or dedicated service user.
 

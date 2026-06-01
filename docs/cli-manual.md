@@ -88,7 +88,7 @@ The same `session_id` cannot be reused with a different `cwd`.
 High-level one-turn streaming:
 
 ```bash
-ctc stream --cwd PATH [--session-id UUID] [--model MODEL] [--claude-args "ARGS"] [--timeout SECONDS] PROMPT
+ctc stream --cwd PATH [--session-id UUID] [--model MODEL] [--effort EFFORT] [--claude-args "ARGS"] [--timeout SECONDS] PROMPT
 ```
 
 Attach to the active turn without sending a new prompt:
@@ -115,14 +115,15 @@ Important options:
 | `--env-file PATH` | read extra environment for newly created tmux sessions |
 | `--env NAME` | copy one named variable from the current `ctc` process env |
 | `--model MODEL` | pass a Claude model to a newly launched Claude Code process |
+| `--effort EFFORT` | pass a Claude reasoning effort to a newly launched Claude Code process |
 | `--claude-args "ARGS"` | trusted extra Claude Code CLI arguments, parsed without shell execution |
 
-`--model` and `--claude-args` apply only when the bridge launches a new Claude Code process. Existing tmux sessions keep their original process options.
+`--model`, `--effort`, and `--claude-args` apply only when the bridge launches a new Claude Code process. Existing tmux sessions keep their original process options.
 
 Quote `--claude-args` as one shell argument:
 
 ```bash
-ctc stream --cwd "$PWD" --model opus --claude-args "--add-dir ../shared" "hello"
+ctc stream --cwd "$PWD" --model opus --effort high --claude-args "--add-dir ../shared" "hello"
 ```
 
 ### `ask`
@@ -130,7 +131,7 @@ ctc stream --cwd "$PWD" --model opus --claude-args "--add-dir ../shared" "hello"
 Runs one high-level turn and prints final JSON instead of streaming progress.
 
 ```bash
-ctc ask --cwd PATH [--session-id UUID] [--model MODEL] [--claude-args "ARGS"] PROMPT
+ctc ask --cwd PATH [--session-id UUID] [--model MODEL] [--effort EFFORT] [--claude-args "ARGS"] PROMPT
 ```
 
 `ask` also accepts `--submit-enters {1,2}` for the active tmux reuse path, with the same default `2` as `stream`.
@@ -221,7 +222,7 @@ Terminates one tmux session by tmux session name.
 
 ```bash
 ctc start TMUX_SESSION --cwd PATH
-ctc launch TMUX_SESSION --model opus
+ctc launch TMUX_SESSION --model opus --effort high
 ctc send TMUX_SESSION PROMPT
 ctc answer TMUX_SESSION --wait
 ctc turn TMUX_SESSION --tail 3
@@ -275,13 +276,15 @@ Environment injection applies only when a new tmux session is created. Existing 
 
 The bridge always launches the fixed `claude` executable. It does not accept an arbitrary shell command.
 
-Use `--model MODEL` for the common model selection case. Use `--claude-args "ARGS"` for trusted extra Claude Code CLI arguments.
+Use `--model MODEL` for model selection and `--effort EFFORT` for reasoning effort. Use `--claude-args "ARGS"` for trusted extra Claude Code CLI arguments.
 
 ```bash
-ctc start work --cwd "$PWD" --model opus
+ctc start work --cwd "$PWD" --model opus --effort high
 ctc stream --cwd "$PWD" --claude-args "--add-dir ../shared" "hello"
 ctc stream --cwd "$PWD" --claude-args "--permission-mode plan" "hello"
 ```
+
+Do not set the same option twice. For example, `--effort high --claude-args "--effort low"` is rejected as `duplicate_effort`.
 
 `--claude-args` is parsed with shell-like quoting, but it is not executed by a shell. Keep it operator-controlled; do not expose a raw text box for untrusted clients.
 
@@ -298,8 +301,8 @@ Clients can change permission behavior by passing a Claude Code permission optio
 Examples:
 
 ```bash
-ctc start work --model opus
-# launches: claude --model opus --dangerously-skip-permissions
+ctc start work --model opus --effort high
+# launches: claude --model opus --effort high --dangerously-skip-permissions
 
 ctc start work --claude-args "--permission-mode plan"
 # launches: claude --permission-mode plan

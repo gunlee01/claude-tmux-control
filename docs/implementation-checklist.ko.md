@@ -56,7 +56,7 @@
 - [x] `.ctc.env`, `--env-file`, `--env`로 project env injection을 지원한다.
 - [x] Claude Code launch 기본값은 `--dangerously-skip-permissions`로 둔다.
 - [x] permission override flag를 중복 추가하지 않는다.
-- [x] Claude Code executable은 `claude`로 고정하고, trusted launch option은 `--model` / `--claude-args`로 전달한다.
+- [x] Claude Code executable은 `claude`로 고정하고, trusted launch option은 `--model` / `--effort` / `--claude-args`로 전달한다.
 - [x] 새 Claude Code process 실행 전에 high-level `--cwd`를 Claude Code trusted project로 preseed한다.
 
 ## 8. Docker

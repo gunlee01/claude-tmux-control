@@ -311,7 +311,7 @@ def _run_command(args: argparse.Namespace, controller: TmuxController) -> int:
     if args.command_name == "stream":
         if _is_high_level_stream_args(args):
             return _run_high_level_stream(args, controller)
-        if getattr(args, "model", None) or getattr(args, "claude_args_string", None):
+        if getattr(args, "model", None) or getattr(args, "effort", None) or getattr(args, "claude_args_string", None):
             print("claude_launch_args_require_cwd", file=sys.stderr)
             return 2
         if not args.session:

@@ -38,6 +38,7 @@ def _normalize_claude_args_option_values(argv: Sequence[str]) -> list[str]:
 
 def add_claude_launch_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", help="Claude model for newly launched Claude Code sessions")
+    parser.add_argument("--effort", help="Claude reasoning effort for newly launched Claude Code sessions")
     parser.add_argument(
         "--claude-args",
         dest="claude_args_string",
@@ -75,6 +76,11 @@ def claude_args_from_options(args: argparse.Namespace) -> list[str]:
         raise ValueError("duplicate_model")
     if model:
         values.extend(["--model", model])
+    effort = getattr(args, "effort", None)
+    if effort and _has_effort_option(values):
+        raise ValueError("duplicate_effort")
+    if effort:
+        values.extend(["--effort", effort])
     return values
 
 
@@ -283,3 +289,7 @@ def _has_permission_override(claude_args: Sequence[str]) -> bool:
 
 def _has_model_option(claude_args: Sequence[str]) -> bool:
     return any(arg == "--model" or arg.startswith("--model=") for arg in claude_args)
+
+
+def _has_effort_option(claude_args: Sequence[str]) -> bool:
+    return any(arg == "--effort" or arg.startswith("--effort=") for arg in claude_args)

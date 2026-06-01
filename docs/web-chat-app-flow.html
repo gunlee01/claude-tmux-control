@@ -498,6 +498,10 @@
             <input id="claudeModel" value="opus" spellcheck="false">
           </label>
           <label>
+            Claude Effort
+            <input id="claudeEffort" value="high" spellcheck="false">
+          </label>
+          <label>
             Claude Args
             <input id="claudeArgs" value="--add-dir ../shared" spellcheck="false">
           </label>
@@ -688,6 +692,7 @@
         projectDir: value("projectDir") || ".",
         oauthEnv: value("oauthEnv") || "CLAUDE_CODE_OAUTH_TOKEN",
         claudeModel: value("claudeModel"),
+        claudeEffort: value("claudeEffort"),
         claudeArgs: value("claudeArgs"),
         stateDir: value("stateDir") || "~/.cache/claude-tmux-control",
         prompt: value("prompt") || "Hello",
@@ -697,12 +702,14 @@
 
     function launchArgLines(s) {
       return `${s.claudeModel ? `  --model ${esc(s.claudeModel)} \\
+` : ""}${s.claudeEffort ? `  --effort ${esc(s.claudeEffort)} \\
 ` : ""}${s.claudeArgs ? `  --claude-args "${esc(s.claudeArgs)}" \\
 ` : ""}`;
     }
 
     function launchArgArrayLines(s, indent = "  ") {
       return `${s.claudeModel ? `${indent}"--model", "${esc(s.claudeModel)}",
+` : ""}${s.claudeEffort ? `${indent}"--effort", "${esc(s.claudeEffort)}",
 ` : ""}${s.claudeArgs ? `${indent}"--claude-args", "${esc(s.claudeArgs)}",
 ` : ""}`;
     }

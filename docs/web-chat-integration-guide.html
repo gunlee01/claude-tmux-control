@@ -754,6 +754,10 @@
           <input id="claudeModel" value="opus" spellcheck="false">
         </label>
         <label>
+          Claude Effort
+          <input id="claudeEffort" value="high" spellcheck="false">
+        </label>
+        <label>
           Claude Args
           <input id="claudeArgs" value="--add-dir ../shared" spellcheck="false">
         </label>
@@ -1065,6 +1069,7 @@
 
     function launchArgs(s) {
       return `${s.claudeModel ? `  --model ${escapeHtml(s.claudeModel)} \\
+` : ""}${s.claudeEffort ? `  --effort ${escapeHtml(s.claudeEffort)} \\
 ` : ""}${s.claudeArgs ? `  --claude-args "${escapeHtml(s.claudeArgs)}" \\
 ` : ""}`;
     }
@@ -1128,10 +1133,10 @@ SESSION_ID="${escapeHtml(s.sessionId)}"
 TMUX_SESSION="ctc-csess-$SESSION_ID"
 
 # new session:
-claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --session-id "$SESSION_ID"${defaultPermissionArg(s)} -- "$PROMPT"
+claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeEffort ? ` --effort ${escapeHtml(s.claudeEffort)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --session-id "$SESSION_ID"${defaultPermissionArg(s)} -- "$PROMPT"
 
 # resume inactive session:
-claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --resume "$SESSION_ID"${defaultPermissionArg(s)} -- "$PROMPT"
+claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeEffort ? ` --effort ${escapeHtml(s.claudeEffort)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --resume "$SESSION_ID"${defaultPermissionArg(s)} -- "$PROMPT"
 
 # active tmux session:
 tmux load-buffer + paste-buffer + Enter after 0.25s + Enter after 1.0s`
@@ -1180,6 +1185,7 @@ ctc reap --idle-seconds 1800 --prefix ctc-csess-`
         envName: slug(document.getElementById("envName").value || ""),
         userPrompt: document.getElementById("userPrompt").value || "Finish this PR",
         claudeModel: document.getElementById("claudeModel").value.trim(),
+        claudeEffort: document.getElementById("claudeEffort").value.trim(),
         claudeArgs: document.getElementById("claudeArgs").value.trim(),
         mode: document.getElementById("sessionMode").value
       };
@@ -1288,7 +1294,7 @@ ctc reap --idle-seconds 1800 --prefix ctc-csess-`
       });
     });
 
-    document.querySelectorAll("#sessionId, #projectDir, #oauthEnv, #envFile, #envName, #userPrompt, #claudeModel, #claudeArgs, #sessionMode").forEach(input => {
+    document.querySelectorAll("#sessionId, #projectDir, #oauthEnv, #envFile, #envName, #userPrompt, #claudeModel, #claudeEffort, #claudeArgs, #sessionMode").forEach(input => {
       input.addEventListener("input", renderCommands);
       input.addEventListener("change", renderCommands);
     });

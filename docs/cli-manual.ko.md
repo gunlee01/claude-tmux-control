@@ -174,7 +174,7 @@ ctc answer work --wait --timeout 120
 
 ```text
 client/web
-  -> ctc stream --cwd PATH [--session-id UUID] [--model MODEL] [--claude-args "ARGS"] PROMPT
+  -> ctc stream --cwd PATH [--session-id UUID] [--model MODEL] [--effort EFFORT] [--claude-args "ARGS"] PROMPT
     -> internal tmux session ctc-csess-<UUID>
       -> Claude Code interactive CLI
     <- transcript JSONL
@@ -230,13 +230,14 @@ ctc start work
 새 tmux session을 만들고 Claude Code를 실행합니다.
 
 ```bash
-ctc start SESSION [--cwd PATH] [--model MODEL] [--claude-args "ARGS"] [--attach] [--oauth-token-env ENV] [--env-file PATH] [--env NAME]
+ctc start SESSION [--cwd PATH] [--model MODEL] [--effort EFFORT] [--claude-args "ARGS"] [--attach] [--oauth-token-env ENV] [--env-file PATH] [--env NAME]
 ```
 
 | 옵션 | 의미 |
 | --- | --- |
 | `--cwd PATH` | 새 session의 working directory |
 | `--model MODEL` | 새 Claude Code process에 전달할 model |
+| `--effort EFFORT` | 새 Claude Code process에 전달할 reasoning effort |
 | `--claude-args "ARGS"` | 신뢰된 추가 Claude Code CLI argument. shell 실행 없이 parsing |
 | `--attach` | 생성/재사용 후 바로 tmux attach |
 | `--oauth-token-env ENV` | 이 env 값을 `CLAUDE_CODE_OAUTH_TOKEN`으로 주입 |
@@ -248,24 +249,24 @@ ctc start SESSION [--cwd PATH] [--model MODEL] [--claude-args "ARGS"] [--attach]
 - 실행 파일은 항상 `claude`입니다. 임의 shell command는 받지 않습니다.
 - permission override가 없으면 `--dangerously-skip-permissions`가 자동으로 붙습니다.
 - `--oauth-token-env`, `--env-file`, `--env`는 새 tmux session을 만들 때만 의미가 있습니다.
-- `--model`, `--claude-args`도 새 Claude Code process를 시작할 때만 적용됩니다.
+- `--model`, `--effort`, `--claude-args`도 새 Claude Code process를 시작할 때만 적용됩니다.
 
 Claude Code option 예:
 
 ```bash
-ctc start work --cwd "$PWD" --model opus
+ctc start work --cwd "$PWD" --model opus --effort high
 ```
 
 추가 Claude Code option이 필요하면 `--claude-args`를 하나의 shell argument로 quote합니다.
 
 ```bash
-ctc start work --cwd "$PWD" --model opus --claude-args "--add-dir ../shared"
+ctc start work --cwd "$PWD" --model opus --effort high --claude-args "--add-dir ../shared"
 ```
 
 실제 실행 command는 대략 다음처럼 됩니다.
 
 ```bash
-claude --model opus --add-dir ../shared --dangerously-skip-permissions
+claude --model opus --effort high --add-dir ../shared --dangerously-skip-permissions
 ```
 
 ### `launch`
@@ -273,7 +274,7 @@ claude --model opus --add-dir ../shared --dangerously-skip-permissions
 이미 존재하는 tmux session 안에 Claude Code 실행 command를 붙여 넣고 실행합니다.
 
 ```bash
-ctc launch SESSION [--model MODEL] [--claude-args "ARGS"]
+ctc launch SESSION [--model MODEL] [--effort EFFORT] [--claude-args "ARGS"]
 ```
 
 주의:
@@ -971,15 +972,17 @@ env 주입은 새 tmux session 생성 시점에만 적용됩니다. 기존 sessi
 
 bridge는 항상 고정된 `claude` 실행 파일을 사용합니다. 임의 shell command는 받지 않습니다.
 
-일반적인 model 선택은 `--model MODEL`을 씁니다.
+model 선택은 `--model MODEL`을 쓰고 reasoning effort는 `--effort EFFORT`를 씁니다.
 
 신뢰된 추가 Claude Code option은 `--claude-args "ARGS"`로 전달합니다.
 
 ```bash
-ctc start work --cwd "$PWD" --model opus
+ctc start work --cwd "$PWD" --model opus --effort high
 ctc stream --cwd "$PWD" --claude-args "--add-dir ../shared" "hello"
 ctc stream --cwd "$PWD" --claude-args "--permission-mode plan" "hello"
 ```
+
+같은 option을 두 번 지정하지 마세요. 예를 들어 `--effort high --claude-args "--effort low"`는 `duplicate_effort`로 거절됩니다.
 
 `--claude-args`는 shell-like quoting으로 parsing하지만 shell로 실행하지 않습니다.
 
@@ -1009,8 +1012,8 @@ Docker, isolated server, 제한된 project directory, dedicated service user 같
 예:
 
 ```bash
-ctc start work --model opus
-# 실행: claude --model opus --dangerously-skip-permissions
+ctc start work --model opus --effort high
+# 실행: claude --model opus --effort high --dangerously-skip-permissions
 
 ctc start work --claude-args "--permission-mode plan"
 # 실행: claude --permission-mode plan
