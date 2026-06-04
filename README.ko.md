@@ -43,6 +43,18 @@ Low-level tmux 명령도 있지만, 웹 클라이언트 계약이 아니라 디�
 - Claude Code CLI (`claude`)
 - Claude Code 인증 설정 또는 `CLAUDE_CODE_OAUTH_TOKEN`
 
+백엔드나 웹 채팅 연동에서는 요청별 OAuth token을 환경변수로 받고 `--oauth-token-env`로 source env를 지정합니다. `ctc`가 Claude Code process를 새로 만들거나 resume으로 다시 실행할 때, 이 source env 값을 `CLAUDE_CODE_OAUTH_TOKEN`으로 복사해서 `claude` process에 전달합니다.
+
+```bash
+ACCOUNT_A_TOKEN="$TOKEN" \
+TERM=xterm-256color ctc stream \
+  --cwd "$PWD" \
+  --oauth-token-env ACCOUNT_A_TOKEN \
+  "hello"
+```
+
+OAuth/env 주입은 새 tmux session을 만들 때만 적용됩니다. old tmux session이 kill/reap되어 `--resume`으로 새 Claude Code process를 띄우는 경우도 포함됩니다. tmux session이 아직 살아 있으면 `ctc`는 기존 Claude Code process에 다음 prompt만 보내므로, 새 token은 해당 tmux session을 stop/reap한 뒤에야 적용됩니다.
+
 서버 환경에서 terminal type 문제가 나면 `TERM=xterm-256color`를 붙여 실행합니다.
 
 ```bash
@@ -118,9 +130,11 @@ Claude Code itself is distributed separately by Anthropic and is subject to its 
 ```bash
 SESSION_ID="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 
+ACCOUNT_A_TOKEN="$TOKEN" \
 TERM=xterm-256color ctc stream \
   --cwd "$PWD" \
   --session-id "$SESSION_ID" \
+  --oauth-token-env ACCOUNT_A_TOKEN \
   "현재 프로젝트 구조를 설명해줘"
 ```
 
@@ -167,7 +181,7 @@ TERM=xterm-256color ctc stream \
 
 ```text
 app server
-  -> ctc stream --cwd <project> --session-id <uuid> "<prompt>"
+  -> ctc stream --cwd <project> --session-id <uuid> --oauth-token-env <token-env> "<prompt>"
   -> stdout JSONL read
   -> SSE/WebSocket으로 browser에 relay
   -> done 수신 후 입력창 활성화
@@ -321,7 +335,7 @@ TERM=xterm-256color ctc stream \
   "hello"
 ```
 
-계정별 token을 다른 환경변수명으로 관리한다면 `--oauth-token-env`를 사용합니다.
+계정별 token을 다른 환경변수명으로 관리한다면 `--oauth-token-env`를 사용합니다. `ctc`가 Claude Code를 실행할 때 이 값을 `CLAUDE_CODE_OAUTH_TOKEN`으로 넘겨 `claude` process가 해당 OAuth token으로 동작하게 합니다.
 
 ```bash
 ACCOUNT_A_TOKEN="$TOKEN" \

@@ -41,6 +41,18 @@ Web chat apps normally call only `ctc stream --cwd ... [--session-id ...] ...`.
 - Claude Code CLI (`claude`)
 - Claude Code auth, or `CLAUDE_CODE_OAUTH_TOKEN`
 
+For backend or web-chat integrations, pass a request-scoped OAuth token through an environment variable and select it with `--oauth-token-env`. When `ctc` creates or resumes a Claude Code process, it copies that source variable into `CLAUDE_CODE_OAUTH_TOKEN` for the launched `claude` process.
+
+```bash
+ACCOUNT_A_TOKEN="$TOKEN" \
+TERM=xterm-256color ctc stream \
+  --cwd "$PWD" \
+  --oauth-token-env ACCOUNT_A_TOKEN \
+  "hello"
+```
+
+OAuth/env injection applies only when a new tmux session is created, including a `--resume` launch after the old tmux session was killed or reaped. If the tmux session is still alive, `ctc` sends only the next prompt to the existing Claude Code process, so a newly supplied token is not applied until you stop/reap that tmux session.
+
 If a server terminal type causes tmux errors, run with `TERM=xterm-256color`.
 
 ```bash
@@ -108,9 +120,11 @@ Run one prompt and receive JSONL stream events.
 ```bash
 SESSION_ID="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 
+ACCOUNT_A_TOKEN="$TOKEN" \
 TERM=xterm-256color ctc stream \
   --cwd "$PWD" \
   --session-id "$SESSION_ID" \
+  --oauth-token-env ACCOUNT_A_TOKEN \
   "Explain the project structure"
 ```
 
@@ -149,7 +163,7 @@ Internally, the bridge creates or reuses a tmux session named `ctc-csess-<SESSIO
 
 ```text
 app server
-  -> ctc stream --cwd <project> --session-id <uuid> "<prompt>"
+  -> ctc stream --cwd <project> --session-id <uuid> --oauth-token-env <token-env> "<prompt>"
   -> read stdout JSONL line by line
   -> relay events to browser by SSE/WebSocket
   -> enable input after done
@@ -207,7 +221,7 @@ CLAUDE_CODE_OAUTH_TOKEN="$TOKEN" \
 TERM=xterm-256color ctc stream --cwd "$PWD" "hello"
 ```
 
-`--oauth-token-env` selects the source env var when needed.
+`--oauth-token-env` selects the source env var when needed. When `ctc` launches Claude Code, that value is passed as `CLAUDE_CODE_OAUTH_TOKEN` to the `claude` process.
 
 Additional Claude-side environment can come from a project env file or an explicit whitelist. By default, high-level commands read `<cwd>/.ctc.env` when it exists; use `--env-file PATH` to choose another file and `--env NAME` to copy a named variable from the current `ctc` process environment.
 
