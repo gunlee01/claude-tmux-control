@@ -352,7 +352,7 @@ bridge는 항상 고정된 `claude` 실행 파일을 사용합니다.
 
 model 선택은 `--model MODEL`을 쓰고 reasoning effort는 `--effort EFFORT`를 씁니다.
 
-신뢰된 추가 Claude Code option은 `--claude-args "ARGS"`로 전달합니다.
+신뢰된 추가 Claude Code option은 `--claude-args "ARGS"`로 전달합니다. session 최초 생성에만 적용할 system prompt는 `--system-prompt`, `--system-prompt-file`, `--append-system-prompt`, `--append-system-prompt-file`을 사용합니다.
 
 ```bash
 TERM=xterm-256color ctc stream \
@@ -364,6 +364,8 @@ TERM=xterm-256color ctc stream \
 ```
 
 이 옵션들은 새 Claude Code process를 시작할 때만 적용됩니다. 기존 tmux session은 시작 당시 model, effort, argument를 유지합니다.
+
+system prompt 옵션은 더 엄격합니다. `ctc`가 완전히 새 Claude Code session을 `--session-id`로 만들 때만 전달됩니다. 같은 bridge session이 나중에 `--resume`으로 복구되면 `ctc`는 이 system prompt 옵션들을 버리고 Claude Code에 전달하지 않습니다.
 
 Claude Code 실행에는 기본적으로 `--dangerously-skip-permissions`가 붙습니다. 이 값은 non-interactive service flow에는 편하지만, Claude Code가 action별 승인 없이 tool을 실행할 수 있다는 뜻입니다. 제한된 project directory, container, dedicated service user 같은 통제된 환경에서만 쓰세요.
 

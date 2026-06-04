@@ -9,7 +9,7 @@ This document defines how a web/backend service should use `ctc` to expose Claud
 The primary command is:
 
 ```bash
-ctc stream --cwd <project_dir> --session-id <uuid> [--model MODEL] [--effort EFFORT] [--claude-args "ARGS"] "<prompt>"
+ctc stream --cwd <project_dir> --session-id <uuid> [--model MODEL] [--effort EFFORT] [--system-prompt* ...] [--claude-args "ARGS"] "<prompt>"
 ```
 
 The process emits JSONL on stdout. Each line is one event. The backend relays events to the browser through SSE, WebSocket, or another streaming transport.
@@ -21,9 +21,9 @@ Use one `session_id` per chat conversation. The bridge maps it to `ctc-csess-<se
 High-level web/client commands:
 
 ```bash
-ctc stream --cwd PATH [--session-id UUID] [--model MODEL] [--effort EFFORT] [--claude-args "ARGS"] PROMPT
+ctc stream --cwd PATH [--session-id UUID] [--model MODEL] [--effort EFFORT] [--system-prompt* ...] [--claude-args "ARGS"] PROMPT
 ctc stream --attach --session-id UUID
-ctc ask --cwd PATH [--session-id UUID] [--model MODEL] [--effort EFFORT] [--claude-args "ARGS"] PROMPT
+ctc ask --cwd PATH [--session-id UUID] [--model MODEL] [--effort EFFORT] [--system-prompt* ...] [--claude-args "ARGS"] PROMPT
 ctc cancel UUID
 ctc last UUID --last N
 ctc replay UUID --last N
@@ -71,7 +71,7 @@ If `<project>/.ctc.env` exists and no explicit `--env-file` is passed, `ctc` rea
 
 ### Claude Launch Arguments
 
-The bridge always launches the fixed `claude` executable. Use `--model MODEL` for model selection, `--effort EFFORT` for reasoning effort, and `--claude-args "ARGS"` for trusted extra Claude Code CLI arguments.
+The bridge always launches the fixed `claude` executable. Use `--model MODEL` for model selection, `--effort EFFORT` for reasoning effort, and `--claude-args "ARGS"` for trusted extra Claude Code CLI arguments. Use `--system-prompt`, `--system-prompt-file`, `--append-system-prompt`, and `--append-system-prompt-file` only for prompts that should shape the first creation of a session.
 
 ```bash
 TERM=xterm-256color \
@@ -84,7 +84,9 @@ ctc stream \
   "$USER_PROMPT"
 ```
 
-These options apply only when the bridge creates or resumes a Claude Code process. If the tmux session already exists, the running process keeps its original model, effort, and arguments.
+`--model`, `--effort`, and `--claude-args` apply only when the bridge creates or resumes a Claude Code process. If the tmux session already exists, the running process keeps its original model, effort, and arguments.
+
+System prompt options are initial-creation-only. They are passed only when `ctc` starts a brand-new Claude Code session with `--session-id`. If the same bridge session later resumes with `--resume`, `ctc` discards these system prompt options and does not pass them to Claude Code. The same resume discard applies when those options appear inside trusted `--claude-args`.
 
 When creating or resuming a tmux session, the bridge launches Claude Code with the prompt as an argv value after a `--` separator, for example `--session-id <uuid> -- <prompt>` or `--resume <uuid> -- <prompt>`. The shell command uses ANSI-C `$'...'` quoting so embedded newlines are represented as `\n` inside one prompt argument. If the tmux session already exists, the bridge submits the prompt through tmux `load-buffer`, `paste-buffer`, and `send-keys Enter`. Active-session submits send two Enter keys by default: after `0.25s` and again after `1.0s`. Use `--submit-enters 1` for a single Enter submit. Embedded newlines use bracketed `paste-buffer -p`.
 

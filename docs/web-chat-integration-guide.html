@@ -614,6 +614,7 @@
           <li>새 대화는 앱 서버가 UUID `session_id`를 넘기는 방식을 권장한다. 생략하면 CLI가 만들고 첫 event에 포함한다.</li>
           <li>같은 웹 대화창은 같은 `ctc-csess-&lt;session_id&gt;` tmux session을 사용한다.</li>
           <li>tmux가 죽어 있으면 같은 `session_id`로 `claude --resume`을 실행한다.</li>
+          <li>`--system-prompt*` 옵션은 최초 `--session-id` 생성에만 전달되고 `--resume`에서는 버린다.</li>
           <li>UI 진행 정보는 `stream`의 `thinking`, `tool_use`, `tool_result`, `assistant_text`, `done`을 line-by-line으로 읽는다.</li>
           <li>elapsed time, token, turn cost, session cumulative cost는 final `metrics` event에서 받는다. context는 transcript에 있을 때만 받는다.</li>
           <li>turn/session cost는 CLI가 `claude_pricing.json`과 completed turn records 기준으로 계산한다.</li>
@@ -770,7 +771,7 @@
         </label>
       </div>
       <div class="notice">
-        Claude Code launches with <code>--dangerously-skip-permissions</code> by default. To change it, map a trusted backend setting to <code>--claude-args "--permission-mode ..."</code>; do not pass arbitrary browser input into Claude Args.
+        Claude Code launches with <code>--dangerously-skip-permissions</code> by default. To change it, map a trusted backend setting to <code>--claude-args "--permission-mode ..."</code>; do not pass arbitrary browser input into Claude Args. Dedicated <code>--system-prompt*</code> flags are initial-creation-only and are not passed on <code>--resume</code>, including when they came from trusted <code>--claude-args</code>.
       </div>
 
       <div class="tabs">
@@ -1133,9 +1134,10 @@ SESSION_ID="${escapeHtml(s.sessionId)}"
 TMUX_SESSION="ctc-csess-$SESSION_ID"
 
 # new session:
-claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeEffort ? ` --effort ${escapeHtml(s.claudeEffort)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --session-id "$SESSION_ID"${defaultPermissionArg(s)} -- "$PROMPT"
+claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeEffort ? ` --effort ${escapeHtml(s.claudeEffort)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} [--system-prompt ...] --session-id "$SESSION_ID"${defaultPermissionArg(s)} -- "$PROMPT"
 
 # resume inactive session:
+# ctc drops dedicated --system-prompt* flags here.
 claude${s.claudeModel ? ` --model ${escapeHtml(s.claudeModel)}` : ""}${s.claudeEffort ? ` --effort ${escapeHtml(s.claudeEffort)}` : ""}${s.claudeArgs ? ` ${escapeHtml(s.claudeArgs)}` : ""} --resume "$SESSION_ID"${defaultPermissionArg(s)} -- "$PROMPT"
 
 # active tmux session:

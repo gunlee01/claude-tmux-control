@@ -379,7 +379,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.8.0\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.9.0\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -498,6 +498,51 @@ class CliTest(unittest.TestCase):
         args = ctc.parse_args(["start", "work", "--effort", "high", "--claude-args", "--add-dir ../other"])
 
         self.assertEqual(ctc.claude_args_from_options(args), ["--add-dir", "../other", "--effort", "high"])
+
+    def test_claude_args_from_options_appends_system_prompt_options(self):
+        args = ctc.parse_args(
+            [
+                "start",
+                "work",
+                "--system-prompt",
+                "base",
+                "--system-prompt-file",
+                "base.md",
+                "--append-system-prompt",
+                "extra",
+                "--append-system-prompt-file",
+                "extra.md",
+            ]
+        )
+
+        self.assertEqual(
+            ctc.claude_args_from_options(args),
+            [
+                "--system-prompt",
+                "base",
+                "--system-prompt-file",
+                "base.md",
+                "--append-system-prompt",
+                "extra",
+                "--append-system-prompt-file",
+                "extra.md",
+            ],
+        )
+
+    def test_claude_args_from_options_rejects_duplicate_system_prompt_options(self):
+        duplicate_cases = (
+            (["--system-prompt", "base", "--claude-args", "--system-prompt other"], "duplicate_system_prompt"),
+            (["--system-prompt-file", "base.md", "--claude-args", "--system-prompt-file other.md"], "duplicate_system_prompt_file"),
+            (["--append-system-prompt", "extra", "--claude-args", "--append-system-prompt other"], "duplicate_append_system_prompt"),
+            (
+                ["--append-system-prompt-file", "extra.md", "--claude-args", "--append-system-prompt-file other.md"],
+                "duplicate_append_system_prompt_file",
+            ),
+        )
+        for extra_args, expected_error in duplicate_cases:
+            with self.subTest(extra_args=extra_args):
+                with self.assertRaisesRegex(ValueError, expected_error):
+                    ctc.claude_args_from_options(ctc.parse_args(["start", "work", *extra_args]))
 
     def test_claude_args_from_options_rejects_duplicate_model_forms(self):
         with self.assertRaisesRegex(ValueError, "duplicate_model"):
@@ -1761,6 +1806,57 @@ class HighLevelStreamSetupTest(unittest.TestCase):
         self.assertEqual(
             command,
             "claude --session-id 550e8400-e29b-41d4-a716-446655440000 --dangerously-skip-permissions -- $'it\\'s \\\\ ok\\nnext'",
+        )
+
+    def test_build_initial_claude_command_drops_system_prompt_options_on_resume(self):
+        command = ctc.build_initial_claude_command(
+            [
+                "--system-prompt",
+                "base",
+                "--system-prompt-file",
+                "base.md",
+                "--append-system-prompt",
+                "extra",
+                "--append-system-prompt-file",
+                "extra.md",
+                "--model",
+                "opus",
+            ],
+            "550e8400-e29b-41d4-a716-446655440000",
+            resume=True,
+            prompt="resume please",
+        )
+
+        self.assertEqual(
+            command,
+            "claude --model opus --resume 550e8400-e29b-41d4-a716-446655440000 --dangerously-skip-permissions -- $'resume please'",
+        )
+
+    def test_build_initial_claude_command_drops_claude_args_system_prompt_options_on_resume(self):
+        args = ctc.parse_args(
+            [
+                "stream",
+                "--cwd",
+                "/tmp/project",
+                "--session-id",
+                "550e8400-e29b-41d4-a716-446655440000",
+                "--claude-args",
+                "--system-prompt=base --system-prompt-file=base.md --append-system-prompt=extra "
+                "--append-system-prompt-file=extra.md --model opus",
+                "resume please",
+            ]
+        )
+
+        command = ctc.build_initial_claude_command(
+            ctc.claude_args_from_options(args),
+            "550e8400-e29b-41d4-a716-446655440000",
+            resume=True,
+            prompt="resume please",
+        )
+
+        self.assertEqual(
+            command,
+            "claude --model opus --resume 550e8400-e29b-41d4-a716-446655440000 --dangerously-skip-permissions -- $'resume please'",
         )
 
     def test_prepare_high_level_stream_fails_closed_on_cwd_mismatch(self):

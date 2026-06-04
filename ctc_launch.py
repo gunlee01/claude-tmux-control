@@ -19,6 +19,12 @@ CLAUDE_EXECUTABLE = "claude"
 DEFAULT_ENV_FILE_NAME = ".ctc.env"
 ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 RESERVED_ENV_NAMES = {CLAUDE_OAUTH_TOKEN_ENV}
+INITIAL_ONLY_SYSTEM_PROMPT_OPTIONS = (
+    "--system-prompt",
+    "--system-prompt-file",
+    "--append-system-prompt",
+    "--append-system-prompt-file",
+)
 
 
 def _normalize_claude_args_option_values(argv: Sequence[str]) -> list[str]:
@@ -39,6 +45,22 @@ def _normalize_claude_args_option_values(argv: Sequence[str]) -> list[str]:
 def add_claude_launch_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", help="Claude model for newly launched Claude Code sessions")
     parser.add_argument("--effort", help="Claude reasoning effort for newly launched Claude Code sessions")
+    parser.add_argument(
+        "--system-prompt",
+        help="Claude system prompt for initial session creation only; ignored on resume",
+    )
+    parser.add_argument(
+        "--system-prompt-file",
+        help="Claude system prompt file for initial session creation only; ignored on resume",
+    )
+    parser.add_argument(
+        "--append-system-prompt",
+        help="Claude appended system prompt for initial session creation only; ignored on resume",
+    )
+    parser.add_argument(
+        "--append-system-prompt-file",
+        help="Claude appended system prompt file for initial session creation only; ignored on resume",
+    )
     parser.add_argument(
         "--claude-args",
         dest="claude_args_string",
@@ -71,6 +93,26 @@ def claude_args_from_options(args: argparse.Namespace) -> list[str]:
         values = shlex.split(getattr(args, "claude_args_string", None) or "")
     except ValueError as error:
         raise ValueError("invalid_claude_args") from error
+    system_prompt = getattr(args, "system_prompt", None)
+    if system_prompt and _has_claude_option(values, "--system-prompt"):
+        raise ValueError("duplicate_system_prompt")
+    if system_prompt:
+        values.extend(["--system-prompt", system_prompt])
+    system_prompt_file = getattr(args, "system_prompt_file", None)
+    if system_prompt_file and _has_claude_option(values, "--system-prompt-file"):
+        raise ValueError("duplicate_system_prompt_file")
+    if system_prompt_file:
+        values.extend(["--system-prompt-file", system_prompt_file])
+    append_system_prompt = getattr(args, "append_system_prompt", None)
+    if append_system_prompt and _has_claude_option(values, "--append-system-prompt"):
+        raise ValueError("duplicate_append_system_prompt")
+    if append_system_prompt:
+        values.extend(["--append-system-prompt", append_system_prompt])
+    append_system_prompt_file = getattr(args, "append_system_prompt_file", None)
+    if append_system_prompt_file and _has_claude_option(values, "--append-system-prompt-file"):
+        raise ValueError("duplicate_append_system_prompt_file")
+    if append_system_prompt_file:
+        values.extend(["--append-system-prompt-file", append_system_prompt_file])
     model = getattr(args, "model", None)
     if model and _has_model_option(values):
         raise ValueError("duplicate_model")
@@ -98,8 +140,9 @@ def build_initial_claude_command(
     prompt: str | None = None,
 ) -> str:
     session_flag = "--resume" if resume else "--session-id"
-    args = [*claude_args, session_flag, session_id]
-    if not _has_permission_override(claude_args):
+    launch_args = _drop_initial_only_system_prompt_options(claude_args) if resume else list(claude_args)
+    args = [*launch_args, session_flag, session_id]
+    if not _has_permission_override(launch_args):
         args.append(CLAUDE_DANGEROUS_SKIP_PERMISSIONS_FLAG)
     command = _shell_join([CLAUDE_EXECUTABLE, *args])
     if prompt is not None:
@@ -293,3 +336,23 @@ def _has_model_option(claude_args: Sequence[str]) -> bool:
 
 def _has_effort_option(claude_args: Sequence[str]) -> bool:
     return any(arg == "--effort" or arg.startswith("--effort=") for arg in claude_args)
+
+
+def _has_claude_option(claude_args: Sequence[str], option: str) -> bool:
+    return any(arg == option or arg.startswith(f"{option}=") for arg in claude_args)
+
+
+def _drop_initial_only_system_prompt_options(claude_args: Sequence[str]) -> list[str]:
+    result: list[str] = []
+    index = 0
+    while index < len(claude_args):
+        arg = claude_args[index]
+        if any(arg == option for option in INITIAL_ONLY_SYSTEM_PROMPT_OPTIONS):
+            index += 2
+            continue
+        if any(arg.startswith(f"{option}=") for option in INITIAL_ONLY_SYSTEM_PROMPT_OPTIONS):
+            index += 1
+            continue
+        result.append(arg)
+        index += 1
+    return result

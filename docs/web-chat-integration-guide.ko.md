@@ -64,11 +64,11 @@ CLI가 `session_id`를 생성할 때는 UUID v4를 사용합니다.
 
 | 목적 | CLI 명령 | 인자 의미 |
 | --- | --- | --- |
-| 대화 한 턴 실행 | `stream --cwd <path> [--session-id <uuid>] [--model MODEL] [--effort EFFORT] [--claude-args "ARGS"] "<prompt>"` | bridge `session_id` |
+| 대화 한 턴 실행 | `stream --cwd <path> [--session-id <uuid>] [--model MODEL] [--effort EFFORT] [--system-prompt* ...] [--claude-args "ARGS"] "<prompt>"` | bridge `session_id` |
 | 진행 중 turn 재연결 | `stream --attach --session-id <uuid>` | bridge `session_id` |
 | 진행 중 turn 취소 | `cancel <uuid>` | bridge `session_id` |
 | 완료된 turn replay | `last <uuid> --last <n>` 또는 `replay <uuid> --last <n>` | bridge `session_id` |
-| 최종 결과만 실행 | `ask --cwd <path> [--session-id <uuid>] [--model MODEL] [--effort EFFORT] [--claude-args "ARGS"] "<prompt>"` | bridge `session_id` |
+| 최종 결과만 실행 | `ask --cwd <path> [--session-id <uuid>] [--model MODEL] [--effort EFFORT] [--system-prompt* ...] [--claude-args "ARGS"] "<prompt>"` | bridge `session_id` |
 | session metadata 조회 | `info <uuid> --json` | bridge `session_id` |
 | session 목록 조회 | `list --json` | high-level controlled sessions |
 | 오래된 web process 정리 | `reap --idle-seconds <n> --prefix ctc-csess-` | high-level web tmux prefix |
@@ -119,7 +119,7 @@ Claude Code 실행 파일은 항상 `claude`입니다.
 
 model 선택은 `--model MODEL`을 쓰고 reasoning effort는 `--effort EFFORT`를 씁니다.
 
-신뢰된 추가 Claude Code option은 `--claude-args "ARGS"`로 전달합니다.
+신뢰된 추가 Claude Code option은 `--claude-args "ARGS"`로 전달합니다. session 최초 생성에만 적용할 system prompt는 `--system-prompt`, `--system-prompt-file`, `--append-system-prompt`, `--append-system-prompt-file`을 사용합니다.
 
 ```bash
 TERM=xterm-256color \
@@ -132,7 +132,11 @@ ctc stream \
   "$USER_PROMPT"
 ```
 
-이 옵션들은 bridge가 Claude Code process를 새로 만들거나 resume할 때만 적용됩니다.
+`--model`, `--effort`, `--claude-args`는 bridge가 Claude Code process를 새로 만들거나 resume할 때만 적용됩니다.
+
+system prompt 옵션은 최초 생성 전용입니다. `ctc`가 완전히 새 Claude Code session을 `--session-id`로 만들 때만 전달됩니다. 같은 bridge session이 나중에 `--resume`으로 복구되면 `ctc`는 이 system prompt 옵션들을 버리고 Claude Code에 전달하지 않습니다.
+
+`--claude-args` 안에 들어간 system prompt option도 `--resume`에서는 같은 방식으로 버려집니다.
 
 tmux session이 이미 있으면 기존 process의 model/effort/argument가 유지됩니다.
 

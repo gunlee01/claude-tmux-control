@@ -174,7 +174,7 @@ ctc answer work --wait --timeout 120
 
 ```text
 client/web
-  -> ctc stream --cwd PATH [--session-id UUID] [--model MODEL] [--effort EFFORT] [--claude-args "ARGS"] PROMPT
+  -> ctc stream --cwd PATH [--session-id UUID] [--model MODEL] [--effort EFFORT] [--system-prompt* ...] [--claude-args "ARGS"] PROMPT
     -> internal tmux session ctc-csess-<UUID>
       -> Claude Code interactive CLI
     <- transcript JSONL
@@ -230,7 +230,7 @@ ctc start work
 새 tmux session을 만들고 Claude Code를 실행합니다.
 
 ```bash
-ctc start SESSION [--cwd PATH] [--model MODEL] [--effort EFFORT] [--claude-args "ARGS"] [--attach] [--oauth-token-env ENV] [--env-file PATH] [--env NAME]
+ctc start SESSION [--cwd PATH] [--model MODEL] [--effort EFFORT] [--system-prompt* ...] [--claude-args "ARGS"] [--attach] [--oauth-token-env ENV] [--env-file PATH] [--env NAME]
 ```
 
 | 옵션 | 의미 |
@@ -238,6 +238,10 @@ ctc start SESSION [--cwd PATH] [--model MODEL] [--effort EFFORT] [--claude-args 
 | `--cwd PATH` | 새 session의 working directory |
 | `--model MODEL` | 새 Claude Code process에 전달할 model |
 | `--effort EFFORT` | 새 Claude Code process에 전달할 reasoning effort |
+| `--system-prompt TEXT` | 최초 session 생성에만 전달할 Claude system prompt |
+| `--system-prompt-file PATH` | 최초 session 생성에만 전달할 Claude system prompt file |
+| `--append-system-prompt TEXT` | 최초 session 생성에만 추가할 Claude system prompt |
+| `--append-system-prompt-file PATH` | 최초 session 생성에만 추가할 Claude system prompt file |
 | `--claude-args "ARGS"` | 신뢰된 추가 Claude Code CLI argument. shell 실행 없이 parsing |
 | `--attach` | 생성/재사용 후 바로 tmux attach |
 | `--oauth-token-env ENV` | 이 env 값을 `CLAUDE_CODE_OAUTH_TOKEN`으로 주입 |
@@ -250,6 +254,7 @@ ctc start SESSION [--cwd PATH] [--model MODEL] [--effort EFFORT] [--claude-args 
 - permission override가 없으면 `--dangerously-skip-permissions`가 자동으로 붙습니다.
 - `--oauth-token-env`, `--env-file`, `--env`는 새 tmux session을 만들 때만 의미가 있습니다.
 - `--model`, `--effort`, `--claude-args`도 새 Claude Code process를 시작할 때만 적용됩니다.
+- `--system-prompt*` 전용 옵션은 high-level resume에서는 전달되지 않습니다.
 
 Claude Code option 예:
 
@@ -274,7 +279,7 @@ claude --model opus --effort high --add-dir ../shared --dangerously-skip-permiss
 이미 존재하는 tmux session 안에 Claude Code 실행 command를 붙여 넣고 실행합니다.
 
 ```bash
-ctc launch SESSION [--model MODEL] [--effort EFFORT] [--claude-args "ARGS"]
+ctc launch SESSION [--model MODEL] [--effort EFFORT] [--system-prompt* ...] [--claude-args "ARGS"]
 ```
 
 주의:
@@ -745,6 +750,8 @@ ctc stream --session-id "$SESSION_ID" --cwd "$PROJECT_DIR" "$USER_PROMPT"
 
 기존 state 또는 matching transcript가 있고 tmux session이 없으면 `claude --resume <uuid> --dangerously-skip-permissions -- <prompt>` 형태로 복구와 prompt 제출을 함께 수행합니다.
 
+`--system-prompt`, `--system-prompt-file`, `--append-system-prompt`, `--append-system-prompt-file`은 최초 생성 전용입니다. 새 session을 `--session-id`로 만들 때만 Claude Code에 전달되고, 같은 session을 `--resume`으로 복구할 때는 `ctc`가 이 옵션들을 버립니다.
+
 새 tmux session의 prompt argv는 shell ANSI-C `$'...'` quoting을 사용하며, newline은 `\n`으로 표현됩니다. tmux session이 이미 active이면 ready 화면인지 확인한 뒤 기존 tmux `load-buffer`/`paste-buffer`/`send-keys Enter` 경로로 prompt를 전송합니다. active-session 경로의 기본 제출은 2회입니다. paste 후 `0.25`초 뒤 첫 Enter를 보내고, 다시 `1.0`초 뒤 두 번째 Enter를 보냅니다. `--submit-enters 1`을 주면 첫 Enter만 보냅니다. 이 active-session 경로에서 prompt에 newline이 포함된 경우에만 `paste-buffer -p`를 사용합니다. Claude Code TUI가 bracketed paste mode를 요청한 경우 prompt를 bracketed paste sequence로 감싸 전송해서, multi-line prompt 안의 newline이 여러 Enter key로 해석되어 turn이 쪼개지는 것을 막습니다.
 
 출력은 JSONL입니다.
@@ -974,7 +981,7 @@ bridge는 항상 고정된 `claude` 실행 파일을 사용합니다. 임의 she
 
 model 선택은 `--model MODEL`을 쓰고 reasoning effort는 `--effort EFFORT`를 씁니다.
 
-신뢰된 추가 Claude Code option은 `--claude-args "ARGS"`로 전달합니다.
+최초 생성 전용 system prompt는 `--system-prompt`, `--system-prompt-file`, `--append-system-prompt`, `--append-system-prompt-file`로 전달합니다. 신뢰된 추가 Claude Code option은 `--claude-args "ARGS"`로 전달합니다.
 
 ```bash
 ctc start work --cwd "$PWD" --model opus --effort high
@@ -983,6 +990,10 @@ ctc stream --cwd "$PWD" --claude-args "--permission-mode plan" "hello"
 ```
 
 같은 option을 두 번 지정하지 마세요. 예를 들어 `--effort high --claude-args "--effort low"`는 `duplicate_effort`로 거절됩니다.
+
+전용 system prompt 옵션도 `--claude-args` 안에 같은 option이 이미 있으면 중복으로 거절됩니다. 예를 들어 `--system-prompt base --claude-args "--system-prompt other"`는 `duplicate_system_prompt`입니다.
+
+`--claude-args` 안에 들어간 system prompt option도 high-level `--resume`에서는 버려집니다.
 
 `--claude-args`는 shell-like quoting으로 parsing하지만 shell로 실행하지 않습니다.
 

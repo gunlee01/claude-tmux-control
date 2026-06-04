@@ -420,6 +420,9 @@
         <div class="decision">
           tmux가 사라져도 기존 state/transcript가 있으면 `--resume`으로 복구한다.
         </div>
+        <div class="decision">
+          `--system-prompt*` 옵션은 최초 `--session-id` 생성에만 전달되고 `--resume`에서는 버린다.
+        </div>
       </aside>
     </section>
 
@@ -505,6 +508,7 @@
             Claude Args
             <input id="claudeArgs" value="--add-dir ../shared" spellcheck="false">
           </label>
+          <div class="hint">Dedicated `--system-prompt*` flags are initial-creation-only; `ctc` drops them on `--resume`, including when they came from trusted `--claude-args`.</div>
           <label>
             State Dir
             <input id="stateDir" value="~/.cache/claude-tmux-control" spellcheck="false">
