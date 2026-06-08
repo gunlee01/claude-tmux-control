@@ -37,7 +37,6 @@ client/web
 - Emit JSONL events from `stream`.
 - Emit `done` before final `metrics`.
 - Do not estimate context size when Claude Code transcript does not provide it.
-- Pass prompts for new or resumed tmux sessions as Claude Code argv values after `--`; when reusing an already-active tmux session, send one pre-prompt `Enter`, wait `2.0s`, paste the prompt, then send one or two submit Enter keys.
 
 ## CLI Contract
 

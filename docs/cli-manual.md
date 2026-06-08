@@ -56,8 +56,6 @@ Claude Code is a terminal UI, not a plain stdin/stdout protocol.
 When a tmux session already exists, input is sent through tmux:
 
 ```text
-tmux send-keys Enter
-  -> 2.0s pre-prompt delay
 tmux load-buffer
   -> tmux paste-buffer
   -> 0.25s submit delay
@@ -66,7 +64,7 @@ tmux load-buffer
   -> by default, tmux send-keys Enter again
 ```
 
-`ctc` sends one pre-prompt `Enter` and waits `2.0s` before pasting prompt text into an already-active tmux session. This can clear a focused confirmation item before the next prompt text is pasted. It then waits briefly between paste and submit so terminal UIs have time to finish accepting the pasted text before submit `Enter` is sent. High-level `stream` and `ask` send two submit `Enter` keys by default when reusing an already-active tmux session: one after `0.25s`, then one after `1.0s`. Pass `--submit-enters 1` to use the single-submit behavior. For prompts that contain embedded newlines, `ctc` uses bracketed `tmux paste-buffer -p` so the newline bytes remain input text instead of separate Enter key presses. Structured output comes from Claude Code transcript JSONL. The terminal screen is used only for readiness and fallback checks.
+`ctc` waits briefly between paste and submit so terminal UIs have time to finish accepting the pasted text before `Enter` is sent. High-level `stream` and `ask` send two submit `Enter` keys by default when reusing an already-active tmux session: one after `0.25s`, then one after `1.0s`. Pass `--submit-enters 1` to use the single-submit behavior. For prompts that contain embedded newlines, `ctc` uses bracketed `tmux paste-buffer -p` so the newline bytes remain input text instead of separate Enter key presses. Structured output comes from Claude Code transcript JSONL. The terminal screen is used only for readiness and fallback checks.
 
 ## 3. Session Rules
 
@@ -79,7 +77,7 @@ High-level session:
 
 If no state exists, `ctc stream` starts Claude Code with `--session-id <session_id> -- <prompt>`. If state/transcript exists but tmux is gone, it starts Claude Code with `--resume <session_id> -- <prompt>`.
 
-For newly created tmux sessions, the prompt is passed as a Claude Code argv value after a `--` separator. The shell command uses ANSI-C `$'...'` quoting so embedded newlines are represented as `\n` inside one prompt argument. Active tmux sessions still use the tmux pre-prompt `Enter`, `load-buffer`, `paste-buffer`, submit delay, and submit `send-keys Enter` input path. Multi-line prompts in active sessions use bracketed `paste-buffer -p` so embedded newlines are submitted as one user turn.
+For newly created tmux sessions, the prompt is passed as a Claude Code argv value after a `--` separator. The shell command uses ANSI-C `$'...'` quoting so embedded newlines are represented as `\n` inside one prompt argument. Active tmux sessions still use the tmux `load-buffer`, `paste-buffer`, submit delay, and `send-keys Enter` input path. Multi-line prompts in active sessions use bracketed `paste-buffer -p` so embedded newlines are submitted as one user turn.
 
 The same `session_id` cannot be reused with a different `cwd`.
 
@@ -112,7 +110,7 @@ Important options:
 | `--interval N` | transcript polling interval, default `2.0` |
 | `--idle N` | ready state stability window before `done`, default `3.5` |
 | `--timeout N` | max wait time; on high-level stream timeout, send Escape, stop the tmux session, and clear the active turn when cleanup succeeds |
-| `--submit-enters {1,2}` | Enter submits after tmux paste when reusing an active session; default `2`. The pre-prompt Enter is separate |
+| `--submit-enters {1,2}` | Enter submits after tmux paste when reusing an active session; default `2` |
 | `--tool-result-limit N` | truncate tool result previews |
 | `--env-file PATH` | read extra environment for newly created tmux sessions |
 | `--env NAME` | copy one named variable from the current `ctc` process env |
@@ -142,7 +140,7 @@ Runs one high-level turn and prints final JSON instead of streaming progress.
 ctc ask --cwd PATH [--session-id UUID] [--model MODEL] [--effort EFFORT] [--system-prompt* ...] [--claude-args "ARGS"] PROMPT
 ```
 
-`ask` also accepts `--submit-enters {1,2}` for the active tmux reuse path, with the same default `2` as `stream`. This controls only the post-paste submit Enter count, not the pre-prompt Enter.
+`ask` also accepts `--submit-enters {1,2}` for the active tmux reuse path, with the same default `2` as `stream`.
 
 ### `cancel`
 

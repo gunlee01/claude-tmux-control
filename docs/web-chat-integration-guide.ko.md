@@ -201,8 +201,6 @@ if session_id is empty:
 
 else if tmux ctc-csess-<session_id> exists:
   wait for ready screen
-  send pre-prompt Enter
-  wait 2.0s
   paste "<prompt>" through tmux
   send Enter after 0.25s
   send Enter again after 1.0s by default
