@@ -11,6 +11,7 @@ from typing import Callable, Mapping, Protocol
 
 RunFn = Callable[..., subprocess.CompletedProcess[str]]
 DEFAULT_BUFFER_NAME = "claude-tmux-control"
+DEFAULT_PRE_PROMPT_ENTER_DELAY_SECONDS = 2.0
 DEFAULT_PASTE_SUBMIT_DELAY_SECONDS = 0.25
 DEFAULT_SECOND_SUBMIT_DELAY_SECONDS = 1.0
 DEFAULT_READY_IDLE_SECONDS = 3.5
@@ -93,9 +94,19 @@ class TmuxController:
             raise SessionNotFoundError(f"tmux session not found: {session}")
         self._run(["tmux", "kill-session", "-t", session], check=True)
 
-    def send_prompt(self, session: str, prompt: str, submit: bool = True, submit_enters: int = 1) -> None:
+    def send_prompt(
+        self,
+        session: str,
+        prompt: str,
+        submit: bool = True,
+        submit_enters: int = 1,
+        pre_prompt_enter: bool = False,
+    ) -> None:
         if submit_enters not in {1, 2}:
             raise ValueError("submit_enters_must_be_1_or_2")
+        if pre_prompt_enter:
+            self.send_enter(session)
+            time.sleep(DEFAULT_PRE_PROMPT_ENTER_DELAY_SECONDS)
         self._run(["tmux", "load-buffer", "-b", DEFAULT_BUFFER_NAME, "-"], input=prompt, text=True, check=True)
         paste_args = ["tmux", "paste-buffer", "-d", "-b", DEFAULT_BUFFER_NAME, "-t", session]
         if "\n" in prompt or "\r" in prompt:

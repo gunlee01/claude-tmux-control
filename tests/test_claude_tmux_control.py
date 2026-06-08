@@ -176,6 +176,59 @@ class TmuxControllerTest(unittest.TestCase):
                 self.assertEqual(exit_code, 2)
                 self.assertIn("claude_launch_args_require_cwd", stderr.getvalue())
 
+    def test_run_send_submitting_prompt_sends_enter_before_paste(self):
+        runner = FakeRunner()
+        controller = ctc.TmuxController(run=runner)
+        args = ctc.parse_args(["send", "cc-test", "hello"])
+
+        with patch("ctc_tmux.time.sleep") as sleep:
+            exit_code = ctc._run_command(args, controller)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            runner.calls[:4],
+            [
+                (["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}),
+                (
+                    ["tmux", "load-buffer", "-b", "claude-tmux-control", "-"],
+                    {"input": "hello", "text": True, "check": True},
+                ),
+                (
+                    ["tmux", "paste-buffer", "-d", "-b", "claude-tmux-control", "-t", "cc-test"],
+                    {"check": True},
+                ),
+                (["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}),
+            ],
+        )
+        self.assertEqual(
+            [call.args[0] for call in sleep.call_args_list],
+            [ctc.DEFAULT_PRE_PROMPT_ENTER_DELAY_SECONDS, ctc.DEFAULT_PASTE_SUBMIT_DELAY_SECONDS],
+        )
+
+    def test_run_send_without_submit_does_not_send_enter_before_paste(self):
+        runner = FakeRunner()
+        controller = ctc.TmuxController(run=runner)
+        args = ctc.parse_args(["send", "cc-test", "--no-enter", "draft"])
+
+        with patch("ctc_tmux.time.sleep") as sleep:
+            exit_code = ctc._run_command(args, controller)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            runner.calls,
+            [
+                (
+                    ["tmux", "load-buffer", "-b", "claude-tmux-control", "-"],
+                    {"input": "draft", "text": True, "check": True},
+                ),
+                (
+                    ["tmux", "paste-buffer", "-d", "-b", "claude-tmux-control", "-t", "cc-test"],
+                    {"check": True},
+                ),
+            ],
+        )
+        sleep.assert_not_called()
+
     def test_send_prompt_pastes_text_and_submits_enter(self):
         runner = FakeRunner()
         controller = ctc.TmuxController(run=runner)
@@ -224,6 +277,33 @@ class TmuxControllerTest(unittest.TestCase):
         self.assertEqual(
             [call.args[0] for call in sleep.call_args_list],
             [ctc.DEFAULT_PASTE_SUBMIT_DELAY_SECONDS, ctc.DEFAULT_SECOND_SUBMIT_DELAY_SECONDS],
+        )
+
+    def test_send_prompt_can_send_enter_before_paste(self):
+        runner = FakeRunner()
+        controller = ctc.TmuxController(run=runner)
+
+        with patch("ctc_tmux.time.sleep") as sleep:
+            controller.send_prompt("cc-test", "hello Claude", pre_prompt_enter=True)
+
+        self.assertEqual(
+            runner.calls,
+            [
+                (["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}),
+                (
+                    ["tmux", "load-buffer", "-b", "claude-tmux-control", "-"],
+                    {"input": "hello Claude", "text": True, "check": True},
+                ),
+                (
+                    ["tmux", "paste-buffer", "-d", "-b", "claude-tmux-control", "-t", "cc-test"],
+                    {"check": True},
+                ),
+                (["tmux", "send-keys", "-t", "cc-test", "Enter"], {"check": True}),
+            ],
+        )
+        self.assertEqual(
+            [call.args[0] for call in sleep.call_args_list],
+            [ctc.DEFAULT_PRE_PROMPT_ENTER_DELAY_SECONDS, ctc.DEFAULT_PASTE_SUBMIT_DELAY_SECONDS],
         )
 
     def test_send_prompt_uses_bracketed_paste_for_multiline_prompt(self):
@@ -379,7 +459,7 @@ class CliTest(unittest.TestCase):
             ctc.parse_args(["--version"])
 
         self.assertEqual(context.exception.code, 0)
-        self.assertEqual(stdout.getvalue(), "ctc 0.9.0\n")
+        self.assertEqual(stdout.getvalue(), "ctc 0.9.1\n")
 
     def test_top_level_help_separates_web_and_low_level_commands(self):
         stdout = io.StringIO()
@@ -2749,14 +2829,15 @@ class HighLevelStreamSetupTest(unittest.TestCase):
             runner.capture_text = "Done\nclaude> "
             controller = ctc.TmuxController(run=runner)
 
-            runtime = ctc.prepare_high_level_stream(
-                controller=controller,
-                cwd=Path(tmp),
-                prompt="next turn",
-                root=Path(tmp) / "claude",
-                state_dir=Path(tmp) / "state",
-                session_id=session_id,
-            )
+            with patch("ctc_tmux.time.sleep") as sleep:
+                runtime = ctc.prepare_high_level_stream(
+                    controller=controller,
+                    cwd=Path(tmp),
+                    prompt="next turn",
+                    root=Path(tmp) / "claude",
+                    state_dir=Path(tmp) / "state",
+                    session_id=session_id,
+                )
 
             self.assertEqual(runtime.tmux_session, "ctc-csess-550e8400-e29b-41d4-a716-446655440000")
             self.assertIn(
@@ -2771,6 +2852,15 @@ class HighLevelStreamSetupTest(unittest.TestCase):
                 [
                     (["tmux", "send-keys", "-t", runtime.tmux_session, "Enter"], {"check": True}),
                     (["tmux", "send-keys", "-t", runtime.tmux_session, "Enter"], {"check": True}),
+                    (["tmux", "send-keys", "-t", runtime.tmux_session, "Enter"], {"check": True}),
+                ],
+            )
+            self.assertEqual(
+                [call.args[0] for call in sleep.call_args_list],
+                [
+                    ctc.DEFAULT_PRE_PROMPT_ENTER_DELAY_SECONDS,
+                    ctc.DEFAULT_PASTE_SUBMIT_DELAY_SECONDS,
+                    ctc.DEFAULT_SECOND_SUBMIT_DELAY_SECONDS,
                 ],
             )
 
@@ -2782,19 +2872,27 @@ class HighLevelStreamSetupTest(unittest.TestCase):
             runner.capture_text = "Done\nclaude> "
             controller = ctc.TmuxController(run=runner)
 
-            runtime = ctc.prepare_high_level_stream(
-                controller=controller,
-                cwd=Path(tmp),
-                prompt="next turn",
-                root=Path(tmp) / "claude",
-                state_dir=Path(tmp) / "state",
-                session_id=session_id,
-                submit_enters=1,
-            )
+            with patch("ctc_tmux.time.sleep") as sleep:
+                runtime = ctc.prepare_high_level_stream(
+                    controller=controller,
+                    cwd=Path(tmp),
+                    prompt="next turn",
+                    root=Path(tmp) / "claude",
+                    state_dir=Path(tmp) / "state",
+                    session_id=session_id,
+                    submit_enters=1,
+                )
 
             self.assertEqual(
                 [call for call in runner.calls if call[0] == ["tmux", "send-keys", "-t", runtime.tmux_session, "Enter"]],
-                [(["tmux", "send-keys", "-t", runtime.tmux_session, "Enter"], {"check": True})],
+                [
+                    (["tmux", "send-keys", "-t", runtime.tmux_session, "Enter"], {"check": True}),
+                    (["tmux", "send-keys", "-t", runtime.tmux_session, "Enter"], {"check": True}),
+                ],
+            )
+            self.assertEqual(
+                [call.args[0] for call in sleep.call_args_list],
+                [ctc.DEFAULT_PRE_PROMPT_ENTER_DELAY_SECONDS, ctc.DEFAULT_PASTE_SUBMIT_DELAY_SECONDS],
             )
 
     def test_prepare_high_level_stream_refuses_active_tmux_when_ready_is_unknown(self):

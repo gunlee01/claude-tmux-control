@@ -127,6 +127,7 @@ from ctc_streaming import (
 from ctc_tmux import (
     DEFAULT_BUFFER_NAME,
     DEFAULT_PASTE_SUBMIT_DELAY_SECONDS,
+    DEFAULT_PRE_PROMPT_ENTER_DELAY_SECONDS,
     DEFAULT_SECOND_SUBMIT_DELAY_SECONDS,
     RenderedScreenFollower,
     ScreenCaptureController,
@@ -224,7 +225,7 @@ def _run_command(args: argparse.Namespace, controller: TmuxController) -> int:
 
     if args.command_name == "send":
         prompt = " ".join(args.prompt) if args.prompt else sys.stdin.read()
-        controller.send_prompt(args.session, prompt, submit=not args.no_enter)
+        controller.send_prompt(args.session, prompt, submit=not args.no_enter, pre_prompt_enter=not args.no_enter)
         if not args.no_enter:
             write_session_state(_session_state_path(args.session), args.session, prompt, controller.pane_current_path(args.session))
         return 0
@@ -1107,7 +1108,7 @@ def prepare_high_level_stream(
                 screen_status = analyze_screen_status(controller.capture_screen(tmux_session, height=80))
                 if screen_status.state != "ready":
                     raise RuntimeError("turn_in_progress")
-                controller.send_prompt(tmux_session, prompt, submit_enters=submit_enters)
+                controller.send_prompt(tmux_session, prompt, submit_enters=submit_enters, pre_prompt_enter=True)
             else:
                 resume = bool(state or transcript)
                 preseed_project_trust(canonical_cwd, new_session_env)
@@ -1454,7 +1455,7 @@ def _chat(controller: TmuxController, session: str, height: int, interval: float
         if prompt.strip() in {"/quit", "/exit"}:
             return 0
 
-        controller.send_prompt(session, prompt)
+        controller.send_prompt(session, prompt, pre_prompt_enter=True)
         write_session_state(_session_state_path(session), session, prompt, controller.pane_current_path(session))
         follow_until_idle(controller, session, height=height, interval=interval, idle_seconds=idle_seconds)
 
